@@ -1,0 +1,4 @@
+*.sw?
+build/
+dist/
+loop_tool_py.egg-info/
