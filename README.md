@@ -5,12 +5,12 @@
 ## Features
 
 1. Lightweight dense linear algebra IR
-   a. Cheaply copied/cloned
-   b. Core lib < 400KB when compiled in Release mode
-   c. Simplistic semantics (nothing more than a pure functional dataflow graph)
+   1. Cheaply copied/cloned
+   2. Core lib < 400KB when compiled in Release mode
+   3. Simplistic semantics (nothing more than a pure functional dataflow graph)
 2. IR manipulation
-   a. DFG annotation (annotate compute nodes with loop order + loop share-ability)
-   b. Loop tree annotation for CUDA threading (simply pass in a set of loop to thread)
+   1. DFG annotation (annotate compute nodes with loop order + loop share-ability)
+   2. Loop tree annotation for CUDA threading (simply pass in a set of loop to thread)
    
 ## Tutorial
 
