@@ -224,7 +224,7 @@ NODE_PATH=build node test/test.js
 ```
 
 
-## TODO
+## TODO List
 
 - [x] Interpretted CPU backend
 - [x] Scaffold optimized pre-compiled CPU backend
