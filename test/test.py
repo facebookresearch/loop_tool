@@ -93,6 +93,27 @@ def rand_sched(ir, size_map):
     return ir
 
 
+def check_exec(loop_tree, inps, ref, cuda_threads=[]):
+
+    l = lambda x: "[thread]" if x in cuda_threads else ""
+
+    def comp_val(val, backend):
+        val = val.to_numpy()
+        max_diff = np.max(np.abs(val.flatten() - ref.flatten()))
+        mean_val = np.mean(np.abs(ref))
+        assert (
+            max_diff < 1e-3 * mean_val
+        ), f"diff is {max_diff} on {backend} (mean is {mean_val}) for:\n{loop_tree.dump(l)}"
+
+    loop_tree(inps)
+    comp_val(inps[-1], "cpu")
+
+    if "cuda" in lt.backends():
+        c = lt.CompiledCuda(loop_tree, set(cuda_threads))
+        c(inps)
+        comp_val(inps[-1], "cuda")
+
+
 def test_rand_pw(size):
     ir, v = gen_pw_add()
     size_map = {}
@@ -108,24 +129,15 @@ def test_rand_pw(size):
     B.set(Bp)
     C_ref = Ap + Bp
     C.set(1337.0)
-    # print(loop_tree.dump())
-    #print(loop_tree.to_cuda(set()))
     p = set(loop_tree.roots)
     l = lambda x: "[thread]" if x in p else ""
     try:
-      c = lt.CompiledCuda(loop_tree, p)
-      c([A, B, C])
+        c = lt.CompiledCuda(loop_tree, p)
+        c([A, B, C])
     except Exception as e:
-      print(loop_tree.dump(l))
-      raise
-    #print(size * iters / (t_ - t) / 1e9)
-    #print(C.to_numpy())
-    #print(C_ref)
-    #loop_tree.exec_cuda([A, B, C], set(loop_tree.roots))
-    #[A, B, C])
-    C_test = C.to_numpy()
-    max_diff = np.max(np.abs(C_test - C_ref))
-    assert max_diff < 1e-5, f"diff is {max_diff} for:\n{loop_tree.dump(l)}\n{c.code}"
+        print(loop_tree.dump(l))
+        raise
+    check_exec(loop_tree, [A, B, C], C_ref, p)
 
 
 def test_rand_mm(M, N, K):
@@ -142,7 +154,7 @@ def test_rand_mm(M, N, K):
     Ap = np.random.randn(M, K)
     Bp = np.random.randn(K, N)
     Ap = np.ones((M, K))
-    #Bp = np.ones((K, N))
+    # Bp = np.ones((K, N))
     Ap = np.arange(M * K).reshape((M, K))
     Bp = np.arange(K * N).reshape((K, N))
     A.set(Ap)
@@ -151,22 +163,8 @@ def test_rand_mm(M, N, K):
     C.set(1337.0)
     # loop_tree.exec_cpu([A, B, C])
     p = [l for l in loop_tree.loops if loop_tree.trivially_parallel(l)]
-    #print(p, len(p))
-    #loop_tree.exec_cuda([A, B, C], set(p))#set())
-    l = lambda x: "[thread]" if x in p else ""
-    try:
-      c = lt.CompiledCuda(loop_tree, set(p))
-      c([A, B, C])
-    except Exception as e:
-      print(loop_tree.dump(l))
-      raise
-    print(c.num_threads, c.num_blocks)
-    C_test = C.to_numpy().reshape(M, N)
-    max_diff = np.max(np.abs(C_test - C_ref))
-    mean_val = np.mean(np.abs(C_ref))
-    print(C_test, C_ref)
-    # 0.1% diff from min val
-    assert max_diff < 1e-3 * mean_val, f"diff is {max_diff} for:\n{loop_tree.dump(l)} mean: {mean_val}\n{c.code}"
+    p = loop_tree.roots
+    check_exec(loop_tree, [A, B, C], C_ref, p)
 
 
 def test_rand_reduce(size):
@@ -183,24 +181,7 @@ def test_rand_reduce(size):
     B.set(0.0)
     # print(loop_tree.to_cuda(set()))
     p = set([l for l in loop_tree.loops if loop_tree.trivially_parallel(l)])
-    #print(loop_tree)
-    #print(p)
-    #print(loop_tree.to_cuda())
-    try:
-      c = lt.CompiledCuda(loop_tree, p)
-      c([A, B])
-    except Exception as e:
-      print(loop_tree)
-      raise
-    #loop_tree.exec_cuda([A, B], p)
-    # loop_tree.exec_cpu([A, B])
-    B_test = B.to_numpy()
-    max_diff = np.max(np.abs(B_test - B_ref))
-    mean_val = np.mean(np.abs(B_ref))
-    # 0.1% diff from mean val
-    assert (
-        max_diff < 1e-3 * mean_val
-    ), f"diff is {max_diff} (mean is {mean_val}) for:\n{loop_tree.dump()}"
+    check_exec(loop_tree, [A, B], B_ref, p)
 
 
 if __name__ == "__main__":
@@ -218,8 +199,6 @@ if __name__ == "__main__":
         for _ in range(5):
             test_rand_reduce(s)
     print("pass!")
-    print("!! known shared memory bug is revealed with mm test !!")
-    exit(0)
     print("mm", end="")
     for m in range(1, 17, 3):
         for n in range(5, 7):

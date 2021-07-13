@@ -28,7 +28,7 @@ struct Tensor {
     void *ptr = nullptr;
     auto s = N * sizeof(float);
 #ifdef ENABLE_CUDA
-    auto err = cudaMallocManaged(&ptr, s); // N * sizeof(float));
+    auto err = cudaMallocManaged(&ptr, s);
     gpuErrchk(err);
 #else
     ptr = malloc(s);
@@ -47,6 +47,14 @@ struct Tensor {
 };
 
 PYBIND11_MODULE(loop_tool_py, m) {
+  m.def("backends", []() {
+    return std::vector<std::string>{"cpu_interp"
+#ifdef ENABLE_CUDA
+                                    ,
+                                    "cuda"
+#endif
+    };
+  });
   py::class_<IR>(m, "IR")
       .def(py::init<>())
       .def("create_var", &IR::create_var)
@@ -98,10 +106,11 @@ PYBIND11_MODULE(loop_tool_py, m) {
            py::arg("threaded") = std::unordered_set<LoopTree::TreeRef>{-1})
       .def(
           "__call__",
-          [](const CompiledCuda &cc, std::vector<Tensor> tensors, bool sync) {
+          [](const CompiledCuda &cc,
+             std::vector<std::shared_ptr<Tensor>> tensors, bool sync) {
             std::vector<void *> memory;
             for (auto &t : tensors) {
-              memory.emplace_back(t.data);
+              memory.emplace_back(t->data);
             }
             cc(memory, sync);
           },
@@ -161,15 +170,16 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__repr__", &LoopTree::dump,
            py::arg("callback") =
                std::function<std::string(LoopTree::TreeRef)>{})
-      .def("exec_cpu", [](const LoopTree &lt, std::vector<Tensor> tensors) {
+      .def("__call__", [](const LoopTree &lt,
+                          std::vector<std::shared_ptr<Tensor>> tensors) {
         std::vector<void *> memory;
         for (auto &t : tensors) {
-          memory.emplace_back(t.data);
+          memory.emplace_back(t->data);
         }
         return exec(lt, memory);
       });
 
-  py::class_<Tensor>(m, "Tensor")
+  py::class_<Tensor, std::shared_ptr<Tensor>>(m, "Tensor")
       .def(py::init<int>())
       .def("set",
            [](Tensor &t, float f) {
