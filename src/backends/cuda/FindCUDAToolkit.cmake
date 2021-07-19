@@ -497,6 +497,45 @@ if(CMAKE_CUDA_COMPILER_TOOLKIT_ROOT)
   set(CUDAToolkit_NVCC_EXECUTABLE "${CUDAToolkit_BIN_DIR}/nvcc${CMAKE_EXECUTABLE_SUFFIX}")
 else()
 
+  # https://stackoverflow.com/questions/61106418/sorting-a-list-of-numbers-numerically-in-cmake
+  function(reverseSort sort_list len)
+    # Base case, return.
+    if(${len} LESS_EQUAL 1)
+      return()
+    endif()
+
+    math(EXPR len_minus_one "${len} - 1")
+    # Recursively sort the sublist of size (len - 1).
+    insertionSortRecursive("${sort_list}" ${len_minus_one})
+    set(_sort_list ${sort_list})
+
+    # Get the last element in the sublist.
+    list(GET _sort_list ${len_minus_one} last_element)
+    # Define a counter for the sublist we will operate on.
+    math(EXPR sublist_counter "${len} - 2")
+    # Get the element at the counter index.
+    list(GET _sort_list ${sublist_counter} counter_element)
+
+    # Loop to move those elements less than last_element up one position.
+    while((${sublist_counter} GREATER_EQUAL 0) AND (${counter_element} LESS ${last_element}))
+      # Move elem at counter index up one position in list.
+      math(EXPR counter_plus_one "${sublist_counter} + 1")
+      list(REMOVE_AT _sort_list ${counter_plus_one})
+      list(INSERT _sort_list ${counter_plus_one} ${counter_element})
+      # Decrement the sublist counter.
+      math(EXPR sublist_counter "${sublist_counter} - 1")
+      # Get the element at the new counter value.
+      list(GET _sort_list ${sublist_counter} counter_element)
+    endwhile()
+
+    # Place the last element at the correct position.
+    math(EXPR counter_plus_one "${sublist_counter} + 1")
+    list(REMOVE_AT _sort_list ${counter_plus_one})
+    list(INSERT _sort_list ${counter_plus_one} ${last_element})
+    # Send the modified list back up to parent scope.
+    set(sort_list ${_sort_list} PARENT_SCOPE)
+  endfunction()
+
   function(_CUDAToolkit_find_root_dir )
     cmake_parse_arguments(arg "" "" "SEARCH_PATHS;FIND_FLAGS" ${ARGN})
 
@@ -643,7 +682,10 @@ else()
     endforeach()
 
     # Sort numerically in descending order, so we try the newest versions first.
-    list(SORT versions COMPARE NATURAL ORDER DESCENDING)
+    list(LENGTH versions versions_len)
+    reverseSort("${versions}" ${versions_len})
+    # Only available on cmake 3.18+
+    # list(SORT versions COMPARE NATURAL ORDER DESCENDING)
 
     # With a descending list of versions, populate possible paths to search.
     set(search_paths)
@@ -858,7 +900,11 @@ if(CUDAToolkit_FOUND)
   if(NOT TARGET CUDA::toolkit)
     add_library(CUDA::toolkit IMPORTED INTERFACE)
     target_include_directories(CUDA::toolkit SYSTEM INTERFACE "${CUDAToolkit_INCLUDE_DIRS}")
-    target_link_directories(CUDA::toolkit INTERFACE "${CUDAToolkit_LIBRARY_DIR}")
+    if(${CMAKE_VERSION} VERSION_LESS "3.13")
+      link_directories("${CUDAToolkit_LIBRARY_DIR}")
+    else()
+      target_link_directories(CUDA::toolkit INTERFACE "${CUDAToolkit_LIBRARY_DIR}")
+    endif()
   endif()
 
   _CUDAToolkit_find_and_add_import_lib(cuda_driver ALT cuda)
