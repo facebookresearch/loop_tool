@@ -34,12 +34,12 @@ if (BUILD_TESTS)
 set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/)
 
 if (CUDAToolkit_FOUND)
-  add_executable(cuda_test ${TEST_DIR}/cuda_test.cpp)
-  target_link_libraries(cuda_test loop_tool loop_tool_cuda)
+  add_executable(loop_tool_cuda_test ${TEST_DIR}/cuda_test.cpp)
+  target_link_libraries(loop_tool_cuda_test loop_tool loop_tool_cuda)
 endif() # CUDAToolkit_FOUND
 
-add_executable(test ${TEST_DIR}/test.cpp)
-target_link_libraries(test loop_tool)# CUDA::cudart_static CUDA::nvrtc)
+add_executable(loop_tool_test ${TEST_DIR}/test.cpp)
+target_link_libraries(loop_tool_test loop_tool)
 
 endif() # BUILD_TESTS
 
