@@ -46,6 +46,8 @@ A.set(Ap)
 B.set(Bp)
 
 # compile and run the code
+for n in ir.nodes:
+  ir.set_order(n, [(a, (size, 0))])
 loop_tree = lt.LoopTree(ir)
 c = lt.CompiledCuda(loop_tree)
 c([A, B, C])
@@ -56,8 +58,9 @@ C_ref = Ap + Bp
 max_diff = np.max(np.abs(C_test - C_ref))
 mean_val = np.mean(np.abs(C_ref))
 assert max_diff < 1e-3 * mean_val
+print("done!")
 ```
-If we want to optimize this code, we'll need to set a schedule:
+If we want to optimize this code, we'll need to set a better schedule:
 
 ```python
 # try some other values :) (even weird ones)
