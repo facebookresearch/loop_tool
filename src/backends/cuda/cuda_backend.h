@@ -73,8 +73,6 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
 inline void gpuAssert(cudaError_t code, const char *file, int line,
                       bool abort = true) {
   if (code != cudaSuccess) {
-    fprintf(stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(code), file,
-            line);
-    ASSERT(0);
+    ASSERT(0) << cudaGetErrorString(code) << " " << file << ":" << line;
   }
 }
