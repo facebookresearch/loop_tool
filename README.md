@@ -71,9 +71,9 @@ for n in ir.nodes:
   outer_rem = size % (inner_size * vec_size)
 
   ir.set_order(n, [
-    (v, (outer, outer_rem)), # remainders are well handled
-    (v, (inner_size, 0)),
-    (v, (vec_size, 0))
+    (a, (outer, outer_rem)), # remainders are well handled
+    (a, (inner_size, 0)),
+    (a, (vec_size, 0))
     ])
   ir.disable_reuse(n, 2) # loop_tool tries to emit as few loops as possible, but we can prevent that
 ```
@@ -83,7 +83,7 @@ and then parallelize it:
 ```python
 loop_tree = lt.LoopTree(ir)
 parallel = set(loop_tree.children(loop_tree.roots[0])) # we'll parallelize the first inner loop
-print(loop_tree.dump(lambda x: "// threaded" if x in parallel else "")
+print(loop_tree.dump(lambda x: "// threaded" if x in parallel else ""))
 ```
 
 which will print
@@ -104,6 +104,8 @@ for a in 8 : L0
 And finally, benchmark:
 
 ```python
+import time
+
 c = lt.CompiledCuda(loop_tree, parallel)
 iters = 10000
 # warmup
