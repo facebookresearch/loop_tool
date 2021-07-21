@@ -9,6 +9,8 @@ import numpy as np
 import math
 import time
 
+# this works with both CPU and CudaGPU backends
+lt.set_default_hardware("cuda")
 
 def gen_pw_add():
     ir = lt.IR()
@@ -105,11 +107,12 @@ def check_exec(loop_tree, inps, ref, cuda_threads=[]):
             max_diff < 1e-3 * mean_val
         ), f"diff is {max_diff} on {backend} (mean is {mean_val}) for:\n{loop_tree.dump(l)}"
 
-    loop_tree(inps)
+    cpu_fn = lt.cpu(loop_tree)
+    cpu_fn(inps)
     comp_val(inps[-1], "cpu")
 
     if "cuda" in lt.backends():
-        c = lt.CompiledCuda(loop_tree, set(cuda_threads))
+        c = lt.cuda(loop_tree, set(cuda_threads))
         c(inps)
         comp_val(inps[-1], "cuda")
 
@@ -132,7 +135,7 @@ def test_rand_pw(size):
     p = set(loop_tree.roots)
     l = lambda x: "[thread]" if x in p else ""
     try:
-        c = lt.CompiledCuda(loop_tree, p)
+        c = lt.cuda(loop_tree, p)
         c([A, B, C])
     except Exception as e:
         print(loop_tree.dump(l))

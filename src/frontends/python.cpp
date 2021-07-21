@@ -13,47 +13,33 @@ LICENSE file in the root directory of this source tree.
 #include <sstream>
 namespace py = pybind11;
 
+#include "backend.h"
 #include "compile.h"
 #include "error.h"
 #include "ir.h"
+#include "tensor.h"
 
 #ifdef ENABLE_CUDA
-#include "../backends/cuda/cuda_backend.h"
 #include <cuda.h>
-#include <cuda_runtime_api.h>
 #endif
 
-struct Tensor {
-  Tensor(int N) {
-    void *ptr = nullptr;
-    auto s = N * sizeof(float);
-#ifdef ENABLE_CUDA
-    auto err = cudaMallocManaged(&ptr, s);
-    gpuErrchk(err);
-#else
-    ptr = malloc(s);
-#endif
-    data = (float *)ptr;
-    numel = N;
-  }
-  ~Tensor() {
-#ifndef ENABLE_CUDA
-    free(data);
-#endif
-  }
-  Tensor() = delete;
-  float *data;
-  size_t numel;
-};
-
+static int default_hardware_id = 0; // CPU
 PYBIND11_MODULE(loop_tool_py, m) {
   m.def("backends", []() {
-    return std::vector<std::string>{"cpu_interp"
-#ifdef ENABLE_CUDA
-                                    ,
-                                    "cuda"
-#endif
-    };
+    std::vector<std::string> backends = {"cpu"};
+    for (const auto &hw : getHardware()) {
+      if (hw->name() == "cuda") {
+        backends.emplace_back("cuda");
+      }
+    }
+    return backends;
+  });
+  m.def("set_default_hardware", [](std::string hardware) {
+    for (auto &hw : getHardware()) {
+      if (hw->name() == hardware) {
+        default_hardware_id = hw->id();
+      }
+    }
   });
   py::class_<IR>(m, "IR")
       .def(py::init<>())
@@ -98,33 +84,46 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("all_vars", &IR::all_vars)
       .def("output_vars",
            [](IR &ir, IR::NodeRef n) { return ir.node(n).vars(); });
-#ifdef ENABLE_CUDA
-  py::class_<CompiledCuda>(m, "CompiledCuda")
-      .def(py::init<const LoopTree &,
-                    const std::unordered_set<LoopTree::TreeRef> &>(),
-           py::arg("loop_tree"),
-           py::arg("threaded") = std::unordered_set<LoopTree::TreeRef>{-1})
+  py::class_<Compiled>(m, "Compiled")
       .def(
           "__call__",
-          [](const CompiledCuda &cc,
-             std::vector<std::shared_ptr<Tensor>> tensors, bool sync) {
+          [](const Compiled &cc, std::vector<std::shared_ptr<Tensor>> tensors,
+             bool sync) {
             std::vector<void *> memory;
             for (auto &t : tensors) {
-              memory.emplace_back(t->data);
+              ASSERT(t->data.compatible & cc.hardware_requirement)
+                  << "Tensor on wrong hardware";
+              memory.emplace_back(t->data.address);
             }
-            cc(memory, sync);
+            cc.run(memory, sync);
           },
           py::arg("tensors"), py::arg("sync") = true)
-      .def_property_readonly("code",
-                             [](const CompiledCuda &cc) { return cc.code; })
-      .def_property_readonly(
-          "num_threads", [](const CompiledCuda &cc) { return cc.num_threads; })
-      .def_property_readonly(
-          "num_blocks", [](const CompiledCuda &cc) { return cc.num_blocks; })
-      .def_property_readonly("bandwidth", [](const CompiledCuda &cc) {
-        return cc.peak_bandwidth_gb;
+      .def("__getattr__", [](const Compiled &cc, std::string name) {
+        if (cc.int_properties.count(name)) {
+          return py::cast(cc.int_properties.at(name));
+        }
+        if (cc.string_properties.count(name)) {
+          return py::cast(cc.string_properties.at(name));
+        }
+        ASSERT(0) << "Couldn't find property " << name << " in " << cc.name
+                  << " Compiled object";
+        return py::cast(0);
       });
-#endif
+  for (auto &backend_pair : getBackends()) {
+    auto &backend = backend_pair.second;
+    if (backend->hardware_requirement() & getAvailableHardware()) {
+      m.def(
+          backend->name().c_str(),
+          [=](const LoopTree &lt,
+              const std::unordered_set<LoopTree::TreeRef> &parallel,
+              LoopTree::TreeRef root) {
+            return backend->compile(lt, parallel, root).release();
+          },
+          py::arg("loop_tree"),
+          py::arg("parallel") = std::unordered_set<LoopTree::TreeRef>{},
+          py::arg("root") = -1);
+    }
+  }
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
       .def_property_readonly("roots",
@@ -174,17 +173,34 @@ PYBIND11_MODULE(loop_tool_py, m) {
                           std::vector<std::shared_ptr<Tensor>> tensors) {
         std::vector<void *> memory;
         for (auto &t : tensors) {
-          memory.emplace_back(t->data);
+          memory.emplace_back(t->data.address);
         }
         return exec(lt, memory);
       });
 
   py::class_<Tensor, std::shared_ptr<Tensor>>(m, "Tensor")
-      .def(py::init<int>())
+      .def(py::init([](size_t N, std::string hardware) {
+             int hardware_id = -1;
+             if (hardware == "default") {
+               hardware_id = default_hardware_id;
+             } else {
+               for (auto &hw : getHardware()) {
+                 if (hw->name() == hardware) {
+                   hardware_id = hw->id();
+                 }
+               }
+             }
+             ASSERT(hardware_id >= 0)
+                 << "Unregistered hardware name: " << hardware
+                 << " (check available devices)";
+             return std::make_shared<Tensor>(N, hardware_id);
+           }),
+           py::arg("size"), py::arg("hardware") = std::string("default"))
       .def("set",
            [](Tensor &t, float f) {
+             auto data = (float *)t.data.address;
              for (auto i = 0; i < t.numel; ++i) {
-               t.data[i] = f;
+               data[i] = f;
              }
 #ifdef ENABLE_CUDA
              cuCtxSynchronize();
@@ -192,9 +208,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
            })
       .def("set",
            [](Tensor &t, std::vector<float> fs) {
+             auto data = (float *)t.data.address;
              ASSERT(fs.size() == t.numel);
              for (auto i = 0; i < t.numel; ++i) {
-               t.data[i] = fs[i];
+               data[i] = fs[i];
              }
 #ifdef ENABLE_CUDA
              cuCtxSynchronize();
@@ -207,8 +224,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
              py::buffer_info buf = array.request();
              ASSERT(buf.size == t.numel);
              float *data = static_cast<float *>(buf.ptr);
+             float *tensor_data = (float *)t.data.address;
              for (auto i = 0; i < t.numel; ++i) {
-               t.data[i] = data[i];
+               tensor_data[i] = data[i];
              }
 #ifdef ENABLE_CUDA
              cuCtxSynchronize();
@@ -222,8 +240,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
              auto result = py::array_t<float>(t.numel);
              py::buffer_info buf = result.request();
              float *data = static_cast<float *>(buf.ptr);
+             float *tensor_data = (float *)t.data.address;
              for (auto i = 0; i < t.numel; ++i) {
-               data[i] = t.data[i];
+               data[i] = tensor_data[i];
              }
              return result;
            })
@@ -232,28 +251,30 @@ PYBIND11_MODULE(loop_tool_py, m) {
              std::random_device rd{};
              std::mt19937 gen{rd()};
              std::normal_distribution<> d{mean, stddev};
+             float *tensor_data = (float *)t.data.address;
              for (auto i = 0; i < t.numel; ++i) {
-               t.data[i] = d(gen);
+               tensor_data[i] = d(gen);
              }
            })
       .def("dump",
            [](const Tensor &t) {
              std::stringstream ss;
+             float *tensor_data = (float *)t.data.address;
              ss << "numel: " << t.numel << ", [";
              if (t.numel < 9) {
                for (auto i = 0; i < t.numel; ++i) {
-                 ss << t.data[i];
+                 ss << tensor_data[i];
                  if (i + 1 != t.numel) {
                    ss << ", ";
                  }
                }
              } else {
                for (auto i = 0; i < 4; ++i) {
-                 ss << t.data[i] << ", ";
+                 ss << tensor_data[i] << ", ";
                }
                ss << "..., ";
                for (auto i = t.numel - 4; i < t.numel; ++i) {
-                 ss << t.data[i];
+                 ss << tensor_data[i];
                  if (i + 1 != t.numel) {
                    ss << ", ";
                  }

@@ -6,24 +6,48 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "compile.h"
+#include "ir.h"
+#include <memory>
+#include <string>
+#include <unordered_map>
 
-using CodeGenerator = std::function<InnerFnType(
-    const LoopTree &lt, const Auxiliary &aux, LoopTree::TreeRef ref)>;
-using AuxCalculator = std::function<bool(const LoopTree &lt, Auxiliary &aux,
-                                         LoopTree::TreeRef ref)>;
+struct Compiled {
+  virtual ~Compiled() {}
+  virtual void run(const std::vector<void *> &memory, bool sync) const = 0;
+  std::unordered_map<std::string, int> int_properties;
+  std::unordered_map<std::string, std::string> string_properties;
+  int hardware_requirement = -1;
+  std::string name;
+};
 
-std::vector<CodeGenerator> &getBackends();
-std::vector<AuxCalculator> &getBackendsAux();
+struct Backend {
+  std::string name_;
+  Backend(std::string name) : name_(name) {}
+  virtual ~Backend(){};
 
-struct RegisteredBackend {
-  RegisteredBackend(const CodeGenerator &fn, const AuxCalculator &aux_fn) {
-    auto &backends = getBackends();
-    backends.emplace_back(fn);
-    auto &backends_aux = getBackendsAux();
-    backends_aux.emplace_back(aux_fn);
+  const std::string &name() const { return name_; }
+
+  virtual std::unique_ptr<Compiled>
+  compile_impl(const LoopTree &lt,
+               const std::unordered_set<LoopTree::TreeRef> &parallel,
+               LoopTree::TreeRef root) = 0;
+  virtual int hardware_requirement() const = 0;
+  std::unique_ptr<Compiled>
+  compile(const LoopTree &lt,
+          const std::unordered_set<LoopTree::TreeRef> &parallel,
+          LoopTree::TreeRef root) {
+    auto compiled = compile_impl(lt, parallel, root);
+    compiled->hardware_requirement = hardware_requirement();
+    compiled->name = name();
+    return compiled;
   }
 };
 
-#define REGISTER_BACKEND(backend, fn, aux_fn)                                  \
-  static RegisteredBackend _registered_backend_##backend_##fn(fn, aux_fn);
+const std::unordered_map<std::string, std::shared_ptr<Backend>> &getBackends();
+void registerBackend(std::shared_ptr<Backend> backend);
+
+struct RegisterBackend {
+  RegisterBackend(std::shared_ptr<Backend> backend) {
+    registerBackend(backend);
+  }
+};

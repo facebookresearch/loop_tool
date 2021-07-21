@@ -35,7 +35,14 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/)
 
 if (CUDAToolkit_FOUND)
   add_executable(loop_tool_cuda_test ${TEST_DIR}/cuda_test.cpp)
-  target_link_libraries(loop_tool_cuda_test loop_tool loop_tool_cuda)
+  target_link_libraries(loop_tool_cuda_test
+    -Wl,--no-as-needed
+    -Wl,--whole-archive
+    loop_tool
+    loop_tool_cuda
+    -Wl,--no-whole-archive
+    -Wl,--as-needed
+  )
 endif() # CUDAToolkit_FOUND
 
 add_executable(loop_tool_test ${TEST_DIR}/test.cpp)
@@ -49,10 +56,24 @@ if (pybind11_FOUND)
   file(GLOB PY_SRCS ${SRC_DIR}/frontends/python*.cpp)
   pybind11_add_module(loop_tool_py MODULE ${PY_SRCS})
   target_include_directories(loop_tool_py PUBLIC ${LIB_INCLUDE})
-  target_link_libraries(loop_tool_py PUBLIC loop_tool)
   if (CUDAToolkit_FOUND)
     target_compile_definitions(loop_tool_py PUBLIC ENABLE_CUDA)
-    target_link_libraries(loop_tool_py PUBLIC loop_tool_cuda)
+    target_link_libraries(loop_tool_py PUBLIC
+      -Wl,--no-as-needed
+      -Wl,--whole-archive
+      loop_tool_cuda
+      loop_tool
+      -Wl,--no-whole-archive
+      -Wl,--as-needed
+    )
+  else()
+	  target_link_libraries(loop_tool_py PUBLIC
+      -Wl,--no-as-needed
+      -Wl,--whole-archive
+      loop_tool
+      -Wl,--no-whole-archive
+      -Wl,--as-needed
+    )
   endif()
 else()
   message("To build python bindings, pip install pybind11 and run `cmake .. -Dpybind11_DIR=$(python -c 'import pybind11;print(pybind11.get_cmake_dir())')`")

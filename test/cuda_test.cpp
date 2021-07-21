@@ -4,6 +4,7 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
+#include "backend.h"
 #include "cuda_backend.h"
 #include <cuda.h>
 #include <cuda_runtime_api.h>
@@ -28,8 +29,8 @@ float *cuda_rand(int N) {
 
 void cuda_exec(const LoopTree &lt, const std::vector<void *> &memory,
                const std::unordered_set<LoopTree::TreeRef> &threaded = {-1}) {
-  CompiledCuda cc(lt, threaded);
-  cc(memory);
+  auto &&cc = getBackends().at("cuda")->compile(lt, threaded, -1);
+  cc->run(memory, true);
 }
 
 void ref_mm(const float *A, const float *B, int M, int N, int K, float *C,
@@ -300,12 +301,12 @@ void test_cuda_exec(int M, int N, int K) {
   threaded.insert(lt.roots.at(0));
   threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
 
-  CompiledCuda cc(lt, threaded);
+  auto &&cc = getBackends().at("cuda")->compile(lt, threaded, -1);
 
   for (auto i = 0; i < M * N; ++i) {
     out[i] = 0;
   }
-  cc({in0, in1, out});
+  cc->run({in0, in1, out}, true);
   auto out_ref = cuda_rand(M * N);
   ref_mm(in0, in1, M, N, K, out_ref);
   float max_diff = 0;
@@ -322,8 +323,8 @@ int main() {
   // test_mm(12, 12, 12);
   // test_mm2(128, 128, 128);
   // test_mm2(1023, 1021, 1025);
-  // test_cuda_exec(1023, 1021, 1025);
-  test_cuda_exec(8, 8, 8);
+  test_cuda_exec(1023, 1021, 1025);
+  // test_cuda_exec(8, 8, 8);
   return 0;
   // CUdevice cuDevice;
   // CUcontext context;

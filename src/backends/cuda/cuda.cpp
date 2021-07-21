@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #include "cuda_backend.h"
 
+#include "backend.h"
 #include "compile.h"
 #include "error.h"
 #include "ir.h"
@@ -24,14 +25,21 @@ LICENSE file in the root directory of this source tree.
     ASSERT(result == NVRTC_SUCCESS) << "\nerror: " #x " failed with error "    \
                                     << nvrtcGetErrorString(result) << '\n';    \
   } while (0)
-#define CUDA_SAFE_CALL(x)                                                      \
-  do {                                                                         \
-    CUresult result = x;                                                       \
-    const char *msg;                                                           \
-    cuGetErrorName(result, &msg);                                              \
-    ASSERT(result == CUDA_SUCCESS)                                             \
-        << "\nerror: " #x " failed with error " << msg << '\n';                \
-  } while (0)
+
+namespace {
+struct pair_hash {
+  template <class T1, class T2>
+  std::size_t operator()(const std::pair<T1, T2> &p) const {
+    auto h1 = std::hash<T1>{}(p.first);
+    auto h2 = std::hash<T2>{}(p.second);
+    return h1 ^ h2;
+  }
+};
+} // namespace
+
+// for manual unrolling/vectorization
+using UnrollMap =
+    std::unordered_map<std::pair<IR::VarRef, int>, int, pair_hash>;
 
 std::string indent(int depth) {
   std::stringstream s;
@@ -816,76 +824,142 @@ cuda_code_and_dispatch(const LoopTree &lt,
   return std::make_pair(cuda_code, std::make_pair(num_blocks, num_threads));
 }
 
-CompiledCuda::CompiledCuda(
-    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &threaded) {
-  auto cc = cuda_code_and_dispatch(lt, threaded);
-  code = cc.first;
-  num_blocks = cc.second.first;
-  num_threads = cc.second.second;
-
-  nvrtcProgram prog;
-  NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,        // prog
-                                     code.c_str(), // buffer
-                                     "kernel.cu",  // name
-                                     0,            // numHeaders
-                                     NULL,         // headers
-                                     NULL));       // includeNames
-  const char *opts[] = {
-      //"--extra-device-vectorization"
-      //"--gpu-architecture=compute_60",
-      //"--generate-line-info"
-  };
-  nvrtcResult compileResult = nvrtcCompileProgram(prog,  // prog
-                                                  0,     // numOptions
-                                                  opts); // options
-  size_t logSize;
-  NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
-  char *log = new char[logSize];
-  NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
-  ASSERT(compileResult == NVRTC_SUCCESS) << log;
-  delete[] log;
-
-  size_t ptxSize;
-  NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
-  ptx = new char[ptxSize];
-  NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx));
-  NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
-
+int availableCudaGPUs() {
   CUDA_SAFE_CALL(cuInit(0));
-  CUDA_SAFE_CALL(cuDeviceGet(&cuDevice, 0));
-  CUDA_SAFE_CALL(cuCtxCreate(&context, 0, cuDevice));
-  CUDA_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 0, 0, 0));
-  CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "kernel"));
-
-  int memory_clock;
-  int memory_bus_width;
-  CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, cuDevice));
-  CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &memory_bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-      cuDevice));
-
-  peak_bandwidth_gb =
-      2 * ((long)memory_clock * (long)memory_bus_width) / 1e6 / 8;
+  int avail;
+  CUDA_SAFE_CALL(cuDeviceGetCount(&avail));
+  return avail;
 }
 
-CompiledCuda::~CompiledCuda() {
-  CUDA_SAFE_CALL(cuCtxDestroy(context));
-  free(ptx);
-}
+struct CudaGPUHardware : public Hardware {
+  CudaGPUHardware() : Hardware("cuda", availableCudaGPUs()) {}
 
-void CompiledCuda::operator()(const std::vector<void *> &memory,
-                              bool sync) const {
-  std::vector<void *> mem;
-  for (auto &v : memory) {
-    mem.emplace_back(reinterpret_cast<void *>(const_cast<void **>(&v)));
+  Memory alloc(size_t size) override {
+    void *ptr = nullptr;
+    auto err = cudaMallocManaged(&ptr, size);
+    gpuErrchk(err);
+    return Memory{0x1 | 1 << id_, ptr};
   }
-  void **args = mem.data();
-  CUDA_SAFE_CALL(cuLaunchKernel(kernel, num_blocks, 1, 1, // grid dim
-                                num_threads, 1, 1,        // block dim
-                                0, NULL,   // shared mem and stream
-                                args, 0)); // arguments
-  if (sync) {
-    CUDA_SAFE_CALL(cuCtxSynchronize());
+
+  void free(Memory &data) override {
+    cudaFree(data.address);
+    data.address = nullptr;
+    data.compatible = 0;
   }
-}
+  static Hardware *create() { return new CudaGPUHardware(); }
+};
+
+struct CudaCompiled : public Compiled {
+  char *ptx;
+  CUfunction kernel;
+  std::string code;
+  size_t num_blocks = 0;
+  size_t num_threads = 0;
+
+  size_t peak_bandwidth_gb = 0;
+
+  CUcontext context;
+  CUmodule module;
+  CUdevice cuDevice;
+
+  CudaCompiled(const LoopTree &lt,
+               const std::unordered_set<LoopTree::TreeRef> &threaded,
+               LoopTree::TreeRef ref) {
+    auto cc = cuda_code_and_dispatch(lt, threaded);
+    code = cc.first;
+    num_blocks = cc.second.first;
+    num_threads = cc.second.second;
+
+    nvrtcProgram prog;
+    NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,        // prog
+                                       code.c_str(), // buffer
+                                       "kernel.cu",  // name
+                                       0,            // numHeaders
+                                       NULL,         // headers
+                                       NULL));       // includeNames
+    const char *opts[] = {
+        //"--extra-device-vectorization"
+        //"--gpu-architecture=compute_60",
+        //"--generate-line-info"
+    };
+    nvrtcResult compileResult = nvrtcCompileProgram(prog,  // prog
+                                                    0,     // numOptions
+                                                    opts); // options
+    size_t logSize;
+    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+    char *log = new char[logSize];
+    NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
+    ASSERT(compileResult == NVRTC_SUCCESS) << log;
+    delete[] log;
+
+    size_t ptxSize;
+    NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    ptx = new char[ptxSize];
+    NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx));
+    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    CUDA_SAFE_CALL(cuInit(0));
+    CUDA_SAFE_CALL(cuDeviceGet(&cuDevice, 0));
+    CUDA_SAFE_CALL(cuCtxCreate(&context, 0, cuDevice));
+    CUDA_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 0, 0, 0));
+    CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "kernel"));
+
+    int memory_clock;
+    int memory_bus_width;
+    CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, cuDevice));
+    CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &memory_bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
+        cuDevice));
+
+    peak_bandwidth_gb =
+        2 * ((long)memory_clock * (long)memory_bus_width) / 1e6 / 8;
+    int_properties["bandwidth"] = peak_bandwidth_gb;
+    string_properties["code"] = code;
+  }
+
+  ~CudaCompiled() {
+    CUDA_SAFE_CALL(cuCtxDestroy(context));
+    free(ptx);
+  }
+
+  void run(const std::vector<void *> &memory, bool sync) const override {
+    std::vector<void *> mem;
+    for (auto &v : memory) {
+      mem.emplace_back(reinterpret_cast<void *>(const_cast<void **>(&v)));
+    }
+    void **args = mem.data();
+    CUDA_SAFE_CALL(cuLaunchKernel(kernel, num_blocks, 1, 1, // grid dim
+                                  num_threads, 1, 1,        // block dim
+                                  0, NULL,   // shared mem and stream
+                                  args, 0)); // arguments
+    if (sync) {
+      CUDA_SAFE_CALL(cuCtxSynchronize());
+    }
+  }
+};
+
+struct CudaBackend : public Backend {
+  CudaBackend() : Backend("cuda") {}
+
+  std::unique_ptr<Compiled>
+  compile_impl(const LoopTree &lt,
+               const std::unordered_set<LoopTree::TreeRef> &parallel,
+               LoopTree::TreeRef root) override {
+    return std::make_unique<CudaCompiled>(lt, parallel, root);
+  }
+
+  int hardware_requirement() const override {
+    for (auto &hw : getHardware()) {
+      if (hw->name() == "cuda") {
+        return 1 << hw->id();
+      }
+    }
+    ASSERT(0) << "Tried to register Cuda backend but couldn't find Cuda "
+                 "hardware registration";
+    return 0;
+  }
+};
+
+static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
+static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());

@@ -510,13 +510,6 @@ void update_inner_size(
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref) {
-  for (const auto &codegen : getBackends()) {
-    auto opt = codegen(lt, aux, ref);
-    if (opt) {
-      return opt;
-    }
-  }
-
   ASSERT(lt.node(ref).depth < MAX_DEPTH);
   if (lt.node(ref).kind == LoopTree::NODE) {
     return gen_leaf(lt, aux, ref);
@@ -528,11 +521,6 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 // recursively calculate all auxilary information
 void gen_aux(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   ASSERT(lt.node(ref).depth < MAX_DEPTH);
-  for (const auto &calc : getBackendsAux()) {
-    if (calc(lt, aux, ref)) {
-      return;
-    }
-  }
   if (lt.node(ref).kind == LoopTree::NODE) {
     update_inner_size(lt, aux.inner_size, ref);
     gen_alloc(lt, aux, ref);
@@ -590,16 +578,6 @@ compile(const LoopTree &lt) {
 void exec(const LoopTree &lt, const std::vector<void *> &memory) {
   auto p = compile(lt);
   auto c = p.first;
-  if (0) {
-    auto start = std::chrono::steady_clock::now();
-    auto iters = 1000;
-    for (auto i = 0; i < iters; ++i) {
-      p = compile(lt);
-    }
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> diff = end - start;
-    std::cerr << iters / diff.count() << " iters/sec\n";
-  }
   auto memory_w_intermediates = memory;
   std::vector<void *> free_me;
   for (auto s : p.second) {
@@ -608,17 +586,50 @@ void exec(const LoopTree &lt, const std::vector<void *> &memory) {
   }
 
   c(memory_w_intermediates);
-  if (0) {
-    auto start = std::chrono::steady_clock::now();
-    auto iters = 10000;
-    for (auto i = 0; i < iters; ++i) {
-      c(memory_w_intermediates);
-    }
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double> diff = end - start;
-    std::cerr << iters / diff.count() << " iters/sec\n";
-  }
   for (auto v : free_me) {
     free(v);
   }
 }
+
+struct CPUCompiled : public Compiled {
+  std::vector<size_t> intermediates;
+  std::function<void(const std::vector<void *> &)> fn;
+
+  CPUCompiled(const LoopTree &lt,
+              const std::unordered_set<LoopTree::TreeRef> &threaded,
+              LoopTree::TreeRef ref) {
+    std::tie(fn, intermediates) = compile(lt);
+  }
+
+  void run(const std::vector<void *> &memory, bool sync) const override {
+    auto memory_w_intermediates = memory;
+    std::vector<void *> free_me;
+    for (auto s : intermediates) {
+      memory_w_intermediates.emplace_back(calloc(1, s));
+      free_me.emplace_back(memory_w_intermediates.back());
+    }
+
+    fn(memory_w_intermediates);
+    for (auto v : free_me) {
+      free(v);
+    }
+  }
+};
+
+struct CPUBackend : public Backend {
+  CPUBackend() : Backend("cpu") {}
+
+  std::unique_ptr<Compiled>
+  compile_impl(const LoopTree &lt,
+               const std::unordered_set<LoopTree::TreeRef> &parallel,
+               LoopTree::TreeRef root) override {
+    return std::make_unique<CPUCompiled>(lt, parallel, root);
+  }
+
+  int hardware_requirement() const override {
+    // CPU is the only guaranteed hardware, always id = 0
+    return 1 << 0;
+  }
+};
+
+static RegisterBackend cpu_backend_reg_(std::make_shared<CPUBackend>());

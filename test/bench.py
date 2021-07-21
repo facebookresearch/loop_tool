@@ -4,6 +4,7 @@ import numpy as np
 import math
 import time
 
+lt.set_default_hardware("cuda")
 
 def gen_pw_add():
     ir = lt.IR()
@@ -43,7 +44,7 @@ def test_pw(size, inner_size, vec_size):
     C_ref = Ap + Bp
     C.set(1337.0)
     parallel = set(loop_tree.children(loop_tree.roots[0]))
-    c = lt.CompiledCuda(loop_tree, parallel)
+    c = lt.cuda(loop_tree, parallel)
     c([A, B, C])
     C_test = C.to_numpy()
     max_diff = np.max(np.abs(C_test - C_ref))
