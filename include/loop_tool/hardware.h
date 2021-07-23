@@ -8,15 +8,17 @@ LICENSE file in the root directory of this source tree.
 
 #include "error.h"
 
-#include <string>
-#include <memory>
 #include <functional>
+#include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
+namespace loop_tool {
+
 struct Memory {
   int compatible;
-  void* address;
+  void *address;
 };
 
 struct Hardware {
@@ -24,8 +26,7 @@ struct Hardware {
   int count_;
   int id_;
 
-  Hardware(std::string name, int count) : name_(name), count_(count) {
-  }
+  Hardware(std::string name, int count) : name_(name), count_(count) {}
 
   void setId(int id) {
     id_ = id;
@@ -34,24 +35,16 @@ struct Hardware {
 
   // Allocation must be compatible with CPU
   virtual Memory alloc(size_t size) = 0;
-  virtual void free(Memory& data) = 0;
+  virtual void free(Memory &data) = 0;
 
   // TODO
-  //virtual Memory copy(const Memory& data) = 0;
-  //virtual Memory move(const Memory& data) = 0;
+  // virtual Memory copy(const Memory& data) = 0;
+  // virtual Memory move(const Memory& data) = 0;
 
-  bool compatible(const Memory& m) const {
-    return m.compatible & (1 << id_);
-  };
-  const std::string& name() const {
-    return name_;
-  }
-  int id() const {
-    return id_;
-  }
-  int count() const {
-    return count_;
-  }
+  bool compatible(const Memory &m) const { return m.compatible & (1 << id_); };
+  const std::string &name() const { return name_; }
+  int id() const { return id_; }
+  int count() const { return count_; }
 };
 
 int availableCPUs();
@@ -59,30 +52,24 @@ int availableCPUs();
 struct CPUHardware : public Hardware {
   CPUHardware() : Hardware("cpu", availableCPUs()) {}
 
-  Memory alloc(size_t size) override {
-    return Memory{0x1, malloc(size)};
-  }
+  Memory alloc(size_t size) override { return Memory{0x1, malloc(size)}; }
 
-  void free(Memory& data) override {
+  void free(Memory &data) override {
     ::free(data.address);
     data.address = nullptr;
     data.compatible = 0;
   }
 
-  static Hardware* create() {
-    return new CPUHardware();
-  }
+  static Hardware *create() { return new CPUHardware(); }
 };
 
-const std::vector<std::shared_ptr<Hardware>>& getHardware();
+const std::vector<std::shared_ptr<Hardware>> &getHardware();
 int getAvailableHardware();
 
 void registerHardware(std::shared_ptr<Hardware> hw);
 
-
 struct RegisterHardware {
-  RegisterHardware( std::shared_ptr<Hardware> hw) {
-    registerHardware(hw);
-  }
+  RegisterHardware(std::shared_ptr<Hardware> hw) { registerHardware(hw); }
 };
 
+} // namespace loop_tool

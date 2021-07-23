@@ -4,14 +4,16 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "compile.h"
-#include "backend.h"
-#include "error.h"
+#include "loop_tool/compile.h"
+#include "loop_tool/backend.h"
+#include "loop_tool/error.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 #include <unordered_set>
+
+namespace loop_tool {
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref);
@@ -604,7 +606,9 @@ struct CPUCompiled : public Compiled {
   void run(const std::vector<void *> &memory, bool sync) const override {
     auto memory_w_intermediates = memory;
     std::vector<void *> free_me;
+    std::cerr << "intermediate allocations " << intermediates.size() << "\n";
     for (auto s : intermediates) {
+      std::cerr << "intermediate allocation of " << s << "\n";
       memory_w_intermediates.emplace_back(calloc(1, s));
       free_me.emplace_back(memory_w_intermediates.back());
     }
@@ -633,3 +637,5 @@ struct CPUBackend : public Backend {
 };
 
 static RegisterBackend cpu_backend_reg_(std::make_shared<CPUBackend>());
+
+} // namespace loop_tool

@@ -4,11 +4,13 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "hardware.h"
+#include "loop_tool/hardware.h"
 #include <iostream>
 #include <mutex>
 
 static std::mutex registration_mutex_;
+
+namespace loop_tool {
 
 std::vector<std::shared_ptr<Hardware>> &getMutableHardware() {
   // We want CPU to be first, so we don't use registration pattern
@@ -40,3 +42,5 @@ int availableCPUs() {
   // TODO
   return 1;
 }
+
+} // namespace loop_tool

@@ -14,6 +14,8 @@ LICENSE file in the root directory of this source tree.
 
 #define MAX_DEPTH 16
 
+namespace loop_tool {
+
 struct Allocation {
   size_t size;
   int idx;
@@ -51,3 +53,5 @@ Auxiliary calculate_aux(const LoopTree &lt);
 std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
 compile(const LoopTree &lt);
 bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
+
+} // namespace loop_tool

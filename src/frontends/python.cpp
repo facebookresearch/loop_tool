@@ -11,17 +11,19 @@ LICENSE file in the root directory of this source tree.
 
 #include <random>
 #include <sstream>
-namespace py = pybind11;
 
-#include "backend.h"
-#include "compile.h"
-#include "error.h"
-#include "ir.h"
-#include "tensor.h"
+#include "loop_tool/backend.h"
+#include "loop_tool/compile.h"
+#include "loop_tool/error.h"
+#include "loop_tool/ir.h"
+#include "loop_tool/tensor.h"
 
 #ifdef ENABLE_CUDA
 #include <cuda.h>
 #endif
+
+using namespace loop_tool;
+namespace py = pybind11;
 
 static int default_hardware_id = 0; // CPU
 PYBIND11_MODULE(loop_tool_py, m) {

@@ -15,6 +15,8 @@ LICENSE file in the root directory of this source tree.
 #define S2(x) S1(x)
 #define LOCATION __FILE__ " : " S2(__LINE__)
 
+namespace loop_tool {
+
 class NullStream : public std::ostream {
 public:
   NullStream() : std::ostream(nullptr) {}
@@ -52,8 +54,10 @@ struct StreamOut {
   }
 };
 
+} // namespace loop_tool
+
 #ifdef NOEXCEPTIONS
 #define ASSERT(x) assert(x)
 #else
-#define ASSERT(x) StreamOut(x, LOCATION, #x)
+#define ASSERT(x) loop_tool::StreamOut(x, LOCATION, #x)
 #endif

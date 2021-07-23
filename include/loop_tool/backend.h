@@ -7,13 +7,34 @@ LICENSE file in the root directory of this source tree.
 #pragma once
 
 #include "ir.h"
+#include "tensor.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
 
+namespace loop_tool {
+
 struct Compiled {
   virtual ~Compiled() {}
-  virtual void run(const std::vector<void *> &memory, bool sync) const = 0;
+  virtual void run(const std::vector<void *> &memory,
+                   bool sync = true) const = 0;
+
+  void operator()(const std::vector<Tensor *> &tensors, bool sync = true) const;
+
+  template <bool sync, typename... Args>
+  void run(Args const &... tensors) const {
+    std::vector<void *> memory = {tensors.data.address...};
+    run(memory, sync);
+  }
+
+  template <typename... Args> void operator()(Args const &... tensors) const {
+    run<true, Args...>(std::forward<Args const &>(tensors)...);
+  }
+
+  template <typename... Args> void async(Args const &... tensors) const {
+    run<false, Args...>(std::forward<Args const &>(tensors)...);
+  }
+
   std::unordered_map<std::string, int> int_properties;
   std::unordered_map<std::string, std::string> string_properties;
   int hardware_requirement = -1;
@@ -51,3 +72,5 @@ struct RegisterBackend {
     registerBackend(backend);
   }
 };
+
+} // namespace loop_tool

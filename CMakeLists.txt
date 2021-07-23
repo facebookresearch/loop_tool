@@ -12,7 +12,7 @@ file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp
 )
 
-set(LIB_INCLUDE ${SRC_DIR}/core)
+set(LIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 
 add_library(loop_tool SHARED ${CORE_SRCS})
 target_include_directories(loop_tool PUBLIC ${LIB_INCLUDE})
@@ -47,6 +47,9 @@ endif() # CUDAToolkit_FOUND
 
 add_executable(loop_tool_test ${TEST_DIR}/test.cpp)
 target_link_libraries(loop_tool_test loop_tool)
+
+add_executable(loop_tool_test_custom_backend ${TEST_DIR}/test_backend.cpp)
+target_link_libraries(loop_tool_test_custom_backend loop_tool)
 
 endif() # BUILD_TESTS
 

@@ -6,10 +6,10 @@ LICENSE file in the root directory of this source tree.
 */
 #include "cuda_backend.h"
 
-#include "backend.h"
-#include "compile.h"
-#include "error.h"
-#include "ir.h"
+#include "loop_tool/backend.h"
+#include "loop_tool/compile.h"
+#include "loop_tool/error.h"
+#include "loop_tool/ir.h"
 
 #include <algorithm>
 #include <chrono>
@@ -25,6 +25,8 @@ LICENSE file in the root directory of this source tree.
     ASSERT(result == NVRTC_SUCCESS) << "\nerror: " #x " failed with error "    \
                                     << nvrtcGetErrorString(result) << '\n';    \
   } while (0)
+
+namespace loop_tool {
 
 namespace {
 struct pair_hash {
@@ -963,3 +965,5 @@ struct CudaBackend : public Backend {
 
 static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
 static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
+
+} // namespace loop_tool

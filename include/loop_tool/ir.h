@@ -103,6 +103,8 @@ LICENSE file in the root directory of this source tree.
 
 */
 
+namespace loop_tool {
+
 struct Node;
 struct Var;
 
@@ -324,3 +326,5 @@ struct LoopTree {
 
   LoopTree(const IR &ir_);
 };
+
+} // namespace loop_tool

@@ -4,11 +4,13 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "backend.h"
-#include "error.h"
+#include "loop_tool/backend.h"
+#include "loop_tool/error.h"
 
 #include <cstring>
 #include <iostream>
+
+using namespace loop_tool;
 
 InnerFnType gen_vec_read(const LoopTree &lt, LoopTree::TreeRef ref,
                          const Allocation &alloc, int N) {

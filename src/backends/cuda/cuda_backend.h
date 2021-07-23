@@ -6,20 +6,17 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "compile.h"
-#include "error.h"
-#include "hardware.h"
-#include "ir.h"
+#include "loop_tool/compile.h"
+#include "loop_tool/error.h"
+#include "loop_tool/hardware.h"
+#include "loop_tool/ir.h"
 
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 #include <unordered_map>
 #include <unordered_set>
 
-// struct CompiledCuda {
-//  // if sync is true, call cuCtxSynchronize
-//  void operator()(const std::vector<void *> &memory, bool sync = true) const;
-//};
+namespace loop_tool {
 
 struct CudaAux {
   // maps loops to the inner size of other threaded loops
@@ -34,6 +31,8 @@ struct CudaAux {
 
 CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
                       const std::unordered_set<LoopTree::TreeRef> &threaded);
+
+} // namespace loop_tool
 
 #define gpuErrchk(ans)                                                         \
   { gpuAssert((ans), __FILE__, __LINE__); }

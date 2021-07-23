@@ -4,13 +4,15 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "ir.h"
+#include "loop_tool/ir.h"
 #include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+
+namespace loop_tool {
 
 IR::VarRef IR::create_var(std::string name) {
   auto version = 0;
@@ -455,3 +457,5 @@ std::string dot(const IR &ir) {
   ss << "}\n";
   return ss.str();
 }
+
+} // namespace loop_tool
