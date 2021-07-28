@@ -132,32 +132,32 @@ class IR {
   std::vector<VarRef> vars() const;
   std::vector<NodeRef> nodes() const;
 
-  inline const Node &node(NodeRef idx) const {
-    ASSERT(idx < nodes_.size());
-    return nodes_[idx];
+  inline const Node &node(NodeRef ref) const {
+    ASSERT(ref < nodes_.size());
+    return nodes_[ref];
   }
-  inline Node &node(NodeRef idx) {
-    ASSERT(idx < nodes_.size());
-    return nodes_[idx];
-  }
-
-  inline const Var &var(VarRef idx) const {
-    ASSERT(idx < vars_.size());
-    return vars_[idx];
-  }
-  inline Var &var(VarRef idx) {
-    ASSERT(idx < vars_.size());
-    return vars_[idx];
+  inline Node &node(NodeRef ref) {
+    ASSERT(ref < nodes_.size());
+    return nodes_[ref];
   }
 
-  inline float priority(NodeRef idx) const { return priorities_[idx]; }
+  inline const Var &var(VarRef ref) const {
+    ASSERT(ref < vars_.size());
+    return vars_[ref];
+  }
+  inline Var &var(VarRef ref) {
+    ASSERT(ref < vars_.size());
+    return vars_[ref];
+  }
+
+  inline float priority(NodeRef ref) const { return priorities_[ref]; }
   // order (int,int)[] - first = var, second = size (possibly -1)
   inline const std::vector<std::pair<VarRef, LoopSize>> &order(
-      NodeRef idx) const {
-    return orders_[idx];
+      NodeRef ref) const {
+    return orders_[ref];
   }
-  inline const std::unordered_set<int> not_reusable(NodeRef idx) const {
-    return reuse_disabled_[idx];
+  inline const std::unordered_set<int> not_reusable(NodeRef ref) const {
+    return reuse_disabled_[ref];
   }
 
   inline const std::vector<NodeRef> &inputs() const { return inputs_; }
@@ -172,24 +172,24 @@ class IR {
 
   // auxiliary information / annotations
   void reset_aux(IR::NodeRef node_ref);
-  inline void set_priority(NodeRef idx, float priority) {
-    priorities_[idx] = priority;
+  inline void set_priority(NodeRef ref, float priority) {
+    priorities_[ref] = priority;
   }
-  inline void set_order(NodeRef idx,
+  inline void set_order(NodeRef ref,
                         std::vector<std::pair<VarRef, LoopSize>> order) {
     // TODO validate order
-    orders_[idx] = order;
+    orders_[ref] = order;
   }
-  inline void disable_reuse(NodeRef idx, int order_idx) {
-    reuse_disabled_[idx].insert(order_idx);
+  inline void disable_reuse(NodeRef ref, int order_ref) {
+    reuse_disabled_[ref].insert(order_ref);
   }
-  inline void enable_reuse(NodeRef idx, int order_idx) {
-    reuse_disabled_[idx].erase(order_idx);
+  inline void enable_reuse(NodeRef ref, int order_ref) {
+    reuse_disabled_[ref].erase(order_ref);
   }
 
-  std::string dump(NodeRef idx) const;
-  std::vector<VarRef> pointwise_vars(NodeRef idx) const;
-  std::vector<VarRef> all_vars(NodeRef idx) const;
+  std::string dump(NodeRef ref) const;
+  std::vector<VarRef> pointwise_vars(NodeRef ref) const;
+  std::vector<VarRef> all_vars(NodeRef ref) const;
 
  private:
   std::vector<Node> nodes_;
@@ -268,10 +268,11 @@ struct LoopTree {
     }
   };
 
-  struct LoopNode {
+  struct LoopTreeNode {
     TreeRef parent = -1;
     TreeRef idx = -1;
-    int depth = 0;  // root depth
+    int depth = 0;        // root depth
+    int annotation = -1;  // index into LoopTree::annotations
 
     bool kind;  // 0 -> node, 1 -> loop
     union {
@@ -281,9 +282,9 @@ struct LoopTree {
 
     std::vector<int> children;
 
-    LoopNode(int p, int i, IR::NodeRef n)
+    LoopTreeNode(int p, int i, IR::NodeRef n)
         : parent(p), idx(i), node(n), kind(0) {}
-    LoopNode(int p, int i, const Loop &l)
+    LoopTreeNode(int p, int i, const Loop &l)
         : parent(p), idx(i), loop(l), kind(1) {}
   };
 
@@ -304,22 +305,47 @@ struct LoopTree {
     return new_idx;
   }
 
-  // TODO rename this
-  inline const LoopNode &node(TreeRef idx) const {
-    ASSERT(idx < nodes.size());
-    return nodes[idx];
+  inline const LoopTreeNode &tree_node(TreeRef ref) const {
+    ASSERT(ref < nodes.size());
+    return nodes[ref];
   }
-  inline const TreeRef parent(TreeRef idx) const {
-    ASSERT(idx < nodes.size());
-    return nodes[idx].parent;
+  inline LoopTreeNode &tree_node(TreeRef ref) {
+    ASSERT(ref < nodes.size());
+    return nodes[ref];
   }
+
+  inline const IR::NodeRef node(TreeRef ref) const {
+    ASSERT(tree_node(ref).kind == LoopTree::NODE);
+    return tree_node(ref).node;
+  }
+
+  inline Loop loop(TreeRef ref) const {
+    ASSERT(tree_node(ref).kind == LoopTree::LOOP);
+    return tree_node(ref).loop;
+  }
+
+  inline const TreeRef parent(TreeRef ref) const {
+    ASSERT(ref < nodes.size());
+    return nodes[ref].parent;
+  }
+
+  inline void annotate(TreeRef ref, std::string annot) {
+    for (auto i = 0; i < annotations.size(); ++i) {
+      const auto &annotation = annotations[i];
+      if (annot == annotation) {
+        tree_node(ref).annotation = i;
+        return;
+      }
+    }
+    tree_node(ref).annotation = annotations.size();
+    annotations.emplace_back(annot);
+  }
+
   TreeRef lca(TreeRef a, TreeRef b) const;
 
   // like IR::order but includes variable versions
   std::vector<LoopTree::Loop> loop_order(IR::NodeRef ref) const;
 
-  std::vector<LoopNode> nodes;
-  std::vector<TreeRef> roots;
   void walk(const std::function<void(LoopTree::TreeRef, int)> &fn,
             TreeRef start = -1) const;
   std::string dump(
@@ -327,6 +353,10 @@ struct LoopTree {
   IR ir;
 
   LoopTree(const IR &ir_);
+
+  std::vector<LoopTreeNode> nodes;
+  std::vector<TreeRef> roots;
+  std::vector<std::string> annotations;
 };
 
 }  // namespace loop_tool

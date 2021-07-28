@@ -67,11 +67,11 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
   std::vector<LoopTree::Loop> parent_chain;
   auto parent = lt.parent(use);
   while (parent != -1) {
-    parent_chain.emplace_back(lt.node(parent).loop);
+    parent_chain.emplace_back(lt.loop(parent));
     parent = lt.parent(parent);
   }
   std::reverse(parent_chain.begin(), parent_chain.end());
-  auto order = parent_chain;  // lt.loop_order(lt.node(use).node);
+  auto order = parent_chain;  // lt.loop_order(lt.node(use));
   auto idx_vec = gen_idx_vector(lt, alloc, use);
   // can we map innermost dims to vector index?
   // this becomes false if non-innermost sizes cannot be vectorized (TODO relax)
@@ -146,7 +146,7 @@ std::string gen_compute(const LoopTree &lt, const Auxiliary &aux,
                         UnrollMap &unroll, LoopTree::TreeRef ref,
                         std::string sym) {
   std::stringstream ss;
-  auto node_ref = lt.node(ref).node;
+  auto node_ref = lt.node(ref);
   const auto &node = lt.ir.node(node_ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
                     lt.ir.all_vars(node_ref).size());
@@ -171,8 +171,8 @@ std::string gen_compute(const LoopTree &lt, const Auxiliary &aux,
 std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
                      UnrollMap &unroll, LoopTree::TreeRef ref) {
   std::stringstream ss;
-  auto depth = lt.node(ref).depth;
-  auto node_ref = lt.node(ref).node;
+  auto depth = lt.tree_node(ref).depth;
+  auto node_ref = lt.node(ref);
   auto out_alloc = aux.allocs.at(node_ref);
   const auto &node = lt.ir.node(node_ref);
   if (node.op() == "add") {
@@ -184,7 +184,7 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
   } else if (node.op() == "read") {
     int external_memory = -1;
     for (auto i = 0; i < lt.ir.inputs().size(); ++i) {
-      if (lt.ir.inputs()[i] == lt.node(ref).node) {
+      if (lt.ir.inputs()[i] == lt.node(ref)) {
         external_memory = i;
       }
     }
@@ -201,7 +201,7 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
   } else if (node.op() == "write") {
     int external_memory = -1;
     for (auto i = 0; i < lt.ir.outputs().size(); ++i) {
-      if (lt.ir.outputs()[i] == lt.node(ref).node) {
+      if (lt.ir.outputs()[i] == lt.node(ref)) {
         external_memory = i + lt.ir.inputs().size();
       }
     }
@@ -229,7 +229,7 @@ std::string gen_mem_decl(const LoopTree &lt, const Auxiliary &aux,
                          const CudaAux &cuda_aux, LoopTree::TreeRef ref,
                          bool declare = true) {
   std::stringstream ss;
-  auto depth = ref > -1 ? lt.node(ref).depth : 0;
+  auto depth = ref > -1 ? lt.tree_node(ref).depth : 0;
   std::vector<Allocation> reset_allocs =
       aux.resets.count(ref) ? aux.resets.at(ref) : std::vector<Allocation>{};
   // we can traverse producer to LCA and check for threadedness
@@ -252,7 +252,7 @@ std::string gen_mem_decl(const LoopTree &lt, const Auxiliary &aux,
     return shared;
   };
   for (auto alloc : reset_allocs) {
-    if (lt.ir.node(lt.node(alloc.producer).node).outputs().size() == 0) {
+    if (lt.ir.node(lt.node(alloc.producer)).outputs().size() == 0) {
       continue;
     }
     ss << indent(depth + 1);
@@ -297,7 +297,7 @@ std::string gen_mem_decl(const LoopTree &lt, const Auxiliary &aux,
 std::string gen_sync(const LoopTree &lt, const Auxiliary &aux,
                      const CudaAux &cuda_aux, LoopTree::TreeRef ref) {
   std::stringstream ss;
-  auto depth = ref > -1 ? lt.node(ref).depth : 0;
+  auto depth = ref > -1 ? lt.tree_node(ref).depth : 0;
   if (cuda_aux.syncs.count(ref)) {
     if (count_threads(lt, cuda_aux, ref) > cuda_aux.threads_per_block) {
       ss << "#error CANNOT COMPILE, too many threads to sync\n";
@@ -311,8 +311,8 @@ std::string gen_loop(const LoopTree &lt, const Auxiliary &aux,
                      const CudaAux &cuda_aux, UnrollMap &unroll,
                      LoopTree::TreeRef ref) {
   std::stringstream ss;
-  auto depth = lt.node(ref).depth;
-  auto loop = lt.node(ref).loop;
+  auto depth = lt.tree_node(ref).depth;
+  auto loop = lt.loop(ref);
   auto v = lt.ir.var(loop.var).name();
   auto v_depth = loop.var_depth;
 
@@ -354,7 +354,7 @@ std::string gen_loop(const LoopTree &lt, const Auxiliary &aux,
           ss << reset_str;
         }
         unroll[key] = i;
-        for (auto c : lt.node(ref).children) {
+        for (auto c : lt.tree_node(ref).children) {
           ss << gen_cuda(lt, aux, cuda_aux, unroll, c);
         }
         if (reset_str.size()) {
@@ -387,7 +387,7 @@ std::string gen_loop(const LoopTree &lt, const Auxiliary &aux,
     }
     if (!cuda_aux.unrolled.count(ref)) {
       ss << gen_mem_decl(lt, aux, cuda_aux, ref);
-      for (auto c : lt.node(ref).children) {
+      for (auto c : lt.tree_node(ref).children) {
         ss << gen_cuda(lt, aux, cuda_aux, unroll, c);
       }
       ss << indent(depth) << "}\n";
@@ -419,7 +419,7 @@ std::string gen_loop(const LoopTree &lt, const Auxiliary &aux,
       const_cast<CudaAux &>(cuda_aux).tail[loop.var] = tail_size;
     }
     ss << gen_mem_decl(lt, aux, cuda_aux, ref);
-    for (auto c : lt.node(ref).children) {
+    for (auto c : lt.tree_node(ref).children) {
       ss << gen_cuda(lt, aux, cuda_aux, unroll, c);
     }
     if (!is_tail) {
@@ -448,11 +448,11 @@ std::string gen_guard(const LoopTree &lt, const Auxiliary &aux,
   if (ref == -1) {
     return ss.str();
   }
-  if (lt.node(ref).kind == LoopTree::LOOP) {
+  if (lt.tree_node(ref).kind == LoopTree::LOOP) {
     if (cuda_aux.threaded.count(ref)) {
       auto inner = cuda_aux.threaded.at(ref);
       auto parent = lt.parent(ref);
-      auto loop = lt.node(ref).loop;
+      auto loop = lt.loop(ref);
       auto expected_inner = loop.size * inner;
       if (cuda_aux.threaded.count(parent)) {
         auto outer = cuda_aux.threaded.at(parent);
@@ -466,14 +466,14 @@ std::string gen_guard(const LoopTree &lt, const Auxiliary &aux,
     }
     return ss.str();
   }
-  auto vs = lt.ir.all_vars(lt.node(ref).node);
+  auto vs = lt.ir.all_vars(lt.node(ref));
   std::unordered_set<IR::VarRef> vars(vs.begin(), vs.end());
   auto parent = lt.parent(ref);
   bool first_parent = false;
   auto last_inner = 1;
   auto last_loop_size = 1;
   while (parent != -1) {
-    auto loop = lt.node(parent).loop;
+    auto loop = lt.loop(parent);
     auto v = loop.var;
     auto v_depth = loop.var_depth;
     // we need to guard a threaded var we don't care about
@@ -505,12 +505,12 @@ std::string gen_cuda(const LoopTree &lt, const Auxiliary &aux,
                      LoopTree::TreeRef ref) {
   std::stringstream ss;
   ss << gen_sync(lt, aux, cuda_aux, ref);
-  auto depth = lt.node(ref).depth;
+  auto depth = lt.tree_node(ref).depth;
   auto guard = gen_guard(lt, aux, cuda_aux, unroll, ref);
   if (guard.size()) {
     ss << indent(depth) << "if (" << guard << ") {\n";
   }
-  if (lt.node(ref).kind == LoopTree::LOOP) {
+  if (lt.tree_node(ref).kind == LoopTree::LOOP) {
     ss << gen_loop(lt, aux, cuda_aux, unroll, ref);
   } else {
     ss << gen_node(lt, aux, unroll, ref);
@@ -549,14 +549,14 @@ size_t count_threads(const LoopTree &lt, const CudaAux &cuda_aux,
   if (ref == -1) {
     children = lt.roots;
   } else {
-    children = lt.node(ref).children;
+    children = lt.tree_node(ref).children;
   }
   size_t max = 1;
   for (auto c : children) {
     max = std::max(count_threads(lt, cuda_aux, c), max);
   }
   if (cuda_aux.threaded.count(ref)) {
-    max *= lt.node(ref).loop.size;
+    max *= lt.loop(ref).size;
   }
   return max;
 }
@@ -574,7 +574,7 @@ size_t count_parent_threads(const LoopTree &lt, const CudaAux &cuda_aux,
   while (parent != -1) {
     if (cuda_aux.threaded.count(parent)) {
       total = std::max(total, (size_t)cuda_aux.threaded.at(
-                                  parent));  // lt.node(parent).loop.size;
+                                  parent));  // lt.loop(parent).size;
     }
     parent = lt.parent(parent);
   }
@@ -587,7 +587,7 @@ size_t thread_scope(const LoopTree &lt, const CudaAux &cuda_aux,
   if (ref == -1) {
     children = lt.roots;
   } else {
-    children = lt.node(ref).children;
+    children = lt.tree_node(ref).children;
   }
   size_t max = 1;
   for (auto c : children) {
@@ -602,13 +602,13 @@ void gen_cuda_kernels(const LoopTree &lt, const Auxiliary &aux,
 void unroll(const LoopTree &lt, CudaAux &ca) {
   const int unroll_limit = 16;  // 8 works, 16 breaks!
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.node(ref).kind == LoopTree::LOOP) {
+    if (lt.tree_node(ref).kind == LoopTree::LOOP) {
       return;
     }
     auto parent = lt.parent(ref);
     auto size = 1;
     while (parent != -1) {
-      size *= lt.node(parent).loop.size;
+      size *= lt.loop(parent).size;
       if (size > unroll_limit) {
         break;
       }
@@ -658,7 +658,7 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
       parent = lt.parent(parent);
     }
     auto from_reduce = [&]() {
-      auto node_ref = lt.node(ref).node;
+      auto node_ref = lt.node(ref);
       const auto &node = lt.ir.node(node_ref);
       bool reduction = false;
       for (auto inp : node.inputs()) {
@@ -676,10 +676,10 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
 
   // 2. find sync sizes (shared, global etc)
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.node(ref).kind == LoopTree::LOOP) {
+    if (lt.tree_node(ref).kind == LoopTree::LOOP) {
       return;
     }
-    auto node_ref = lt.node(ref).node;
+    auto node_ref = lt.node(ref);
     for (auto inp : lt.ir.node(node_ref).inputs()) {
       auto num_threads = alloc_threads.at(inp);
       if (num_threads <= 1) {
@@ -719,13 +719,13 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
     }
   }
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.node(ref).kind != LoopTree::NODE) {
+    if (lt.tree_node(ref).kind != LoopTree::NODE) {
       return;
     }
     auto parent = lt.parent(ref);
     auto inner = 1;
     while (parent != -1) {
-      ASSERT(lt.node(parent).kind == LoopTree::LOOP);
+      ASSERT(lt.tree_node(parent).kind == LoopTree::LOOP);
       if (threaded.count(parent)) {
         if (cuda_aux.threaded.count(parent)) {
           auto alt_inner = cuda_aux.threaded.at(parent);
@@ -733,11 +733,11 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
           // self consistency
           // ASSERT((alt_inner == -1 || alt_inner == inner)) <<
           //       "Found mismatched threading strategy for " <<
-          //			 lt.ir.var(lt.node(parent).loop.var).name() <<
+          //			 lt.ir.var(lt.loop(parent).var).name() <<
           //			 " size: " << alt_inner << " vs " << inner;
         }
         cuda_aux.threaded[parent] = inner;
-        inner *= lt.node(parent).loop.size;
+        inner *= lt.loop(parent).size;
       }
       parent = lt.parent(parent);
     }

@@ -85,15 +85,15 @@ void run(int T, int V) {
   auto out = cuda_rand(N);
   assert(lt.roots.size() == 1);
   std::unordered_set<LoopTree::TreeRef> threaded;
-  for (auto c : lt.node(lt.roots.at(0)).children) {
+  for (auto c : lt.tree_node(lt.roots.at(0)).children) {
     threaded.insert(c);
-    // for (auto c2 : lt.node(c).children) {
+    // for (auto c2 : lt.tree_node(c).children) {
     //  ca.unrolled.insert(c2);
     //}
     // ca.unrolled.insert(c);
   }
-  // ca.unrolled.insert(lt.node(lt.roots.at(0)).children.at(2));
-  // ca.threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
+  // ca.unrolled.insert(lt.tree_node(lt.roots.at(0)).children.at(2));
+  // ca.threaded.insert(lt.tree_node(lt.roots.at(0)).children.at(0));
   // ca.threaded[lt.roots.at(0)] = -1;
 
   cuda_exec(lt, {in0, in1, out}, threaded);
@@ -155,18 +155,21 @@ void test_mm(int M, int N, int K) {
   std::cerr << lt.dump();
   std::unordered_set<LoopTree::TreeRef> threaded;
   threaded.insert(lt.roots.at(0));
-  threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
+  threaded.insert(lt.tree_node(lt.roots.at(0)).children.at(0));
   auto sinnermost =
-      lt.node(lt.node(lt.node(lt.roots.at(0)).children.at(0)).children.at(0))
+      lt.tree_node(lt.tree_node(lt.tree_node(lt.roots.at(0)).children.at(0))
+                       .children.at(0))
           .children.at(0);
   auto innermost =
-      lt.node(lt.node(lt.node(lt.node(lt.roots.at(0)).children.at(0))
-                          .children.at(0))
-                  .children.at(0))
+      lt.tree_node(
+            lt.tree_node(
+                  lt.tree_node(lt.tree_node(lt.roots.at(0)).children.at(0))
+                      .children.at(0))
+                .children.at(0))
           .children.at(0);
   // ca.unrolled.insert(innermost);
   // ca.unrolled.insert(sinnermost);
-  // ca.unrolled.insert(lt.node(lt.roots.at(0)).children.at(0))
+  // ca.unrolled.insert(lt.tree_node(lt.roots.at(0)).children.at(0))
   for (auto i = 0; i < M * N; ++i) {
     out[i] = 0;
   }
@@ -238,9 +241,9 @@ void test_mm2(int M, int N, int K) {
   std::cerr << lt.dump();
   std::unordered_set<LoopTree::TreeRef> threaded;
   threaded.insert(lt.roots.at(0));
-  threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
+  threaded.insert(lt.tree_node(lt.roots.at(0)).children.at(0));
   std::cerr << lt.dump();
-  // ca.unrolled.insert(lt.node(lt.roots.at(0)).children.at(0))
+  // ca.unrolled.insert(lt.tree_node(lt.roots.at(0)).children.at(0))
   for (auto i = 0; i < M * N; ++i) {
     out[i] = 0;
   }
@@ -311,7 +314,7 @@ void test_cuda_exec(int M, int N, int K) {
   auto out = cuda_rand(M * N);
   std::unordered_set<LoopTree::TreeRef> threaded;
   threaded.insert(lt.roots.at(0));
-  threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
+  threaded.insert(lt.tree_node(lt.roots.at(0)).children.at(0));
 
   auto &&cc = getBackends().at("cuda")->compile(lt, threaded, -1);
 
@@ -377,25 +380,25 @@ int main() {
   auto out = cuda_rand(N);
   std::unordered_set<LoopTree::TreeRef> threaded;
   assert(lt.roots.size() == 1);
-  for (auto c : lt.node(lt.roots.at(0)).children) {
+  for (auto c : lt.tree_node(lt.roots.at(0)).children) {
     threaded.insert(c);
-    for (auto c2 : lt.node(c).children) {
+    for (auto c2 : lt.tree_node(c).children) {
       // ca.unrolled.insert(c2);
     }
     // ca.unrolled.insert(c);
   }
-  // ca.unrolled.insert(lt.node(lt.roots.at(0)).children.at(2));
-  // ca.threaded.insert(lt.node(lt.roots.at(0)).children.at(0));
+  // ca.unrolled.insert(lt.tree_node(lt.roots.at(0)).children.at(2));
+  // ca.threaded.insert(lt.tree_node(lt.roots.at(0)).children.at(0));
   // ca.threaded[lt.roots.at(0)] = -1;
   // const int unroll_limit = 128;
   // lt.walk([&](LoopTree::TreeRef ref, int) {
-  //  if (lt.node(ref).kind == LoopTree::LOOP) {
+  //  if (lt.tree_node(ref).kind == LoopTree::LOOP) {
   //    return;
   //  }
   //  auto parent = lt.parent(ref);
   //  auto size = 1;
   //  while (parent != -1) {
-  //    size *= lt.node(parent).loop.size;
+  //    size *= lt.loop(parent).size;
   //    if (size > unroll_limit) {
   //      break;
   //    }

@@ -238,7 +238,7 @@ void LoopTree::walk(const std::function<void(LoopTree::TreeRef, int)> &fn,
   std::function<void(LoopTree::TreeRef tr, int d)> inner_walk;
   inner_walk = [&](LoopTree::TreeRef tr, int d) {
     fn(tr, d);
-    for (auto c : node(tr).children) {
+    for (auto c : tree_node(tr).children) {
       inner_walk(c, d + 1);
     }
   };
@@ -255,19 +255,19 @@ LoopTree::TreeRef LoopTree::lca(LoopTree::TreeRef a,
                                 LoopTree::TreeRef b) const {
   auto traverse = [&](LoopTree::TreeRef n, int d) {
     for (auto i = 0; i < d; ++i) {
-      n = node(n).parent;
+      n = tree_node(n).parent;
     }
     return n;
   };
   if (a == -1 || b == -1) {
     return -1;
   }
-  if (node(a).depth > node(b).depth) {
-    a = traverse(a, node(a).depth - node(b).depth);
-  } else if (node(b).depth > node(a).depth) {
-    b = traverse(b, node(b).depth - node(a).depth);
+  if (tree_node(a).depth > tree_node(b).depth) {
+    a = traverse(a, tree_node(a).depth - tree_node(b).depth);
+  } else if (tree_node(b).depth > tree_node(a).depth) {
+    b = traverse(b, tree_node(b).depth - tree_node(a).depth);
   }
-  ASSERT(node(a).depth == node(b).depth);
+  ASSERT(tree_node(a).depth == tree_node(b).depth);
   while (a != b) {
     a = traverse(a, 1);
     b = traverse(b, 1);
@@ -283,7 +283,7 @@ std::string LoopTree::dump(
     for (auto i = 0; i < d; ++i) {
       ss << " ";
     }
-    auto tn = node(tr);
+    auto tn = tree_node(tr);
     if (tn.kind == 0) {
       ss << ir.dump(tn.node);
       if (fn) {
@@ -361,8 +361,6 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
           });
       available.erase(iter, available.end());
     }
-    // std::cout << "avail after removing mismatch sizes " << available.size()
-    // << "\n";
     // find matched loops
     std::vector<std::pair<int, int>> reuse_candidates;
     for (auto i = 0; i < l_order.size(); ++i) {
@@ -375,8 +373,6 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       int offset = iter - available.begin();
       reuse_candidates.emplace_back(i, offset);
     }
-    // std::cout << "number of reuse candidates: " << reuse_candidates.size() <<
-    // "\n";
     std::stable_sort(
         reuse_candidates.begin(), reuse_candidates.end(),
         [](const std::pair<int, int> &a, const std::pair<int, int> &b) {
@@ -387,16 +383,11 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     for (auto i = 0; i < l_order.size(); ++i) {
       auto offset = reuse_candidates[i].second;
       if (i != reuse_candidates[i].first || offset == available.size()) {
-        // std::cout << "breaking after " << i << " because " << (i !=
-        // reuse_candidates[i].first) << " or " <<  (offset == available.size())
-        // << "\n"; std::cout << "offset is " << offset << " but available size
-        // is " << available.size() << "\n";
         break;
       }
       reuse = available.begin() + (offset + 1);
       first++;
     }
-    // std::cout << "first: " << std::distance(first, l_order.begin()) << "\n";
 
     for (; first != l_order.end(); first++) {
       LoopTree::Loop loop = *first;
@@ -412,7 +403,6 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     }
     add_leaf(parent, idx);
 
-    // std::cout << "avail after adding stuff " << available.size() << "\n";
     // remove reductions
     std::unordered_set<IR::VarRef> reduction_vars;
     for (const auto &inp : n.inputs()) {
@@ -430,7 +420,6 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
                        return reduction_vars.count(t.first.var);
                      });
     available.erase(iter, available.end());
-    // std::cout << "avail after reduction elim " << available.size() << "\n";
 
     for (auto no_reuse : ir.not_reusable(idx)) {
       auto iter =
@@ -440,7 +429,6 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
                        });
       available.erase(iter, available.end());
     }
-    // std::cout << "avail after no_reuse " << available.size() << "\n";
   }
 }
 

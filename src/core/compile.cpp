@@ -22,16 +22,16 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 
 // Return LCA of node and it's users
 LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
-  ASSERT(lt.node(ref).kind == LoopTree::NODE);
-  const auto &node = lt.ir.node(lt.node(ref).node);
+  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+  const auto &node = lt.ir.node(lt.node(ref));
 
   // find all usage of this value
   std::unordered_set<IR::NodeRef> users = {node.outputs().begin(),
                                            node.outputs().end()};
   std::vector<LoopTree::TreeRef> uses;
   lt.walk([&](LoopTree::TreeRef tr, int) {
-    if (lt.node(tr).kind == LoopTree::NODE) {
-      if (users.count(lt.node(tr).node)) {
+    if (lt.tree_node(tr).kind == LoopTree::NODE) {
+      if (users.count(lt.node(tr))) {
         uses.emplace_back(tr);
       }
     }
@@ -55,13 +55,13 @@ LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
 // over the variable
 bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref) {
   bool threadable = true;
-  auto tree_v = lt.node(ref).loop.var;
+  auto tree_v = lt.loop(ref).var;
   lt.walk(
       [&](LoopTree::TreeRef ref, int) {
-        if (lt.node(ref).kind == LoopTree::LOOP) {
+        if (lt.tree_node(ref).kind == LoopTree::LOOP) {
           return;
         }
-        auto node_ref = lt.node(ref).node;
+        auto node_ref = lt.node(ref);
         bool iters_over = false;
         for (auto v : lt.ir.all_vars(node_ref)) {
           if (v == tree_v) {
@@ -124,16 +124,16 @@ total of 10 The resultant expressions will share memory but will have different
 */
 
 void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
-  ASSERT(lt.node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
   LoopTree::TreeRef lca = get_scope(lt, ref);
 
   // var -> running size, last tail
   auto loop_ref = lt.parent(ref);
-  auto var_vec = lt.ir.node(lt.node(ref).node).vars();
+  auto var_vec = lt.ir.node(lt.node(ref)).vars();
   std::unordered_set<IR::VarRef> vars = {var_vec.begin(), var_vec.end()};
   std::unordered_map<IR::VarRef, std::pair<int, int>> var_sizes;
   while (loop_ref != lca) {
-    auto loop = lt.node(loop_ref).loop;
+    auto loop = lt.loop(loop_ref);
     auto size = loop.size;
     if (!vars.count(loop.var)) {
       loop_ref = lt.parent(loop_ref);
@@ -151,7 +151,7 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   for (auto &p : var_sizes) {
     total *= (p.second.first + p.second.second);
   }
-  auto node_ref = lt.node(ref).node;
+  auto node_ref = lt.node(ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
                     lt.ir.all_vars(node_ref).size());
   bool should_init = false;
@@ -184,15 +184,15 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
   }
   auto idx = 0;
   auto size = 1;
-  auto depth = lt.node(loop_ref).depth;
+  auto depth = lt.tree_node(loop_ref).depth;
 
-  auto vs = lt.ir.node(lt.node(alloc.producer).node).vars();
+  auto vs = lt.ir.node(lt.node(alloc.producer)).vars();
   std::unordered_set<IR::VarRef> vars = {vs.begin(), vs.end()};
 
   // first we collect the orders of each var
   std::unordered_map<IR::VarRef, std::vector<LoopTree::TreeRef>> var_loops;
   while (loop_ref != alloc.lca) {
-    auto loop = lt.node(loop_ref).loop;
+    auto loop = lt.loop(loop_ref);
     if (vars.count(loop.var)) {
       var_loops[loop.var].emplace_back(loop_ref);
     }
@@ -202,9 +202,9 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
   for (const auto &v : vs) {
     auto inner_size = size;  // size of all inner vars
     for (auto l : var_loops[v]) {
-      auto idx = lt.node(l).depth;
+      auto idx = lt.tree_node(l).depth;
       idx_vec.emplace_back(std::make_pair(idx, size));
-      auto loop = lt.node(l).loop;
+      auto loop = lt.loop(l);
       size = loop.size * size + loop.tail * inner_size;
     }
   }
@@ -218,17 +218,10 @@ std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use) {
   auto ref = alloc.producer;
-  ASSERT(lt.node(ref).kind == LoopTree::NODE);
-  ASSERT(lt.node(use).kind == LoopTree::NODE);
+  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.tree_node(use).kind == LoopTree::NODE);
 
   auto idx_vec = gen_idx_vector(lt, alloc, use);
-  // if (lt.ir.node(lt.node(ref).node).vars().size() > 2) {
-  //  std::cerr << "vec for alloc "<<lt.ir.dump(lt.node(ref).node)<<" ";
-  //  for (auto i : idx_vec) {
-  //    std::cerr << i.first << "->" << i.second << ", ";
-  //  }
-  //  std::cerr << "\n";
-  //}
   return [=](int indices[MAX_DEPTH]) {
     size_t idx = 0;
     for (const auto &p : idx_vec) {
@@ -242,7 +235,7 @@ InnerFnType gen_read(const LoopTree &lt, LoopTree::TreeRef ref,
                      const Allocation &alloc) {
   int external_memory = -1;
   for (auto i = 0; i < lt.ir.inputs().size(); ++i) {
-    if (lt.ir.inputs()[i] == lt.node(ref).node) {
+    if (lt.ir.inputs()[i] == lt.node(ref)) {
       external_memory = i;
     }
   }
@@ -271,7 +264,7 @@ InnerFnType gen_write(const LoopTree &lt,
                       const std::unordered_map<IR::NodeRef, Allocation> &allocs,
                       LoopTree::TreeRef ref) {
   int external_memory = -1;
-  auto tree_node = lt.node(ref);
+  auto tree_node = lt.tree_node(ref);
   for (auto i = 0; i < lt.ir.outputs().size(); ++i) {
     if (lt.ir.outputs()[i] == tree_node.node) {
       external_memory = i + lt.ir.inputs().size();
@@ -300,15 +293,13 @@ InnerFnType gen_write(const LoopTree &lt,
     }
     ((float *)memory[external_memory])[out_idx_fn(indices)] =
         ((float *)memory[input_memory])[inp_idx_fn(indices)];
-    // std::cerr << "RWITIGN " << ((float
-    // *)memory[external_memory])[out_idx_fn(indices)] <<"\n";
   };
 }
 
 InnerFnType gen_add(const LoopTree &lt,
                     const std::unordered_map<IR::NodeRef, Allocation> &allocs,
                     LoopTree::TreeRef ref) {
-  auto tree_node = lt.node(ref);
+  auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
 
   std::vector<std::pair<std::function<size_t(int[MAX_DEPTH])>, int>> inputs;
@@ -331,12 +322,6 @@ InnerFnType gen_add(const LoopTree &lt,
       }
     }
     for (auto inp : inputs) {
-      // std::cerr << "adding to " << output.second << "[" <<
-      // output.first(indices) << "]" << " from "
-      //  << inp.second << "[" << inp.first(indices) << "]\n";
-      //   std::cerr << "adding " <<
-      //     ((float *)memory[output.second])[output.first(indices)] << " < " <<
-      //     ((float *)memory[inp.second])[inp.first(indices)] << "\n";
       ((float *)memory[output.second])[output.first(indices)] +=
           ((float *)memory[inp.second])[inp.first(indices)];
     }
@@ -346,7 +331,7 @@ InnerFnType gen_add(const LoopTree &lt,
 InnerFnType gen_mul(const LoopTree &lt,
                     const std::unordered_map<IR::NodeRef, Allocation> &allocs,
                     LoopTree::TreeRef ref) {
-  auto tree_node = lt.node(ref);
+  auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
 
   std::vector<std::pair<std::function<size_t(int[MAX_DEPTH])>, int>> inputs;
@@ -361,7 +346,7 @@ InnerFnType gen_mul(const LoopTree &lt,
 
   output =
       std::make_pair(gen_idx_func(lt, out_alloc, ref), out_alloc.idx + mem_off);
-  auto depth = lt.node(ref).depth;
+  auto depth = lt.tree_node(ref).depth;
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
     for (auto i = 0; i < MAX_DEPTH; ++i) {
@@ -369,19 +354,7 @@ InnerFnType gen_mul(const LoopTree &lt,
         return;
       }
     }
-    // std::cerr << "incidices: ";
-    // for (auto i = 0; i < depth; ++i) {
-    // std::cerr << indices[i] << ", ";
-    //}
-    // std::cerr << "\n";
     for (auto inp : inputs) {
-      // std::cerr << output.first(indices) << " muled by " <<
-      // inp.first(indices) << "\n"; std::cerr << "muling to " << output.second
-      // << "[" << output.first(indices) << "]" << " from "
-      //  << inp.second << "[" << inp.first(indices) << "]\n";
-      // std::cerr << "mul " <<
-      //((float *)memory[output.second])[output.first(indices)] << " *= " <<
-      //    ((float *)memory[inp.second])[inp.first(indices)] <<"\n";
       ((float *)memory[output.second])[output.first(indices)] *=
           ((float *)memory[inp.second])[inp.first(indices)];
     }
@@ -390,10 +363,10 @@ InnerFnType gen_mul(const LoopTree &lt,
 
 InnerFnType gen_leaf(const LoopTree &lt, const Auxiliary &aux,
                      LoopTree::TreeRef ref) {
-  auto tree_node = lt.node(ref);
+  auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
 
-  auto alloc = aux.allocs.at(lt.node(ref).node);
+  auto alloc = aux.allocs.at(lt.node(ref));
 
   if (n.op() == "add") {
     return gen_add(lt, aux.allocs, ref);
@@ -421,7 +394,6 @@ std::function<void(const std::vector<void *> &)> gen_mem(
   return [=](const std::vector<void *> &memory) {
     for (auto alloc : reset_allocs) {
       auto idx = alloc.idx + alloc_off;
-      // std::cerr << "reseting " <<idx << "\n";
       if (alloc.init_val == 0) {
         memset(memory[idx], 0, sizeof(float) * alloc.size);
       } else {
@@ -435,7 +407,7 @@ std::function<void(const std::vector<void *> &)> gen_mem(
 
 InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
                      LoopTree::TreeRef ref) {
-  auto tree_node = lt.node(ref);
+  auto tree_node = lt.tree_node(ref);
   auto depth = tree_node.depth;
   auto loop = tree_node.loop;
   auto size = loop.size;
@@ -491,11 +463,11 @@ void update_inner_size(
     std::unordered_map<LoopTree::TreeRef, size_t> &inner_size,
     LoopTree::TreeRef ref) {
   // can only be done with leaf nodes
-  ASSERT(lt.node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
   auto loop_ref = lt.parent(ref);
   std::unordered_map<IR::VarRef, std::pair<int, int>> var_sizes;
   while (loop_ref != -1) {
-    auto loop = lt.node(loop_ref).loop;
+    auto loop = lt.loop(loop_ref);
     if (!var_sizes.count(loop.var)) {
       var_sizes[loop.var] = std::make_pair(1, 0);
     }
@@ -514,8 +486,8 @@ void update_inner_size(
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref) {
-  ASSERT(lt.node(ref).depth < MAX_DEPTH);
-  if (lt.node(ref).kind == LoopTree::NODE) {
+  ASSERT(lt.tree_node(ref).depth < MAX_DEPTH);
+  if (lt.tree_node(ref).kind == LoopTree::NODE) {
     return gen_leaf(lt, aux, ref);
   } else {
     return gen_loop(lt, aux, ref);
@@ -524,17 +496,17 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 
 // recursively calculate all auxilary information
 void gen_aux(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
-  ASSERT(lt.node(ref).depth < MAX_DEPTH);
-  if (lt.node(ref).kind == LoopTree::NODE) {
+  ASSERT(lt.tree_node(ref).depth < MAX_DEPTH);
+  if (lt.tree_node(ref).kind == LoopTree::NODE) {
     update_inner_size(lt, aux.inner_size, ref);
     gen_alloc(lt, aux, ref);
   } else {
-    auto loop = lt.node(ref).loop;
+    auto loop = lt.loop(ref);
     if (!aux.var_idx.count(loop.var)) {
       auto idx = aux.var_idx.size();
       aux.var_idx[loop.var] = idx;
     }
-    for (auto c : lt.node(ref).children) {
+    for (auto c : lt.tree_node(ref).children) {
       gen_aux(lt, aux, c);
     }
   }
@@ -608,9 +580,7 @@ struct CPUCompiled : public Compiled {
   void run(const std::vector<void *> &memory, bool sync) const override {
     auto memory_w_intermediates = memory;
     std::vector<void *> free_me;
-    std::cerr << "intermediate allocations " << intermediates.size() << "\n";
     for (auto s : intermediates) {
-      std::cerr << "intermediate allocation of " << s << "\n";
       memory_w_intermediates.emplace_back(calloc(1, s));
       free_me.emplace_back(memory_w_intermediates.back());
     }

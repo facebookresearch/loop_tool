@@ -397,7 +397,7 @@ int main() {
     auto lt = LoopTree(ir);
     std::cout << lt.dump();
     lt.walk([&](LoopTree::TreeRef ref, int) {
-      if (lt.node(ref).kind != LoopTree::LOOP) {
+      if (lt.tree_node(ref).kind != LoopTree::LOOP) {
         return;
       }
       std::cout << "parallel L" << ref << ": ";
