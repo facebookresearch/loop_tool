@@ -4,26 +4,26 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "cuda_backend.h"
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+#include <nvrtc.h>
 
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <sstream>
+
+#include "cuda_backend.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
 
-#include <algorithm>
-#include <chrono>
-#include <cuda.h>
-#include <cuda_runtime_api.h>
-#include <iostream>
-#include <nvrtc.h>
-#include <sstream>
-
-#define NVRTC_SAFE_CALL(x)                                                     \
-  do {                                                                         \
-    nvrtcResult result = x;                                                    \
-    ASSERT(result == NVRTC_SUCCESS) << "\nerror: " #x " failed with error "    \
-                                    << nvrtcGetErrorString(result) << '\n';    \
+#define NVRTC_SAFE_CALL(x)                                                  \
+  do {                                                                      \
+    nvrtcResult result = x;                                                 \
+    ASSERT(result == NVRTC_SUCCESS) << "\nerror: " #x " failed with error " \
+                                    << nvrtcGetErrorString(result) << '\n'; \
   } while (0)
 
 namespace loop_tool {
@@ -37,7 +37,7 @@ struct pair_hash {
     return h1 ^ h2;
   }
 };
-} // namespace
+}  // namespace
 
 // for manual unrolling/vectorization
 using UnrollMap =
@@ -71,7 +71,7 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
     parent = lt.parent(parent);
   }
   std::reverse(parent_chain.begin(), parent_chain.end());
-  auto order = parent_chain; // lt.loop_order(lt.node(use).node);
+  auto order = parent_chain;  // lt.loop_order(lt.node(use).node);
   auto idx_vec = gen_idx_vector(lt, alloc, use);
   // can we map innermost dims to vector index?
   // this becomes false if non-innermost sizes cannot be vectorized (TODO relax)
@@ -86,7 +86,7 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
   }
 
   bool vectorize = false;
-  bool flatten = true; // cast from float4 to float
+  bool flatten = true;  // cast from float4 to float
   if (alloc.size % 4 == 0) {
     // we can index directly into the vector
     if (unrolled_vectorize) {
@@ -101,7 +101,7 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
   if (flatten) {
     ss << "((float*)";
   }
-  if (external_idx > -1) { // for reads/writes to real memory
+  if (external_idx > -1) {  // for reads/writes to real memory
     ss << "ext_" << external_idx;
   } else {
     ss << "mem_" << alloc.idx;
@@ -136,7 +136,7 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
       innermost = false;
     }
   }
-  ss << "0"; // keeps the expression well formed
+  ss << "0";  // keeps the expression well formed
   ss << "]" << extra;
 
   return ss.str();
@@ -191,7 +191,7 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
     ASSERT(external_memory > -1 && "No input found!");
     auto out_alloc = aux.allocs.at(node_ref);
     auto inp_alloc = out_alloc;
-    inp_alloc.lca = -1; // TODO clean up read hacks
+    inp_alloc.lca = -1;  // TODO clean up read hacks
 
     ss << indent(depth);
     ss << gen_access(lt, out_alloc, ref, unroll);
@@ -565,7 +565,7 @@ size_t count_parent_threads(const LoopTree &lt, const CudaAux &cuda_aux,
                             LoopTree::TreeRef ref) {
   size_t total = 1;
   if (cuda_aux.threaded.count(ref)) {
-    total = cuda_aux.threaded.at(ref); // count_threads(lt, cuda_aux, ref);
+    total = cuda_aux.threaded.at(ref);  // count_threads(lt, cuda_aux, ref);
   }
   if (ref == -1) {
     return total;
@@ -574,7 +574,7 @@ size_t count_parent_threads(const LoopTree &lt, const CudaAux &cuda_aux,
   while (parent != -1) {
     if (cuda_aux.threaded.count(parent)) {
       total = std::max(total, (size_t)cuda_aux.threaded.at(
-                                  parent)); // lt.node(parent).loop.size;
+                                  parent));  // lt.node(parent).loop.size;
     }
     parent = lt.parent(parent);
   }
@@ -600,7 +600,7 @@ void gen_cuda_kernels(const LoopTree &lt, const Auxiliary &aux,
                       const CudaAux &cuda_aux) {}
 
 void unroll(const LoopTree &lt, CudaAux &ca) {
-  const int unroll_limit = 16; // 8 works, 16 breaks!
+  const int unroll_limit = 16;  // 8 works, 16 breaks!
   lt.walk([&](LoopTree::TreeRef ref, int) {
     if (lt.node(ref).kind == LoopTree::LOOP) {
       return;
@@ -807,9 +807,8 @@ bool needs_multikernel_support(const LoopTree &lt, const Auxiliary &aux,
 }
 
 // returns a cuda string and dispatch params (blocks, threads)
-std::pair<std::string, std::pair<size_t, size_t>>
-cuda_code_and_dispatch(const LoopTree &lt,
-                       const std::unordered_set<LoopTree::TreeRef> &threaded) {
+std::pair<std::string, std::pair<size_t, size_t>> cuda_code_and_dispatch(
+    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &threaded) {
   auto aux = calculate_aux(lt);
   auto cuda_aux = calc_cuda_aux(lt, aux, threaded);
   ASSERT(!needs_multikernel_support(lt, aux, cuda_aux))
@@ -873,20 +872,20 @@ struct CudaCompiled : public Compiled {
     num_threads = cc.second.second;
 
     nvrtcProgram prog;
-    NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,        // prog
-                                       code.c_str(), // buffer
-                                       "kernel.cu",  // name
-                                       0,            // numHeaders
-                                       NULL,         // headers
-                                       NULL));       // includeNames
+    NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,         // prog
+                                       code.c_str(),  // buffer
+                                       "kernel.cu",   // name
+                                       0,             // numHeaders
+                                       NULL,          // headers
+                                       NULL));        // includeNames
     const char *opts[] = {
         //"--extra-device-vectorization"
         //"--gpu-architecture=compute_60",
         //"--generate-line-info"
     };
-    nvrtcResult compileResult = nvrtcCompileProgram(prog,  // prog
-                                                    0,     // numOptions
-                                                    opts); // options
+    nvrtcResult compileResult = nvrtcCompileProgram(prog,   // prog
+                                                    0,      // numOptions
+                                                    opts);  // options
     size_t logSize;
     NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
     char *log = new char[logSize];
@@ -931,10 +930,10 @@ struct CudaCompiled : public Compiled {
       mem.emplace_back(reinterpret_cast<void *>(const_cast<void **>(&v)));
     }
     void **args = mem.data();
-    CUDA_SAFE_CALL(cuLaunchKernel(kernel, num_blocks, 1, 1, // grid dim
-                                  num_threads, 1, 1,        // block dim
-                                  0, NULL,   // shared mem and stream
-                                  args, 0)); // arguments
+    CUDA_SAFE_CALL(cuLaunchKernel(kernel, num_blocks, 1, 1,  // grid dim
+                                  num_threads, 1, 1,         // block dim
+                                  0, NULL,    // shared mem and stream
+                                  args, 0));  // arguments
     if (sync) {
       CUDA_SAFE_CALL(cuCtxSynchronize());
     }
@@ -944,10 +943,9 @@ struct CudaCompiled : public Compiled {
 struct CudaBackend : public Backend {
   CudaBackend() : Backend("cuda") {}
 
-  std::unique_ptr<Compiled>
-  compile_impl(const LoopTree &lt,
-               const std::unordered_set<LoopTree::TreeRef> &parallel,
-               LoopTree::TreeRef root) override {
+  std::unique_ptr<Compiled> compile_impl(
+      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+      LoopTree::TreeRef root) override {
     return std::make_unique<CudaCompiled>(lt, parallel, root);
   }
 
@@ -966,4 +964,4 @@ struct CudaBackend : public Backend {
 static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
 static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
 
-} // namespace loop_tool
+}  // namespace loop_tool

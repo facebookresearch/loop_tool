@@ -39,8 +39,8 @@ struct TypeID<
   static constexpr TYPEID get() { return TypeID<val>::get(); }
 };
 
-} // namespace internal
-} // namespace emscripten
+}  // namespace internal
+}  // namespace emscripten
 
 std::string dump(const LoopTree &lt) { return lt.dump(); }
 

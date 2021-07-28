@@ -5,13 +5,15 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/compile.h"
-#include "loop_tool/backend.h"
-#include "loop_tool/error.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 #include <unordered_set>
+
+#include "loop_tool/backend.h"
+#include "loop_tool/error.h"
 
 namespace loop_tool {
 
@@ -198,7 +200,7 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
   }
   std::reverse(vs.begin(), vs.end());
   for (const auto &v : vs) {
-    auto inner_size = size; // size of all inner vars
+    auto inner_size = size;  // size of all inner vars
     for (auto l : var_loops[v]) {
       auto idx = lt.node(l).depth;
       idx_vec.emplace_back(std::make_pair(idx, size));
@@ -409,8 +411,8 @@ InnerFnType gen_leaf(const LoopTree &lt, const Auxiliary &aux,
   };
 }
 
-std::function<void(const std::vector<void *> &)>
-gen_mem(const LoopTree &lt, const Auxiliary &aux, LoopTree::TreeRef ref) {
+std::function<void(const std::vector<void *> &)> gen_mem(
+    const LoopTree &lt, const Auxiliary &aux, LoopTree::TreeRef ref) {
   // does this loop need to reset anything?
   std::vector<Allocation> reset_allocs =
       aux.resets.count(ref) ? aux.resets.at(ref) : std::vector<Allocation>{};
@@ -623,10 +625,9 @@ struct CPUCompiled : public Compiled {
 struct CPUBackend : public Backend {
   CPUBackend() : Backend("cpu") {}
 
-  std::unique_ptr<Compiled>
-  compile_impl(const LoopTree &lt,
-               const std::unordered_set<LoopTree::TreeRef> &parallel,
-               LoopTree::TreeRef root) override {
+  std::unique_ptr<Compiled> compile_impl(
+      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+      LoopTree::TreeRef root) override {
     return std::make_unique<CPUCompiled>(lt, parallel, root);
   }
 
@@ -638,4 +639,4 @@ struct CPUBackend : public Backend {
 
 static RegisterBackend cpu_backend_reg_(std::make_shared<CPUBackend>());
 
-} // namespace loop_tool
+}  // namespace loop_tool

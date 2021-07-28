@@ -5,6 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/hardware.h"
+
 #include <iostream>
 #include <mutex>
 
@@ -43,4 +44,4 @@ int availableCPUs() {
   return 1;
 }
 
-} // namespace loop_tool
+}  // namespace loop_tool

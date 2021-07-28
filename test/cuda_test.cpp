@@ -4,16 +4,18 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "loop_tool/backend.h"
 #include <cuda.h>
 #include <cuda_runtime_api.h>
-#include <iostream>
 #include <nvrtc.h>
+
+#include <iostream>
 #include <random>
+
+#include "loop_tool/backend.h"
 
 using namespace loop_tool;
 
-#define gpuErrchk(ans)                                                         \
+#define gpuErrchk(ans) \
   { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line,
                       bool abort = true) {
@@ -25,7 +27,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 float *cuda_rand(int N) {
   void *ptr = nullptr;
   auto s = N * sizeof(float);
-  auto err = cudaMallocManaged(&ptr, s); // N * sizeof(float));
+  auto err = cudaMallocManaged(&ptr, s);  // N * sizeof(float));
   gpuErrchk(err);
   float *data = (float *)ptr;
   std::random_device rd;

@@ -18,7 +18,7 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 class NullStream : public std::ostream {
-public:
+ public:
   NullStream() : std::ostream(nullptr) {}
   NullStream(const NullStream &) : std::ostream(nullptr) {}
 };
@@ -40,7 +40,8 @@ struct StreamOut {
     ss << "failed @ " << location << " ";
   }
 
-  template <typename T> StreamOut &operator<<(const T &d) {
+  template <typename T>
+  StreamOut &operator<<(const T &d) {
     if (failure) {
       ss << d;
     }
@@ -54,7 +55,7 @@ struct StreamOut {
   }
 };
 
-} // namespace loop_tool
+}  // namespace loop_tool
 
 #ifdef NOEXCEPTIONS
 #define ASSERT(x) assert(x)

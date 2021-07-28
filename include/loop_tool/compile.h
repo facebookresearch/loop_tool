@@ -6,11 +6,11 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "ir.h"
-
 #include <functional>
 #include <unordered_map>
 #include <vector>
+
+#include "ir.h"
 
 #define MAX_DEPTH 16
 
@@ -20,20 +20,20 @@ struct Allocation {
   size_t size;
   int idx;
   bool should_init;
-  float init_val;        // TODO don't hardcode float type
-  LoopTree::TreeRef lca; // can easily deduce required vars this way
+  float init_val;         // TODO don't hardcode float type
+  LoopTree::TreeRef lca;  // can easily deduce required vars this way
   LoopTree::TreeRef producer;
 };
 
 // unfortunately, there is some required auxiliary information
 struct Auxiliary {
-  std::unordered_map<IR::VarRef, int> var_idx; // index into "tails" array
+  std::unordered_map<IR::VarRef, int> var_idx;  // index into "tails" array
   std::unordered_map<LoopTree::TreeRef, size_t>
-      inner_size; // total size of inner loops over same var
+      inner_size;  // total size of inner loops over same var
   std::unordered_map<IR::NodeRef, Allocation>
-      allocs; // intermediate allocations
+      allocs;  // intermediate allocations
   std::unordered_map<LoopTree::TreeRef, std::vector<Allocation>>
-      resets; // allocation LCAs
+      resets;  // allocation LCAs
 };
 
 // recursively generate functions for loops/nodes(leaves) of the loop tree
@@ -54,4 +54,4 @@ std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
 compile(const LoopTree &lt);
 bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
 
-} // namespace loop_tool
+}  // namespace loop_tool

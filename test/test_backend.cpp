@@ -12,15 +12,15 @@ struct CustomCompiled : public lt::Compiled {
 struct CustomBackend : lt::Backend {
   CustomBackend() : lt::Backend("custom") {}
 
-  std::unique_ptr<lt::Compiled>
-  compile_impl(const lt::LoopTree &lt,
-               const std::unordered_set<lt::LoopTree::TreeRef> &parallel,
-               lt::LoopTree::TreeRef root) {
+  std::unique_ptr<lt::Compiled> compile_impl(
+      const lt::LoopTree &lt,
+      const std::unordered_set<lt::LoopTree::TreeRef> &parallel,
+      lt::LoopTree::TreeRef root) {
     return std::make_unique<CustomCompiled>();
   }
 
   int hardware_requirement() const {
-    return 0; // CPU
+    return 0;  // CPU
   }
 };
 

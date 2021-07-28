@@ -5,6 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/ir.h"
+
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -87,7 +88,7 @@ std::string IR::dump(IR::NodeRef idx) const {
   ss << "%" << idx << "[";
   for (const auto &v_idx : n.vars()) {
     const auto &v = var(v_idx);
-    ss << v.name(); // << ":" << v.version();
+    ss << v.name();  // << ":" << v.version();
     if (&v_idx != &n.vars().back()) {
       ss << ", ";
     }
@@ -199,7 +200,7 @@ std::vector<IR::NodeRef> toposort(const IR &ir) {
     frontier.emplace_back(std::make_pair(idx, ir.priority(idx)));
   }
 
-  std::unordered_set<IR::NodeRef> seen; // to keep track of in-edges
+  std::unordered_set<IR::NodeRef> seen;  // to keep track of in-edges
   while (frontier.size()) {
     std::stable_sort(
         frontier.begin(), frontier.end(),
@@ -275,8 +276,8 @@ LoopTree::TreeRef LoopTree::lca(LoopTree::TreeRef a,
   return a;
 }
 
-std::string
-LoopTree::dump(const std::function<std::string(LoopTree::TreeRef)> &fn) const {
+std::string LoopTree::dump(
+    const std::function<std::string(LoopTree::TreeRef)> &fn) const {
   std::stringstream ss;
   walk([&](LoopTree::TreeRef tr, int d) {
     for (auto i = 0; i < d; ++i) {
@@ -350,15 +351,14 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     // prune mismatched loop sizes
     for (auto i = 0; i < l_order.size(); ++i) {
       const auto &loop = l_order[i];
-      auto iter =
-          std::find_if(available.begin(), available.end(),
-                       [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
-                         // same var, different splits
-                         // TODO audit versioning
-                         return (loop.var == t.first.var) &&
-                                (loop.var_depth == t.first.var_depth) &&
-                                !(t.first == loop);
-                       });
+      auto iter = std::find_if(
+          available.begin(), available.end(),
+          [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
+            // same var, different splits
+            // TODO audit versioning
+            return (loop.var == t.first.var) &&
+                   (loop.var_depth == t.first.var_depth) && !(t.first == loop);
+          });
       available.erase(iter, available.end());
     }
     // std::cout << "avail after removing mismatch sizes " << available.size()
@@ -458,4 +458,4 @@ std::string dot(const IR &ir) {
   return ss.str();
 }
 
-} // namespace loop_tool
+}  // namespace loop_tool

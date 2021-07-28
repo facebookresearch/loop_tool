@@ -6,11 +6,12 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "ir.h"
-#include "tensor.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
+
+#include "ir.h"
+#include "tensor.h"
 
 namespace loop_tool {
 
@@ -27,11 +28,13 @@ struct Compiled {
     run(memory, sync);
   }
 
-  template <typename... Args> void operator()(Args const &... tensors) const {
+  template <typename... Args>
+  void operator()(Args const &... tensors) const {
     run<true, Args...>(std::forward<Args const &>(tensors)...);
   }
 
-  template <typename... Args> void async(Args const &... tensors) const {
+  template <typename... Args>
+  void async(Args const &... tensors) const {
     run<false, Args...>(std::forward<Args const &>(tensors)...);
   }
 
@@ -48,15 +51,13 @@ struct Backend {
 
   const std::string &name() const { return name_; }
 
-  virtual std::unique_ptr<Compiled>
-  compile_impl(const LoopTree &lt,
-               const std::unordered_set<LoopTree::TreeRef> &parallel,
-               LoopTree::TreeRef root) = 0;
+  virtual std::unique_ptr<Compiled> compile_impl(
+      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+      LoopTree::TreeRef root) = 0;
   virtual int hardware_requirement() const = 0;
-  std::unique_ptr<Compiled>
-  compile(const LoopTree &lt,
-          const std::unordered_set<LoopTree::TreeRef> &parallel,
-          LoopTree::TreeRef root) {
+  std::unique_ptr<Compiled> compile(
+      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+      LoopTree::TreeRef root) {
     auto compiled = compile_impl(lt, parallel, root);
     compiled->hardware_requirement = hardware_requirement();
     compiled->name = name();
@@ -73,4 +74,4 @@ struct RegisterBackend {
   }
 };
 
-} // namespace loop_tool
+}  // namespace loop_tool

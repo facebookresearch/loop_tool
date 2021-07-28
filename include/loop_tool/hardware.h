@@ -6,13 +6,13 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "error.h"
-
 #include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "error.h"
 
 namespace loop_tool {
 
@@ -72,4 +72,4 @@ struct RegisterHardware {
   RegisterHardware(std::shared_ptr<Hardware> hw) { registerHardware(hw); }
 };
 
-} // namespace loop_tool
+}  // namespace loop_tool

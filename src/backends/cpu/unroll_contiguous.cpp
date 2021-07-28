@@ -4,11 +4,11 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-#include "loop_tool/backend.h"
-#include "loop_tool/error.h"
-
 #include <cstring>
 #include <iostream>
+
+#include "loop_tool/backend.h"
+#include "loop_tool/error.h"
 
 using namespace loop_tool;
 
@@ -46,10 +46,10 @@ InnerFnType gen_vec_read(const LoopTree &lt, LoopTree::TreeRef ref,
   };
 }
 
-InnerFnType
-gen_vec_write(const LoopTree &lt,
-              const std::unordered_map<IR::NodeRef, Allocation> &allocs,
-              LoopTree::TreeRef ref, int N) {
+InnerFnType gen_vec_write(
+    const LoopTree &lt,
+    const std::unordered_map<IR::NodeRef, Allocation> &allocs,
+    LoopTree::TreeRef ref, int N) {
   int external_memory = -1;
   auto tree_node = lt.node(ref);
   for (auto i = 0; i < lt.ir.outputs().size(); ++i) {
@@ -90,10 +90,10 @@ gen_vec_write(const LoopTree &lt,
   };
 }
 
-InnerFnType
-gen_vec_add(const LoopTree &lt,
-            const std::unordered_map<IR::NodeRef, Allocation> &allocs,
-            LoopTree::TreeRef ref, int N) {
+InnerFnType gen_vec_add(
+    const LoopTree &lt,
+    const std::unordered_map<IR::NodeRef, Allocation> &allocs,
+    LoopTree::TreeRef ref, int N) {
   auto tree_node = lt.node(ref);
   const auto &n = lt.ir.node(tree_node.node);
   auto depth = lt.node(lt.node(ref).parent).depth;
@@ -185,9 +185,9 @@ gen_vec_add(const LoopTree &lt,
 };
 
 bool condition(const LoopTree &lt, LoopTree::TreeRef ref) {
-#define REQ(cond)                                                              \
-  if (!(cond)) {                                                               \
-    return false;                                                              \
+#define REQ(cond) \
+  if (!(cond)) {  \
+    return false; \
   }
 
   REQ(lt.node(ref).kind == LoopTree::LOOP);

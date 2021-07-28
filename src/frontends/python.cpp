@@ -25,7 +25,7 @@ LICENSE file in the root directory of this source tree.
 using namespace loop_tool;
 namespace py = pybind11;
 
-static int default_hardware_id = 0; // CPU
+static int default_hardware_id = 0;  // CPU
 PYBIND11_MODULE(loop_tool_py, m) {
   m.def("backends", []() {
     std::vector<std::string> backends = {"cpu"};
@@ -165,12 +165,12 @@ PYBIND11_MODULE(loop_tool_py, m) {
              ASSERT(lt.node(ref).kind == LoopTree::NODE);
              return lt.node(ref).node;
            })
-      .def("dump", &LoopTree::dump,
-           py::arg("callback") =
-               std::function<std::string(LoopTree::TreeRef)>{})
-      .def("__repr__", &LoopTree::dump,
-           py::arg("callback") =
-               std::function<std::string(LoopTree::TreeRef)>{})
+      .def(
+          "dump", &LoopTree::dump,
+          py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
+      .def(
+          "__repr__", &LoopTree::dump,
+          py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
       .def("__call__", [](const LoopTree &lt,
                           std::vector<std::shared_ptr<Tensor>> tensors) {
         std::vector<void *> memory;

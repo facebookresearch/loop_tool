@@ -6,12 +6,13 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "error.h"
 #include <cassert>
 #include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+#include "error.h"
 
 /*
   Intermediate represention is a DAG
@@ -109,7 +110,7 @@ struct Node;
 struct Var;
 
 class IR {
-public:
+ public:
   IR() {}
   // For code clarity
   using NodeRef = int;
@@ -151,8 +152,8 @@ public:
 
   inline float priority(NodeRef idx) const { return priorities_[idx]; }
   // order (int,int)[] - first = var, second = size (possibly -1)
-  inline const std::vector<std::pair<VarRef, LoopSize>> &
-  order(NodeRef idx) const {
+  inline const std::vector<std::pair<VarRef, LoopSize>> &order(
+      NodeRef idx) const {
     return orders_[idx];
   }
   inline const std::unordered_set<int> not_reusable(NodeRef idx) const {
@@ -190,7 +191,7 @@ public:
   std::vector<VarRef> pointwise_vars(NodeRef idx) const;
   std::vector<VarRef> all_vars(NodeRef idx) const;
 
-private:
+ private:
   std::vector<Node> nodes_;
   // TODO consider efficient storage for splits/merges
   std::vector<Var> vars_;
@@ -208,8 +209,8 @@ IR split_var(const IR &ir, IR::VarRef v);
 std::string dot(const IR &ir);
 
 class Node {
-protected:
-  friend class IR; // use the IR class to create nodes
+ protected:
+  friend class IR;  // use the IR class to create nodes
   Node(std::string op, std::vector<IR::NodeRef> inputs,
        std::vector<IR::VarRef> vars)
       : op_(op), inputs_(inputs), vars_(vars) {}
@@ -223,30 +224,30 @@ protected:
   }
   inline void update_vars(std::vector<IR::VarRef> vars) { vars_ = vars; }
 
-public:
+ public:
   inline const std::vector<IR::NodeRef> &inputs() const { return inputs_; }
   inline const std::vector<IR::NodeRef> &outputs() const { return outputs_; }
 
   const std::string &op() const { return op_; }
   const std::vector<IR::VarRef> &vars() const { return vars_; }
 
-private:
+ private:
   std::string op_;
   std::vector<IR::NodeRef> inputs_;
   // denote the output vars
   std::vector<IR::VarRef> vars_;
 
-protected:
+ protected:
   std::vector<IR::NodeRef> outputs_;
 };
 
 class Var {
-public:
+ public:
   Var(std::string name, int version) : name_(name), version_(version) {}
   inline const std::string &name() const { return name_; }
   inline const int &version() const { return version_; }
 
-private:
+ private:
   std::string name_;
   int version_;
 };
@@ -270,9 +271,9 @@ struct LoopTree {
   struct LoopNode {
     TreeRef parent = -1;
     TreeRef idx = -1;
-    int depth = 0; // root depth
+    int depth = 0;  // root depth
 
-    bool kind; // 0 -> node, 1 -> loop
+    bool kind;  // 0 -> node, 1 -> loop
     union {
       IR::NodeRef node;
       Loop loop;
@@ -288,7 +289,8 @@ struct LoopTree {
 
   TreeRef add_leaf(TreeRef parent, IR::NodeRef n);
   TreeRef add_loop(TreeRef parent, const Loop &l);
-  template <typename T> TreeRef add_node_impl(TreeRef parent, T n) {
+  template <typename T>
+  TreeRef add_node_impl(TreeRef parent, T n) {
     auto new_idx = nodes.size();
     nodes.emplace_back(parent, new_idx, n);
     if (parent == -1) {
@@ -320,11 +322,11 @@ struct LoopTree {
   std::vector<TreeRef> roots;
   void walk(const std::function<void(LoopTree::TreeRef, int)> &fn,
             TreeRef start = -1) const;
-  std::string
-  dump(const std::function<std::string(LoopTree::TreeRef)> &fn = {}) const;
+  std::string dump(
+      const std::function<std::string(LoopTree::TreeRef)> &fn = {}) const;
   IR ir;
 
   LoopTree(const IR &ir_);
 };
 
-} // namespace loop_tool
+}  // namespace loop_tool
