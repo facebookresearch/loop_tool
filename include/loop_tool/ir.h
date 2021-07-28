@@ -314,13 +314,15 @@ struct LoopTree {
     return nodes[ref];
   }
 
+  inline bool kind(TreeRef ref) const { return tree_node(ref).kind; }
+
   inline const IR::NodeRef node(TreeRef ref) const {
-    ASSERT(tree_node(ref).kind == LoopTree::NODE);
+    ASSERT(kind(ref) == LoopTree::NODE);
     return tree_node(ref).node;
   }
 
   inline Loop loop(TreeRef ref) const {
-    ASSERT(tree_node(ref).kind == LoopTree::LOOP);
+    ASSERT(kind(ref) == LoopTree::LOOP);
     return tree_node(ref).loop;
   }
 
@@ -339,6 +341,14 @@ struct LoopTree {
     }
     tree_node(ref).annotation = annotations.size();
     annotations.emplace_back(annot);
+  }
+
+  inline std::string annotation(TreeRef ref) const {
+    auto annot_idx = tree_node(ref).annotation;
+    if (annot_idx > -1) {
+      return annotations[annot_idx];
+    }
+    return "cpu";
   }
 
   TreeRef lca(TreeRef a, TreeRef b) const;

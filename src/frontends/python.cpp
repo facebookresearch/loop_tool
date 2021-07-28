@@ -143,7 +143,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
              std::vector<LoopTree::TreeRef> leaves;
              lt.walk(
                  [&](LoopTree::TreeRef r, int) {
-                   if (lt.tree_node(r).kind == LoopTree::NODE) {
+                   if (lt.kind(r) == LoopTree::NODE) {
                      leaves.emplace_back(r);
                    }
                  },
@@ -154,7 +154,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                              [](const LoopTree &lt) {
                                std::vector<LoopTree::TreeRef> loops;
                                lt.walk([&](LoopTree::TreeRef r, int) {
-                                 if (lt.tree_node(r).kind == LoopTree::LOOP) {
+                                 if (lt.kind(r) == LoopTree::LOOP) {
                                    loops.emplace_back(r);
                                  }
                                });
@@ -162,7 +162,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                              })
       .def("ir_node",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
-             ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+             ASSERT(lt.kind(ref) == LoopTree::NODE);
              return lt.node(ref);
            })
       .def(

@@ -284,11 +284,19 @@ std::string LoopTree::dump(
       ss << " ";
     }
     auto tn = tree_node(tr);
+    auto aux = [&]() {
+      std::stringstream ss_;
+      if (tn.annotation > -1) {
+        ss_ << " " << annotations[tn.annotation];
+      }
+      if (fn) {
+        ss_ << " " << fn(tr);
+      }
+      return ss_.str();
+    };
     if (tn.kind == 0) {
       ss << ir.dump(tn.node);
-      if (fn) {
-        ss << " " << fn(tr);
-      }
+      ss << aux();
       ss << "\n";
     } else {
       ss << "for " << ir.var(tn.loop.var).name();
@@ -304,9 +312,7 @@ std::string LoopTree::dump(
         ss << " r " << t;
       }
       ss << " : L" << tr;
-      if (fn) {
-        ss << " " << fn(tr);
-      }
+      ss << aux();
       ss << "\n";
     }
   });

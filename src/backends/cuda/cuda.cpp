@@ -448,7 +448,7 @@ std::string gen_guard(const LoopTree &lt, const Auxiliary &aux,
   if (ref == -1) {
     return ss.str();
   }
-  if (lt.tree_node(ref).kind == LoopTree::LOOP) {
+  if (lt.kind(ref) == LoopTree::LOOP) {
     if (cuda_aux.threaded.count(ref)) {
       auto inner = cuda_aux.threaded.at(ref);
       auto parent = lt.parent(ref);
@@ -510,7 +510,7 @@ std::string gen_cuda(const LoopTree &lt, const Auxiliary &aux,
   if (guard.size()) {
     ss << indent(depth) << "if (" << guard << ") {\n";
   }
-  if (lt.tree_node(ref).kind == LoopTree::LOOP) {
+  if (lt.kind(ref) == LoopTree::LOOP) {
     ss << gen_loop(lt, aux, cuda_aux, unroll, ref);
   } else {
     ss << gen_node(lt, aux, unroll, ref);
@@ -602,7 +602,7 @@ void gen_cuda_kernels(const LoopTree &lt, const Auxiliary &aux,
 void unroll(const LoopTree &lt, CudaAux &ca) {
   const int unroll_limit = 16;  // 8 works, 16 breaks!
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.tree_node(ref).kind == LoopTree::LOOP) {
+    if (lt.kind(ref) == LoopTree::LOOP) {
       return;
     }
     auto parent = lt.parent(ref);
@@ -676,7 +676,7 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
 
   // 2. find sync sizes (shared, global etc)
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.tree_node(ref).kind == LoopTree::LOOP) {
+    if (lt.kind(ref) == LoopTree::LOOP) {
       return;
     }
     auto node_ref = lt.node(ref);
@@ -719,13 +719,13 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
     }
   }
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.tree_node(ref).kind != LoopTree::NODE) {
+    if (lt.kind(ref) != LoopTree::NODE) {
       return;
     }
     auto parent = lt.parent(ref);
     auto inner = 1;
     while (parent != -1) {
-      ASSERT(lt.tree_node(parent).kind == LoopTree::LOOP);
+      ASSERT(lt.kind(parent) == LoopTree::LOOP);
       if (threaded.count(parent)) {
         if (cuda_aux.threaded.count(parent)) {
           auto alt_inner = cuda_aux.threaded.at(parent);

@@ -17,6 +17,10 @@ set(LIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 add_library(loop_tool SHARED ${CORE_SRCS})
 target_include_directories(loop_tool PUBLIC ${LIB_INCLUDE})
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(loop_tool PRIVATE Threads::Threads)
+
 list(APPEND CMAKE_MODULE_PATH "${SRC_DIR}/backends/cuda")
 find_package(CUDAToolkit)
 if (CUDAToolkit_FOUND)

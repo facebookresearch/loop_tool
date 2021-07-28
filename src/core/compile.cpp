@@ -10,6 +10,7 @@ LICENSE file in the root directory of this source tree.
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <thread>
 #include <unordered_set>
 
 #include "loop_tool/backend.h"
@@ -22,7 +23,7 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 
 // Return LCA of node and it's users
 LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
-  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
   const auto &node = lt.ir.node(lt.node(ref));
 
   // find all usage of this value
@@ -30,7 +31,7 @@ LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
                                            node.outputs().end()};
   std::vector<LoopTree::TreeRef> uses;
   lt.walk([&](LoopTree::TreeRef tr, int) {
-    if (lt.tree_node(tr).kind == LoopTree::NODE) {
+    if (lt.kind(tr) == LoopTree::NODE) {
       if (users.count(lt.node(tr))) {
         uses.emplace_back(tr);
       }
@@ -55,10 +56,13 @@ LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
 // over the variable
 bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref) {
   bool threadable = true;
+  if (lt.kind(ref) == LoopTree::NODE) {
+    return false;
+  }
   auto tree_v = lt.loop(ref).var;
   lt.walk(
       [&](LoopTree::TreeRef ref, int) {
-        if (lt.tree_node(ref).kind == LoopTree::LOOP) {
+        if (lt.kind(ref) == LoopTree::LOOP) {
           return;
         }
         auto node_ref = lt.node(ref);
@@ -124,7 +128,7 @@ total of 10 The resultant expressions will share memory but will have different
 */
 
 void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
-  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
   LoopTree::TreeRef lca = get_scope(lt, ref);
 
   // var -> running size, last tail
@@ -218,8 +222,8 @@ std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use) {
   auto ref = alloc.producer;
-  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
-  ASSERT(lt.tree_node(use).kind == LoopTree::NODE);
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  ASSERT(lt.kind(use) == LoopTree::NODE);
 
   auto idx_vec = gen_idx_vector(lt, alloc, use);
   return [=](int indices[MAX_DEPTH]) {
@@ -405,8 +409,21 @@ std::function<void(const std::vector<void *> &)> gen_mem(
   };
 }
 
-InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
-                     LoopTree::TreeRef ref) {
+// 0 -> not CPU
+// 1 -> CPU
+// 2 -> parallel CPU
+int cpu_backend(const LoopTree &lt, LoopTree::TreeRef ref) {
+  auto annot = lt.annotation(ref);
+  if (annot == "cpu_parallel") {
+    return 2;
+  } else if (annot == "cpu") {
+    return 1;
+  }
+  return 0;
+}
+
+InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
+                              LoopTree::TreeRef ref) {
   auto tree_node = lt.tree_node(ref);
   auto depth = tree_node.depth;
   auto loop = tree_node.loop;
@@ -422,7 +439,71 @@ InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
   }
 
   auto inner_size = aux.inner_size.at(ref);
+  auto memory_fn = gen_mem(lt, aux, ref);
 
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
+             int tails[MAX_DEPTH]) {
+    auto run = [&](int n_size, int t_size) {
+      std::vector<std::thread> threads;
+      for (auto i = 0; i < n_size; ++i) {
+        threads.emplace_back([=]() {
+          memory_fn(memory);
+          for (const auto &fn : fns) {
+            indices[depth] = i;
+            tails[var_idx] = 0;
+            fn(memory, indices, tails);
+          }
+        });
+      }
+      for (auto &t : threads) {
+        t.join();
+      }
+      if (t_size) {
+        memory_fn(memory);
+        for (const auto &fn : fns) {
+          indices[depth] = n_size;
+          tails[var_idx] = t_size;
+          fn(memory, indices, tails);
+        }
+      }
+    };
+
+    auto tail = tails[var_idx];
+    if (tail) {
+      auto N = tail / inner_size;
+      auto T = tail % inner_size;
+      run(N, T);
+      return;
+    }
+
+    run(size, tail_size);
+  };
+}
+
+InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
+                     LoopTree::TreeRef ref) {
+  auto backend = cpu_backend(lt, ref);
+  ASSERT(backend) << "backend not yet implemented: " << lt.annotation(ref);
+  if (backend == 2) {
+    ASSERT(trivially_parallel(lt, ref))
+        << "threaded reductions not yet supported";
+    return gen_parallel_loop(lt, aux, ref);
+  }
+  auto tree_node = lt.tree_node(ref);
+  auto depth = tree_node.depth;
+  auto loop = tree_node.loop;
+  auto size = loop.size;
+  auto tail_size = loop.tail;
+  auto var_idx = aux.var_idx.at(loop.var);
+
+  ASSERT(size > 0);
+  ASSERT(tail_size >= 0);
+  std::vector<InnerFnType> fns;
+  for (auto c : tree_node.children) {
+    fns.emplace_back(gen_fn(lt, aux, c));
+  }
+
+  auto inner_size = aux.inner_size.at(ref);
   auto memory_fn = gen_mem(lt, aux, ref);
 
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
@@ -463,7 +544,7 @@ void update_inner_size(
     std::unordered_map<LoopTree::TreeRef, size_t> &inner_size,
     LoopTree::TreeRef ref) {
   // can only be done with leaf nodes
-  ASSERT(lt.tree_node(ref).kind == LoopTree::NODE);
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
   auto loop_ref = lt.parent(ref);
   std::unordered_map<IR::VarRef, std::pair<int, int>> var_sizes;
   while (loop_ref != -1) {
@@ -487,7 +568,7 @@ void update_inner_size(
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref) {
   ASSERT(lt.tree_node(ref).depth < MAX_DEPTH);
-  if (lt.tree_node(ref).kind == LoopTree::NODE) {
+  if (lt.kind(ref) == LoopTree::NODE) {
     return gen_leaf(lt, aux, ref);
   } else {
     return gen_loop(lt, aux, ref);
@@ -497,7 +578,7 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 // recursively calculate all auxilary information
 void gen_aux(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   ASSERT(lt.tree_node(ref).depth < MAX_DEPTH);
-  if (lt.tree_node(ref).kind == LoopTree::NODE) {
+  if (lt.kind(ref) == LoopTree::NODE) {
     update_inner_size(lt, aux.inner_size, ref);
     gen_alloc(lt, aux, ref);
   } else {

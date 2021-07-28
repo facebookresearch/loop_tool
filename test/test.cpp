@@ -8,6 +8,7 @@ LICENSE file in the root directory of this source tree.
 #include <iostream>
 #include <random>
 
+#include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/ir.h"
 
@@ -394,14 +395,37 @@ int main() {
     ir.set_inputs({r});
     ir.set_outputs({w});
     ir = split_node(ir, add, {b});
-    auto lt = LoopTree(ir);
-    std::cout << lt.dump();
-    lt.walk([&](LoopTree::TreeRef ref, int) {
-      if (lt.tree_node(ref).kind != LoopTree::LOOP) {
-        return;
+
+    for (auto n : ir.nodes()) {
+      std::vector<std::pair<IR::VarRef, IR::LoopSize>> sched;
+      for (auto v : ir.all_vars(n)) {
+        sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{v, {N, 0}});
       }
-      std::cout << "parallel L" << ref << ": ";
-      std::cout << trivially_parallel(lt, ref) << "\n";
+      ir.set_order(n, sched);
+    }
+
+    auto lt = LoopTree(ir);
+    lt.walk([&](LoopTree::TreeRef ref, int) {
+      if (trivially_parallel(lt, ref)) {
+        lt.annotate(ref, "cpu_parallel");
+      }
     });
+    std::cout << lt.dump() << "\n";
+
+    auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
+    std::vector<float> input(N * N);
+    for (auto i = 0; i < N * N; ++i) {
+      input[i] = i;
+    }
+    std::vector<float> output(1);
+    cc->run({input.data(), output.data()}, true);
+    std::cout << "sum of vals from 0 to " << (N * N - 1) << " is " << output[0]
+              << "\n";
+    // lt.walk([&](LoopTree::TreeRef ref, int) {
+    //  if (lt.tree_node(ref).kind != LoopTree::LOOP) {
+    //    return;
+    //  }
+    //  std::cout << "parallel L" << ref << ": ";
+    //});
   }
 }
