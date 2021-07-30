@@ -186,10 +186,46 @@ def test_rand_reduce(size):
     p = set([l for l in loop_tree.loops if loop_tree.trivially_parallel(l)])
     check_exec(loop_tree, [A, B], B_ref, p)
 
+def test_annot(N, M):
+    ir = lt.IR()
+    n = ir.create_var("N")
+    m = ir.create_var("M")
+    r = ir.create_node("read", [], [n, m])
+    add0 = ir.create_node("add", [r], [n])
+    add1 = ir.create_node("add", [add0], [])
+    w = ir.create_node("write", [add1], [])
+    ir.set_inputs([r])
+    ir.set_outputs([w])
+    ir.set_order(r, [(n, (N, 0)), (m, (M, 0))])
+    ir.set_order(add0, [(n, (N, 0)), (m, (M, 0))])
+    ir.disable_reuse(r, m)
+    ir.disable_reuse(add0, n)
+    ir.set_order(add1, [(n, (N, 0))])
+    ir.set_order(w, [])
+    loop_tree = lt.LoopTree(ir)
+    loop_tree.annotate(loop_tree.roots[0], "cpu_parallel")
+    print(loop_tree)
+    cpu_fn = lt.cpu(loop_tree)
+    A = lt.Tensor(N*M)
+    B = lt.Tensor(1)
+    Ap = np.random.randn(N*M)
+    print(lt.backends())
+    A.set(Ap)
+    B_ref = np.sum(Ap)
+    B.set(0.0)
+    cpu_fn([A, B])
+    t = time.time()
+    for i in range(100):
+      cpu_fn([A, B])
+    print(time.time() - t)
+    print(B.to_numpy(), B_ref)
+
+
 
 if __name__ == "__main__":
     random.seed(1337)
     np.random.seed(1337)
+    test_annot(32, 1024)
     print("pointwise", end="")
     for s in [7, 64, 128, 129, 512]:
         print(".", end="", flush=True)

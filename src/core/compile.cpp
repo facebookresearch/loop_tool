@@ -21,6 +21,19 @@ namespace loop_tool {
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref);
 
+// 0 -> not CPU
+// 1 -> CPU
+// 2 -> parallel CPU
+int cpu_backend(const LoopTree &lt, LoopTree::TreeRef ref) {
+  auto annot = lt.annotation(ref);
+  if (annot == "cpu_parallel") {
+    return 2;
+  } else if (annot == "cpu") {
+    return 1;
+  }
+  return 0;
+}
+
 // Return LCA of node and it's users
 LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
   ASSERT(lt.kind(ref) == LoopTree::NODE);
@@ -130,6 +143,7 @@ total of 10 The resultant expressions will share memory but will have different
 void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   ASSERT(lt.kind(ref) == LoopTree::NODE);
   LoopTree::TreeRef lca = get_scope(lt, ref);
+  auto alloc_idx = static_cast<int>(aux.allocs.size());
 
   // var -> running size, last tail
   auto loop_ref = lt.parent(ref);
@@ -139,7 +153,7 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   while (loop_ref != lca) {
     auto loop = lt.loop(loop_ref);
     auto size = loop.size;
-    if (!vars.count(loop.var)) {
+    if (!vars.count(loop.var) || cpu_backend(lt, loop_ref) == 2) {
       loop_ref = lt.parent(loop_ref);
       continue;
     }
@@ -155,6 +169,21 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   for (auto &p : var_sizes) {
     total *= (p.second.first + p.second.second);
   }
+
+  // now we traverse upward and count the number of instances of this memory
+  size_t thread_multiplier = 1;
+  loop_ref = lt.parent(ref);
+  while (loop_ref != -1) {
+    if (cpu_backend(lt, loop_ref) == 2) {
+      auto loop = lt.loop(loop_ref);
+      auto loop_size = loop.size + (loop.tail > 0);
+      aux.thread_memory[loop_ref].emplace_back(
+          std::make_pair(alloc_idx, thread_multiplier * total));
+      thread_multiplier *= loop_size;
+    }
+    loop_ref = lt.parent(loop_ref);
+  }
+
   auto node_ref = lt.node(ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
                     lt.ir.all_vars(node_ref).size());
@@ -168,14 +197,14 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
     init_val = 0;
   }
 
-  Allocation alloc{total,       static_cast<int>(aux.allocs.size()),
-                   should_init, init_val,
-                   lca,         ref};
+  Allocation alloc{
+      total, thread_multiplier, alloc_idx, should_init, init_val, lca, ref};
   aux.allocs[node_ref] = alloc;
   aux.resets[alloc.lca].emplace_back(alloc);
 }
 
 std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
+                                                   const Auxiliary &aux,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use) {
   std::vector<std::pair<int, size_t>> idx_vec;
@@ -197,7 +226,9 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
   std::unordered_map<IR::VarRef, std::vector<LoopTree::TreeRef>> var_loops;
   while (loop_ref != alloc.lca) {
     auto loop = lt.loop(loop_ref);
-    if (vars.count(loop.var)) {
+    if (aux.thread_memory.count(loop_ref)) {
+      // handled by threading!
+    } else if (vars.count(loop.var)) {
       var_loops[loop.var].emplace_back(loop_ref);
     }
     loop_ref = lt.parent(loop_ref);
@@ -219,13 +250,14 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
  an index function maps a point in memory given a location in the loop tree
 */
 std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
+                                                   const Auxiliary &aux,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use) {
   auto ref = alloc.producer;
   ASSERT(lt.kind(ref) == LoopTree::NODE);
   ASSERT(lt.kind(use) == LoopTree::NODE);
 
-  auto idx_vec = gen_idx_vector(lt, alloc, use);
+  auto idx_vec = gen_idx_vector(lt, aux, alloc, use);
   return [=](int indices[MAX_DEPTH]) {
     size_t idx = 0;
     for (const auto &p : idx_vec) {
@@ -235,8 +267,10 @@ std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
   };
 }
 
-InnerFnType gen_read(const LoopTree &lt, LoopTree::TreeRef ref,
-                     const Allocation &alloc) {
+InnerFnType gen_read(const LoopTree &lt, const Auxiliary &aux,
+                     LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  const Allocation &alloc = aux.allocs.at(lt.node(ref));
   int external_memory = -1;
   for (auto i = 0; i < lt.ir.inputs().size(); ++i) {
     if (lt.ir.inputs()[i] == lt.node(ref)) {
@@ -245,11 +279,14 @@ InnerFnType gen_read(const LoopTree &lt, LoopTree::TreeRef ref,
   }
   ASSERT(external_memory > -1 && "No input found!");
 
-  auto idx_fn = gen_idx_func(lt, alloc, ref);
+  auto idx_fn = gen_idx_func(lt, aux, alloc, ref);
   auto alloc_read = alloc;
   // TODO this is a hacky way to ensure all variables are in the indexing
   alloc_read.lca = -1;
-  auto read_idx_fn = gen_idx_func(lt, alloc_read, ref);
+  auto saved_threading = aux.thread_memory;
+  const_cast<Auxiliary &>(aux).thread_memory.clear();
+  auto read_idx_fn = gen_idx_func(lt, aux, alloc_read, ref);
+  const_cast<Auxiliary &>(aux).thread_memory = saved_threading;
   auto inp_memory = alloc.idx + lt.ir.inputs().size() + lt.ir.outputs().size();
 
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
@@ -264,8 +301,7 @@ InnerFnType gen_read(const LoopTree &lt, LoopTree::TreeRef ref,
   };
 }
 
-InnerFnType gen_write(const LoopTree &lt,
-                      const std::unordered_map<IR::NodeRef, Allocation> &allocs,
+InnerFnType gen_write(const LoopTree &lt, const Auxiliary &aux,
                       LoopTree::TreeRef ref) {
   int external_memory = -1;
   auto tree_node = lt.tree_node(ref);
@@ -282,11 +318,11 @@ InnerFnType gen_write(const LoopTree &lt,
 
   auto inp = n.inputs()[0];
 
-  auto inp_idx_fn = gen_idx_func(lt, allocs.at(inp), ref);
-  auto out_idx_fn = gen_idx_func(lt, allocs.at(tree_node.node), ref);
-  auto alloc = allocs.at(tree_node.node);
+  auto inp_idx_fn = gen_idx_func(lt, aux, aux.allocs.at(inp), ref);
+  auto out_idx_fn = gen_idx_func(lt, aux, aux.allocs.at(tree_node.node), ref);
+  auto alloc = aux.allocs.at(tree_node.node);
   auto input_memory =
-      allocs.at(inp).idx + lt.ir.inputs().size() + lt.ir.outputs().size();
+      aux.allocs.at(inp).idx + lt.ir.inputs().size() + lt.ir.outputs().size();
 
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
@@ -300,8 +336,7 @@ InnerFnType gen_write(const LoopTree &lt,
   };
 }
 
-InnerFnType gen_add(const LoopTree &lt,
-                    const std::unordered_map<IR::NodeRef, Allocation> &allocs,
+InnerFnType gen_add(const LoopTree &lt, const Auxiliary &aux,
                     LoopTree::TreeRef ref) {
   auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
@@ -311,13 +346,13 @@ InnerFnType gen_add(const LoopTree &lt,
 
   auto mem_off = lt.ir.inputs().size() + lt.ir.outputs().size();
   for (auto &inp_ref : n.inputs()) {
-    const auto &alloc = allocs.at(inp_ref);
-    inputs.emplace_back(gen_idx_func(lt, alloc, ref), alloc.idx + mem_off);
+    const auto &alloc = aux.allocs.at(inp_ref);
+    inputs.emplace_back(gen_idx_func(lt, aux, alloc, ref), alloc.idx + mem_off);
   }
-  auto out_alloc = allocs.at(tree_node.node);
+  auto out_alloc = aux.allocs.at(tree_node.node);
 
-  output =
-      std::make_pair(gen_idx_func(lt, out_alloc, ref), out_alloc.idx + mem_off);
+  output = std::make_pair(gen_idx_func(lt, aux, out_alloc, ref),
+                          out_alloc.idx + mem_off);
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
     for (auto i = 0; i < MAX_DEPTH; ++i) {
@@ -332,8 +367,7 @@ InnerFnType gen_add(const LoopTree &lt,
   };
 };
 
-InnerFnType gen_mul(const LoopTree &lt,
-                    const std::unordered_map<IR::NodeRef, Allocation> &allocs,
+InnerFnType gen_mul(const LoopTree &lt, const Auxiliary &aux,
                     LoopTree::TreeRef ref) {
   auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
@@ -343,13 +377,13 @@ InnerFnType gen_mul(const LoopTree &lt,
 
   auto mem_off = lt.ir.inputs().size() + lt.ir.outputs().size();
   for (auto &inp_ref : n.inputs()) {
-    const auto &alloc = allocs.at(inp_ref);
-    inputs.emplace_back(gen_idx_func(lt, alloc, ref), alloc.idx + mem_off);
+    const auto &alloc = aux.allocs.at(inp_ref);
+    inputs.emplace_back(gen_idx_func(lt, aux, alloc, ref), alloc.idx + mem_off);
   }
-  auto out_alloc = allocs.at(tree_node.node);
+  auto out_alloc = aux.allocs.at(tree_node.node);
 
-  output =
-      std::make_pair(gen_idx_func(lt, out_alloc, ref), out_alloc.idx + mem_off);
+  output = std::make_pair(gen_idx_func(lt, aux, out_alloc, ref),
+                          out_alloc.idx + mem_off);
   auto depth = lt.tree_node(ref).depth;
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
@@ -373,13 +407,13 @@ InnerFnType gen_leaf(const LoopTree &lt, const Auxiliary &aux,
   auto alloc = aux.allocs.at(lt.node(ref));
 
   if (n.op() == "add") {
-    return gen_add(lt, aux.allocs, ref);
+    return gen_add(lt, aux, ref);
   } else if (n.op() == "mul") {
-    return gen_mul(lt, aux.allocs, ref);
+    return gen_mul(lt, aux, ref);
   } else if (n.op() == "read") {
-    return gen_read(lt, ref, alloc);
+    return gen_read(lt, aux, ref);
   } else if (n.op() == "write") {
-    return gen_write(lt, aux.allocs, ref);
+    return gen_write(lt, aux, ref);
   }
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
@@ -409,19 +443,6 @@ std::function<void(const std::vector<void *> &)> gen_mem(
   };
 }
 
-// 0 -> not CPU
-// 1 -> CPU
-// 2 -> parallel CPU
-int cpu_backend(const LoopTree &lt, LoopTree::TreeRef ref) {
-  auto annot = lt.annotation(ref);
-  if (annot == "cpu_parallel") {
-    return 2;
-  } else if (annot == "cpu") {
-    return 1;
-  }
-  return 0;
-}
-
 InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
                               LoopTree::TreeRef ref) {
   auto tree_node = lt.tree_node(ref);
@@ -441,17 +462,45 @@ InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
   auto inner_size = aux.inner_size.at(ref);
   auto memory_fn = gen_mem(lt, aux, ref);
 
-  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
+  // to handle threading, we calculate offsets memory into memory
+  // for (auto& mem : aux.threading.at(ref)) {
+  //  //mem.idx
+  //}
+  auto alloc_off = lt.ir.inputs().size() + lt.ir.outputs().size();
+  auto offset_memory = [=](const std::vector<void *> &memory_, int i) {
+    auto memory = memory_;
+    if (!aux.thread_memory.count(ref)) {
+      return memory;
+    }
+    // some memory is threaded, we have to
+    // 1. find that memory
+    // 2. find how that thread strides the memory
+    // 3. mutate the memory as `address = (address + i * stride)`
+    // this means we need TreeRef -> { (idx, stride), (idx, stride) }
+    for (auto &p : aux.thread_memory.at(ref)) {
+      auto mem_idx = alloc_off + p.first;
+      auto fmem = (float *)(memory[mem_idx]);
+      memory[mem_idx] = fmem + i * p.second;
+    }
+    return memory;
+  };
+
+  return [=](const std::vector<void *> &memory_, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
     auto run = [&](int n_size, int t_size) {
       std::vector<std::thread> threads;
       for (auto i = 0; i < n_size; ++i) {
+        auto memory = offset_memory(memory_, i);
         threads.emplace_back([=]() {
+          int indices_[MAX_DEPTH];
+          std::copy(indices, indices + MAX_DEPTH, indices_);
+          int tails_[MAX_DEPTH];
+          std::copy(tails, tails + MAX_DEPTH, tails_);
           memory_fn(memory);
           for (const auto &fn : fns) {
-            indices[depth] = i;
-            tails[var_idx] = 0;
-            fn(memory, indices, tails);
+            indices_[depth] = i;
+            tails_[var_idx] = 0;
+            fn(memory, indices_, tails_);
           }
         });
       }
@@ -459,6 +508,7 @@ InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
         t.join();
       }
       if (t_size) {
+        auto memory = offset_memory(memory_, n_size);
         memory_fn(memory);
         for (const auto &fn : fns) {
           indices[depth] = n_size;
@@ -627,7 +677,7 @@ compile(const LoopTree &lt) {
     auto sizes_idx = p.second.idx;
     ASSERT(sizes.size() > sizes_idx);
     ASSERT(sizes_idx > -1);
-    sizes[sizes_idx] = p.second.size * sizeof(float);
+    sizes[sizes_idx] = p.second.size * sizeof(float) * p.second.thread_size;
   }
   return std::make_pair(fn, sizes);
 };
@@ -665,8 +715,8 @@ struct CPUCompiled : public Compiled {
       memory_w_intermediates.emplace_back(calloc(1, s));
       free_me.emplace_back(memory_w_intermediates.back());
     }
-
     fn(memory_w_intermediates);
+
     for (auto v : free_me) {
       free(v);
     }

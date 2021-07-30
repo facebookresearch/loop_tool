@@ -128,6 +128,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
   }
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
+      .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
+                          std::string annot) { lt.annotate(ref, annot); })
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
       .def("trivially_parallel",

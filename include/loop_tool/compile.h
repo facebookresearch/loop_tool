@@ -18,6 +18,7 @@ namespace loop_tool {
 
 struct Allocation {
   size_t size;
+  size_t thread_size;
   int idx;
   bool should_init;
   float init_val;         // TODO don't hardcode float type
@@ -32,6 +33,9 @@ struct Auxiliary {
       inner_size;  // total size of inner loops over same var
   std::unordered_map<IR::NodeRef, Allocation>
       allocs;  // intermediate allocations
+  // thread -> [(idx, stride), ...]
+  std::unordered_map<LoopTree::TreeRef, std::vector<std::pair<int, int>>>
+      thread_memory;
   std::unordered_map<LoopTree::TreeRef, std::vector<Allocation>>
       resets;  // allocation LCAs
 };
@@ -41,9 +45,11 @@ using InnerFnType = std::function<void(const std::vector<void *> &,
                                        int[MAX_DEPTH], int[MAX_DEPTH])>;
 
 std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
+                                                   const Auxiliary &aux,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use);
 std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
+                                                   const Auxiliary &aux,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use);
 void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref);

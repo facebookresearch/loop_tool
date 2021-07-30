@@ -59,9 +59,9 @@ size_t thread_scope(const LoopTree &lt, const CudaAux &cuda_aux,
                     LoopTree::TreeRef ref);
 
 // full access to memory + idx + optional vector idx
-std::string gen_access(const LoopTree &lt, const Allocation &alloc,
-                       LoopTree::TreeRef use, const UnrollMap &unroll,
-                       int external_idx = -1) {
+std::string gen_access(const LoopTree &lt, const Auxiliary &aux,
+                       const Allocation &alloc, LoopTree::TreeRef use,
+                       const UnrollMap &unroll, int external_idx = -1) {
   std::stringstream ss;
 
   std::vector<LoopTree::Loop> parent_chain;
@@ -72,7 +72,7 @@ std::string gen_access(const LoopTree &lt, const Allocation &alloc,
   }
   std::reverse(parent_chain.begin(), parent_chain.end());
   auto order = parent_chain;  // lt.loop_order(lt.node(use));
-  auto idx_vec = gen_idx_vector(lt, alloc, use);
+  auto idx_vec = gen_idx_vector(lt, aux, alloc, use);
   // can we map innermost dims to vector index?
   // this becomes false if non-innermost sizes cannot be vectorized (TODO relax)
   bool unrolled_vectorize = true;
@@ -150,7 +150,7 @@ std::string gen_compute(const LoopTree &lt, const Auxiliary &aux,
   const auto &node = lt.ir.node(node_ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
                     lt.ir.all_vars(node_ref).size());
-  ss << gen_access(lt, aux.allocs.at(node_ref), ref, unroll) << " ";
+  ss << gen_access(lt, aux, aux.allocs.at(node_ref), ref, unroll) << " ";
   if (reduction) {
     ss << sym;
   }
@@ -159,7 +159,7 @@ std::string gen_compute(const LoopTree &lt, const Auxiliary &aux,
     auto idx = aux.allocs.at(node_ref).idx;
     auto inp_alloc = aux.allocs.at(inp);
     auto inp_idx = inp_alloc.idx;
-    ss << gen_access(lt, aux.allocs.at(inp), ref, unroll);
+    ss << gen_access(lt, aux, aux.allocs.at(inp), ref, unroll);
     if (&inp != &node.inputs().back()) {
       ss << " " << sym << " ";
     }
@@ -194,9 +194,9 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
     inp_alloc.lca = -1;  // TODO clean up read hacks
 
     ss << indent(depth);
-    ss << gen_access(lt, out_alloc, ref, unroll);
+    ss << gen_access(lt, aux, out_alloc, ref, unroll);
     ss << " = ";
-    ss << gen_access(lt, inp_alloc, ref, unroll, external_memory);
+    ss << gen_access(lt, aux, inp_alloc, ref, unroll, external_memory);
     ss << ";\n";
   } else if (node.op() == "write") {
     int external_memory = -1;
@@ -212,9 +212,9 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
     auto inp_alloc = aux.allocs.at(node.inputs().at(0));
 
     ss << indent(depth);
-    ss << gen_access(lt, out_alloc, ref, unroll, external_memory);
+    ss << gen_access(lt, aux, out_alloc, ref, unroll, external_memory);
     ss << " = ";
-    ss << gen_access(lt, inp_alloc, ref, unroll);
+    ss << gen_access(lt, aux, inp_alloc, ref, unroll);
     ss << ";\n";
   }
 

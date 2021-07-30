@@ -421,11 +421,5 @@ int main() {
     cc->run({input.data(), output.data()}, true);
     std::cout << "sum of vals from 0 to " << (N * N - 1) << " is " << output[0]
               << "\n";
-    // lt.walk([&](LoopTree::TreeRef ref, int) {
-    //  if (lt.tree_node(ref).kind != LoopTree::LOOP) {
-    //    return;
-    //  }
-    //  std::cout << "parallel L" << ref << ": ";
-    //});
   }
 }
