@@ -11,6 +11,7 @@ LICENSE file in the root directory of this source tree.
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/ir.h"
+#include "loop_tool/lazy.h"
 
 using namespace loop_tool;
 
@@ -421,5 +422,73 @@ int main() {
     cc->run({input.data(), output.data()}, true);
     std::cout << "sum of vals from 0 to " << (N * N - 1) << " is " << output[0]
               << "\n";
+  }
+  {
+    namespace lz = ::loop_tool::lazy;
+    auto M = lz::Symbol("M");
+    auto N = lz::Symbol("N");
+    auto K = lz::Symbol("K");
+    auto A = lz::Tensor(M, K);
+    auto B = lz::Tensor(K, N);
+    auto C = A * B;
+    ASSERT(C.shape().size() == 3);
+    auto D = C.sum(K);
+    ASSERT(D.shape().size() == 2);
+    ASSERT(D.shape()[0] == M);
+    ASSERT(D.shape()[1] == N);
+    std::cout << "pass!\n";
+    size_t M_size = 16;
+    size_t N_size = 16;
+    size_t K_size = 16;
+    std::vector<float> A_(M_size * K_size);
+    std::vector<float> B_(K_size * N_size);
+    for (auto m = 0; m < M_size; ++m) {
+      for (auto n = 0; n < N_size; ++n) {
+        for (auto k = 0; k < K_size; ++k) {
+          A_[m * K_size + k] = 1 + m * k * 1.8 / 100;
+          B_[k * N_size + n] = 1 + n * k * 1.8 / 100;
+        }
+      }
+    }
+    A.bind(A_.data(), {M_size, K_size});
+    B.bind(B_.data(), {K_size, N_size});
+
+    auto d = D.data<float>();
+    for (auto m = 0; m < M_size; ++m) {
+      for (auto n = 0; n < N_size; ++n) {
+        std::cout << d[m * N_size + n] << " ";
+      }
+      std::cout << "\n";
+    }
+  }
+  {
+    namespace lz = ::loop_tool::lazy;
+    auto mm = [](lz::Tensor A, lz::Tensor B) {
+      auto M = lz::Symbol("M");
+      auto N = lz::Symbol("N");
+      auto K = lz::Symbol("K");
+      auto C = A.as(M, K) * B.as(K, N);
+      return C.sum(K);
+    };
+
+    auto M = 16;
+    auto N = 16;
+    auto K = 16;
+
+    lz::Tensor A(M, K);
+    lz::Tensor B(K, N);
+    rand(A.data<float>(), M * K);
+    rand(B.data<float>(), M * K);
+    auto C = mm(A, B);
+
+    lz::Tensor C_ref(M, N);
+    ref_mm(A.data<float>(), B.data<float>(), M, N, K, C_ref.data<float>());
+
+    float max_diff = 0;
+    for (auto i = 0; i < M * N; ++i) {
+      max_diff = std::max(
+          max_diff, std::abs(C.data<float>()[i] - C_ref.data<float>()[i]));
+    }
+    std::cout << "max diff " << max_diff << "\n";
   }
 }

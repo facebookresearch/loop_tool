@@ -7,6 +7,7 @@ set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/)
 file(GLOB CORE_SRCS
   ${SRC_DIR}/core/*.cpp
 )
+list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 
 file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp

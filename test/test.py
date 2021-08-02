@@ -210,6 +210,20 @@ def test_annot(N, M):
     B = lt.Tensor(1)
     Ap = np.random.randn(N*M)
     print(lt.backends())
+
+    #A = lt.tensor("K", "J")
+    #read = lt.tensor("J")
+    #A_tmp = lt.tensor("K")
+    #B = lt.tensor()
+    #for k in lt.iter("K", 16, backend="cpu_parallel"):
+    #  for j in lt.iter("J", 16):
+    #    read[j] = A[k, j]
+    #  for j in lt.iter("J", 16):
+    #    A_tmp[k] += read[j]
+    #for k in lt.iter("K", 16):
+    #  B[] += A_tmp[k]
+
+
     A.set(Ap)
     B_ref = np.sum(Ap)
     B.set(0.0)

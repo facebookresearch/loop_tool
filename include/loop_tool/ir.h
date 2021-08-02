@@ -106,6 +106,8 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+enum struct Operation { constant, add, multiply, view };
+
 struct Node;
 struct Var;
 
@@ -163,6 +165,8 @@ class IR {
   inline const std::vector<NodeRef> &inputs() const { return inputs_; }
   inline const std::vector<NodeRef> &outputs() const { return outputs_; }
 
+  inline void add_input(NodeRef input) { inputs_.emplace_back(input); }
+  inline void add_output(NodeRef output) { outputs_.emplace_back(output); }
   inline void set_inputs(std::vector<NodeRef> inputs) {
     inputs_ = std::move(inputs);
   }
