@@ -478,7 +478,7 @@ int main() {
     lz::Tensor A(M, K);
     lz::Tensor B(K, N);
     rand(A.data<float>(), M * K);
-    rand(B.data<float>(), M * K);
+    rand(B.data<float>(), K * N);
     auto C = mm(A, B);
 
     lz::Tensor C_ref(M, N);
@@ -490,5 +490,98 @@ int main() {
           max_diff, std::abs(C.data<float>()[i] - C_ref.data<float>()[i]));
     }
     std::cout << "max diff " << max_diff << "\n";
+  }
+
+  {
+    std::cout << "doing mm\n";
+    namespace lz = ::loop_tool::lazy;
+    auto mm = [](lz::Tensor A, lz::Tensor B) {
+      auto M = lz::Symbol("M");
+      auto N = lz::Symbol("N");
+      auto K = lz::Symbol("K");
+      auto C = A.as(M, K) * B.as(K, N);
+      return C.sum(K);
+    };
+
+    auto M = 16;
+    auto N = 16;
+    auto K = 16;
+
+    for (auto i = 0; i < 2; ++i) {
+      lz::Tensor A(M, K);
+      lz::Tensor B(K, N);
+      rand(A.data<float>(), M * K);
+      rand(B.data<float>(), K * N);
+      auto C = mm(A, B);
+      (void)C.data<float>();
+
+      lz::Tensor C_ref(M, N);
+      ref_mm(A.data<float>(), B.data<float>(), M, N, K, C_ref.data<float>());
+
+      float max_diff = 0;
+      for (auto i = 0; i < M * N; ++i) {
+        max_diff = std::max(
+            max_diff, std::abs(C.data<float>()[i] - C_ref.data<float>()[i]));
+      }
+      std::cout << "max diff " << max_diff << "\n";
+    }
+
+    std::cout << "many mm\n";
+    auto iters = 100;
+    auto start = std::chrono::steady_clock::now();
+    for (auto i = 0; i < iters; ++i) {
+      lz::Tensor A(M, K);
+      lz::Tensor B(K, N);
+      // rand(A.data<float>(), M * K);
+      // rand(B.data<float>(), K * N);
+      auto C = mm(A, B);
+      (void)C.data<float>();
+    }
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    std::cerr << iters / diff.count() << " iters/sec\n";
+  }
+  {
+    std::cout << "doing add\n";
+    namespace lz = ::loop_tool::lazy;
+    auto add = [](lz::Tensor A, lz::Tensor B) {
+      auto N = lz::Symbol("N");
+      auto C = A.as(N) + B.as(N);
+      return C;
+    };
+
+    auto size = 4;
+
+    {
+      lz::Tensor A(size);
+      lz::Tensor B(size);
+      rand(A.data<float>(), size);
+      rand(B.data<float>(), size);
+      float max_diff = 0;
+      auto C = add(A, B);
+      for (auto i = 0; i < size; ++i) {
+        auto ref = A.data<float>()[i] + B.data<float>()[i];
+        auto diff = std::abs(C.data<float>()[i] - ref);
+        max_diff = std::max(max_diff, diff);
+      }
+      std::cout << "max diff " << max_diff << "\n";
+    }
+
+    std::vector<float> A_(size);
+    std::vector<float> B_(size);
+    rand(A_.data(), size);
+    rand(B_.data(), size);
+    auto iters = 1000;
+    auto start = std::chrono::steady_clock::now();
+    for (auto i = 0; i < iters; ++i) {
+      lz::Tensor A(A_.data(), {size});
+      lz::Tensor B(B_.data(), {size});
+      auto C = add(A, B);
+      (void)C.data<float>();
+      ASSERT(C.data<float>()[0] == A_[0] + B_[0]);
+    }
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    std::cerr << iters / diff.count() << " iters/sec\n";
   }
 }
