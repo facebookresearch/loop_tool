@@ -38,23 +38,26 @@ if (BUILD_TESTS)
 
 set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/)
 
+file(GLOB TEST_SRCS ${TEST_DIR}/test_*.cpp)
+list(APPEND TEST_SRCS "${TEST_DIR}/test.cpp") # main file
+add_library(loop_tool_test_utils "${TEST_DIR}/utils.cpp")
+
 if (CUDAToolkit_FOUND)
-  add_executable(loop_tool_cuda_test ${TEST_DIR}/cuda_test.cpp)
-  target_link_libraries(loop_tool_cuda_test
+  list(APPEND TEST_SRCS "${TEST_DIR}/cuda_test.cpp")
+endif() # CUDAToolkit_FOUND
+
+add_executable(loop_tool_test ${TEST_SRCS})
+target_link_libraries(loop_tool_test loop_tool_test_utils loop_tool)
+
+if (CUDAToolkit_FOUND)
+  target_link_libraries(loop_tool_test
     -Wl,--no-as-needed
     -Wl,--whole-archive
-    loop_tool
     loop_tool_cuda
     -Wl,--no-whole-archive
     -Wl,--as-needed
   )
 endif() # CUDAToolkit_FOUND
-
-add_executable(loop_tool_test ${TEST_DIR}/test.cpp)
-target_link_libraries(loop_tool_test loop_tool)
-
-add_executable(loop_tool_test_custom_backend ${TEST_DIR}/test_backend.cpp)
-target_link_libraries(loop_tool_test_custom_backend loop_tool)
 
 endif() # BUILD_TESTS
 

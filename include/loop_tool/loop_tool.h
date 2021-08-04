@@ -7,6 +7,8 @@ LICENSE file in the root directory of this source tree.
 #pragma once
 
 #include "backend.h"
+#include "compile.h"
 #include "hardware.h"
 #include "ir.h"
+#include "lazy.h"
 #include "tensor.h"

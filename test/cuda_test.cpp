@@ -12,8 +12,10 @@ LICENSE file in the root directory of this source tree.
 #include <random>
 
 #include "loop_tool/backend.h"
+#include "test_utils.h"
 
 using namespace loop_tool;
+using namespace loop_tool::testing;
 
 #define gpuErrchk(ans) \
   { gpuAssert((ans), __FILE__, __LINE__); }
@@ -43,19 +45,6 @@ void cuda_exec(const LoopTree &lt, const std::vector<void *> &memory,
                const std::unordered_set<LoopTree::TreeRef> &threaded = {-1}) {
   auto &&cc = getBackends().at("cuda")->compile(lt, threaded, -1);
   cc->run(memory, true);
-}
-
-void ref_mm(const float *A, const float *B, int M, int N, int K, float *C,
-            float alpha = 0) {
-  for (auto n = 0; n < N; ++n) {
-    for (auto m = 0; m < M; ++m) {
-      float tmp = 0;
-      for (auto k = 0; k < K; ++k) {
-        tmp += A[m * K + k] * B[k * N + n];
-      }
-      C[m * N + n] = alpha * C[m * N + n] + tmp;
-    }
-  }
 }
 
 void run(int T, int V) {
@@ -331,7 +320,7 @@ void test_cuda_exec(int M, int N, int K) {
   std::cerr << "max diff " << max_diff << "\n";
 }
 
-int main() {
+TEST(Cuda) {
   // test_mm(128, 128, 128);
   // test_mm(1024, 1024, 1024);
   // test_mm2(1024, 1024, 1024);
@@ -340,7 +329,7 @@ int main() {
   // test_mm2(1023, 1021, 1025);
   test_cuda_exec(1023, 1021, 1025);
   // test_cuda_exec(8, 8, 8);
-  return 0;
+  return;
   // CUdevice cuDevice;
   // CUcontext context;
   // CUDA_SAFE_CALL(cuInit(0));

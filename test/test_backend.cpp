@@ -1,4 +1,12 @@
+/*
+Copyright (c) Facebook, Inc. and its affiliates.
+
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree.
+*/
 #include <loop_tool/loop_tool.h>
+
+#include "test_utils.h"
 
 namespace lt = loop_tool;
 
@@ -27,7 +35,7 @@ struct CustomBackend : lt::Backend {
 static lt::RegisterBackend custom_backend_reg_{
     std::make_shared<CustomBackend>()};
 
-int main() {
+TEST(CustomBackend) {
   // define
   lt::IR ir;
   auto a = ir.create_var("a");

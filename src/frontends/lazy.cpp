@@ -145,6 +145,7 @@ void TensorImpl::populateCompilationCache() {
   ir.set_outputs({out});
 
   auto loop_tree = schedule(ir, var_map);
+  std::cerr << loop_tree.dump();
   auto cc = getBackends().at("cpu")->compile(loop_tree, {}, -1);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
