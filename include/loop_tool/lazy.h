@@ -147,6 +147,15 @@ struct TensorImpl {
     return static_cast<T*>(data_);
   };
 
+  LoopTree loop_tree() const {
+    if (deps_.size() == 0) {
+      return LoopTree(IR());
+    }
+    (void)data<void>();
+    auto& cc = getCompilationCache().at(hash());
+    return cc.loop_tree;
+  }
+
   LoopTree schedule(
       IR ir,
       const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
@@ -240,6 +249,7 @@ struct Tensor {
 
   std::shared_ptr<TensorImpl> impl() const { return impl_; }
   std::vector<Symbol> shape() const { return impl_->shape(); }
+  LoopTree loop_tree() const { return impl_->loop_tree(); }
 
   template <typename T>
   T* data() const {

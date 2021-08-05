@@ -175,3 +175,32 @@ TEST(LazyAdd) {
   std::chrono::duration<double> diff = end - start;
   std::cerr << iters / diff.count() << " iters/sec\n";
 }
+
+TEST(LazyLoopTree) {
+  namespace lz = ::loop_tool::lazy;
+  auto add = [](lz::Tensor A, lz::Tensor B) {
+    auto N = lz::Symbol("N");
+    auto C = A.as(N) + B.as(N);
+    return C;
+  };
+
+  auto size = 4;
+
+  lz::Tensor A(size);
+  lz::Tensor B(size);
+  rand(A.data<float>(), size);
+  rand(B.data<float>(), size);
+  float max_diff = 0;
+  auto C = add(A, B);
+  for (auto i = 0; i < size; ++i) {
+    auto ref = A.data<float>()[i] + B.data<float>()[i];
+    auto diff = std::abs(C.data<float>()[i] - ref);
+    max_diff = std::max(max_diff, diff);
+  }
+  std::cout << "max diff " << max_diff << "\n";
+
+  auto lt = C.loop_tree();
+  ASSERT(lt.roots.size() > 0);
+  ASSERT(A.loop_tree().roots.size() == 0);
+  std::cout << "schedule is:\n" << lt.dump();
+}
