@@ -141,7 +141,7 @@ TEST(LazyAdd) {
     return C;
   };
 
-  auto size = 4;
+  size_t size = 4;
 
   {
     lz::Tensor A(size);
@@ -184,7 +184,7 @@ TEST(LazyLoopTree) {
     return C;
   };
 
-  auto size = 4;
+  size_t size = 4;
 
   lz::Tensor A(size);
   lz::Tensor B(size);

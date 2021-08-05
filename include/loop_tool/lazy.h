@@ -179,6 +179,12 @@ struct Tensor {
   template <typename... Sizes,
             std::enable_if_t<detail::areT<int, Sizes...>::value, int> = 0>
   Tensor(Sizes... sizes)
+      : impl_(std::make_shared<TensorImpl>(
+            nullptr, std::vector<size_t>{static_cast<size_t>(sizes)...})) {}
+
+  template <typename... Sizes,
+            std::enable_if_t<detail::areT<size_t, Sizes...>::value, int> = 0>
+  Tensor(Sizes... sizes)
       : impl_(std::make_shared<TensorImpl>(nullptr,
                                            std::vector<size_t>{sizes...})) {}
 
