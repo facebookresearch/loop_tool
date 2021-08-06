@@ -132,6 +132,9 @@ IR::NodeRef TensorImpl::resolve(
 }
 
 void TensorImpl::populateCompilationCache() {
+  // collect constraints
+  // unify constraints
+  // propagate updated constraints
   unify();
 
   IR ir;
@@ -155,20 +158,22 @@ void TensorImpl::populateCompilationCache() {
 
 // TODO: AC unification algorithm i.e. Expr = Expr constraints with
 // associativity/commutativity
-std::vector<std::pair<Symbol, size_t>> unify(
+std::vector<std::pair<Symbol, Expr>> unify(
     std::vector<std::pair<Symbol, Expr>> constraints) {
   std::function<Expr(Expr)> eval_expr;
   // Symbol.id() -> value
-  std::unordered_map<int, size_t> replacements;
+  std::unordered_map<int, Expr> replacements;
   auto pass = [&]() -> bool {
     bool updated = false;
     for (auto& p : constraints) {
       p.second = eval_expr(p.second);
-      if (p.second.type() == Expr::Type::value) {
-        if (!replacements.count(p.first.id())) {
-          replacements[p.first.id()] = p.second.value();
-          updated = true;
-        }
+      if (!replacements.count(p.first.id())) {
+        replacements.emplace(p.first.id(), p.second);
+        updated = true;
+      }
+      if (replacements.at(p.first.id()) != p.second) {
+        replacements.at(p.first.id()) = p.second;
+        updated = true;
       }
     }
     return updated;
@@ -180,7 +185,7 @@ std::vector<std::pair<Symbol, size_t>> unify(
     } else if (e.type() == Expr::Type::symbol) {
       auto id = e.symbol().id();
       if (replacements.count(id)) {
-        return Expr(replacements.at(id));
+        return replacements.at(id);
       }
       return e;
     }
@@ -192,12 +197,12 @@ std::vector<std::pair<Symbol, size_t>> unify(
       if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
         return Expr(lhs.value() + rhs.value());
       }
-      return e;
+      return lhs + rhs;
     } else if (e.op() == Operation::multiply) {
       if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
         return Expr(lhs.value() * rhs.value());
       }
-      return e;
+      return lhs * rhs;
     }
     ASSERT(0) << "unknown expression op";
     return e;
@@ -206,9 +211,9 @@ std::vector<std::pair<Symbol, size_t>> unify(
   while (pass())
     ;
 
-  std::vector<std::pair<Symbol, size_t>> out;
+  std::vector<std::pair<Symbol, Expr>> out;
   for (const auto& p : constraints) {
-    out.emplace_back(std::make_pair(p.first, replacements.at(p.first.id())));
+    out.emplace_back(std::make_pair(p.first, eval_expr(p.second)));
   }
   return out;
 }

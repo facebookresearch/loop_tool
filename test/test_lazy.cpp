@@ -244,8 +244,29 @@ TEST(LazySymbols) {
   auto out = unify(constraints);
   for (auto p : out) {
     if (p.first.id() == D.id()) {
-      ASSERT(p.second == 98);
+      ASSERT(p.second.value() == 98);
     }
-    std::cout << p.first.name() << " = " << p.second << "\n";
+    std::cout << p.first.name() << " = " << p.second.dump() << "\n";
+  }
+}
+
+TEST(LazySymbolsUnbound) {
+  namespace lz = loop_tool::lazy;
+  std::vector<std::pair<lz::Symbol, lz::Expr>> constraints;
+  lz::Symbol A("A");
+  lz::Symbol B("B");
+  lz::Symbol C("C");
+  lz::Symbol D("D");
+  // constraints.emplace_back(std::make_pair(A, lz::Expr(8)));
+  constraints.emplace_back(std::make_pair(C, lz::Expr(B) * lz::Expr(9)));
+  constraints.emplace_back(std::make_pair(B, lz::Expr(A) + lz::Expr(2)));
+  constraints.emplace_back(std::make_pair(D, lz::Expr(A) + lz::Expr(C)));
+
+  auto out = unify(constraints);
+  for (auto p : out) {
+    if (p.first.id() == D.id()) {
+      // ASSERT(p.second == 98);
+    }
+    std::cout << p.first.name() << " = " << p.second.dump() << "\n";
   }
 }

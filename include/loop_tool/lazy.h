@@ -84,6 +84,59 @@ struct Expr {
   Expr operator*(const Expr& rhs) {
     return Expr(Operation::multiply, {*this, rhs});
   }
+  bool operator!=(const Expr& rhs) const { return !(*this == rhs); }
+  bool operator==(const Expr& rhs) const {
+    if (type_ == Type::value) {
+      return rhs.type() == Type::value && rhs.value() == value();
+    } else if (type_ == Type::symbol) {
+      return rhs.type() == Type::symbol && rhs.symbol() == symbol();
+    }
+    ASSERT(type_ == Type::function);
+    if (rhs.type() != Type::function) {
+      return false;
+    }
+    bool match = true;
+    if (args().size() == rhs.args().size()) {
+      for (auto i = 0; i < args().size(); ++i) {
+        match &= args().at(i) == rhs.args().at(i);
+      }
+    } else {
+      match = false;
+    }
+    return rhs.op() == op() && match;
+  }
+  std::string dump() const {
+    std::stringstream ss;
+    if (type_ == Type::value) {
+      ss << value();
+    } else if (type_ == Type::symbol) {
+      ss << symbol().name();
+    } else {
+      ASSERT(args().size() == 2);
+      auto lhs = args().at(0);
+      auto rhs = args().at(1);
+      if (lhs.op() == Operation::constant) {
+        ss << lhs.dump();
+      } else {
+        ss << "(" << lhs.dump() << ")";
+      }
+
+      if (op_ == Operation::add) {
+        ss << "+";
+      } else if (op_ == Operation::multiply) {
+        ss << "*";
+      } else {
+        ASSERT(0) << "can't print this op";
+      }
+
+      if (rhs.op() == Operation::constant) {
+        ss << rhs.dump();
+      } else {
+        ss << "(" << rhs.dump() << ")";
+      }
+    }
+    return ss.str();
+  }
 };
 
 // wrapped by shared ptr for convenience
@@ -285,7 +338,7 @@ struct Tensor {
   };
 };
 
-std::vector<std::pair<Symbol, size_t>> unify(
+std::vector<std::pair<Symbol, Expr>> unify(
     std::vector<std::pair<Symbol, Expr>> constraints);
 
 }  // namespace lazy
