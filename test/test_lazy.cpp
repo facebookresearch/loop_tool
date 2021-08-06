@@ -5,6 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 #include <loop_tool/loop_tool.h>
+#include <string.h>
 
 #include <chrono>
 #include <random>
@@ -203,4 +204,48 @@ TEST(LazyLoopTree) {
   ASSERT(lt.roots.size() > 0);
   ASSERT(A.loop_tree().roots.size() == 0);
   std::cout << "schedule is:\n" << lt.dump();
+}
+
+TEST(LazyStackMemory) {
+  namespace lz = loop_tool::lazy;
+  lz::Tensor A(128);
+  lz::Tensor B(128);
+
+  memset(A.data<float>(), 0, sizeof(float) * 128);
+  for (auto i = 0; i < 128; ++i) {
+    B.data<float>()[i] = i;
+  }
+
+  lz::Symbol N;
+  auto C = A.as(N) + B.as(N);
+
+  std::cout << C.data<float>()[14] << "\n";  // prints 14
+
+  float scale = 2.f;
+  auto S = lz::Tensor(&scale, {1});  // user data is fine, it isn't copied
+  auto D = B * S;  // broadcasts for us, no need to use lz::Tensor::as()
+
+  ASSERT(D.data<float>()[7] == 14);
+  std::cout << D.loop_tree().dump() << "\n";
+}
+
+TEST(LazySymbols) {
+  namespace lz = loop_tool::lazy;
+  std::vector<std::pair<lz::Symbol, lz::Expr>> constraints;
+  lz::Symbol A("A");
+  lz::Symbol B("B");
+  lz::Symbol C("C");
+  lz::Symbol D("D");
+  constraints.emplace_back(std::make_pair(C, lz::Expr(B) * lz::Expr(9)));
+  constraints.emplace_back(std::make_pair(A, lz::Expr(8)));
+  constraints.emplace_back(std::make_pair(B, lz::Expr(A) + lz::Expr(2)));
+  constraints.emplace_back(std::make_pair(D, lz::Expr(A) + lz::Expr(C)));
+
+  auto out = unify(constraints);
+  for (auto p : out) {
+    if (p.first.id() == D.id()) {
+      ASSERT(p.second == 98);
+    }
+    std::cout << p.first.name() << " = " << p.second << "\n";
+  }
 }

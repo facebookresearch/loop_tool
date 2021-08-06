@@ -45,11 +45,7 @@ struct Symbol {
   // TODO replace with smaller construct
   std::string name_;
   int id_ = -1;
-  Symbol() : id_(getNewSymbolId()) {
-    std::stringstream ss;
-    ss << "__" << id_;
-    name_ = ss.str();
-  }
+  Symbol() : id_(getNewSymbolId()), name_("X") {}
   Symbol(std::string name) : id_(getNewSymbolId()), name_(name) {}
   Symbol(const Symbol& s) : id_(s.id_), name_(s.name_) {}
   const int id() const { return id_; }
@@ -58,10 +54,36 @@ struct Symbol {
 };
 
 struct Expr {
+  enum class Type { value, symbol, function } type_;
+  Operation op_ =
+      Operation::constant;  // val_ and symbol_ are constant functions
   size_t val_;
-  explicit Expr(size_t val) : val_(val){};
+  Symbol symbol_;
+  std::vector<Expr> exprs_;
+  explicit Expr(size_t val) : type_(Type::value), val_(val){};
+  explicit Expr(int val) : Expr(static_cast<size_t>(val)){};
+  explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol){};
+  explicit Expr(Operation op, std::vector<Expr> exprs)
+      : type_(Type::function), op_(op), exprs_(exprs){};
   Expr() = delete;
-  operator size_t() const { return val_; }
+  size_t value() const {
+    ASSERT(type_ == Type::value);
+    return val_;
+  }
+  Symbol symbol() const {
+    ASSERT(type_ == Type::symbol);
+    return symbol_;
+  }
+  Operation op() const { return op_; }
+  const std::vector<Expr>& args() const {
+    ASSERT(type_ == Type::function);
+    return exprs_;
+  }
+  Type type() const { return type_; }
+  Expr operator+(const Expr& rhs) { return Expr(Operation::add, {*this, rhs}); }
+  Expr operator*(const Expr& rhs) {
+    return Expr(Operation::multiply, {*this, rhs});
+  }
 };
 
 // wrapped by shared ptr for convenience
@@ -78,9 +100,9 @@ struct TensorImpl {
     auto h = detail::hash((size_t)op_);
     h = detail::hash(h ^ shape_.size());
     for (const auto& s : shape_) {
-      // h = detail::hash(h ^ s.id());
       if (constraints_.count(s.id())) {
-        h = detail::hash((size_t)constraints_.at(s.id()));
+        // TODO Expr::hash()
+        h = detail::hash(constraints_.at(s.id()).value());
       }
     }
     for (const auto& d : deps_) {
@@ -128,7 +150,7 @@ struct TensorImpl {
         ASSERT(constraints_.count(shape()[i].id()))
             << "cannot allocate owned tensor, size for " << shape()[i].name()
             << "not provided";
-        size *= constraints_.at(shape()[i].id());
+        size *= constraints_.at(shape()[i].id()).value();
       }
       data_ = malloc(sizeof(float) * size);
     }
@@ -262,6 +284,9 @@ struct Tensor {
     return impl()->template data<T>();
   };
 };
+
+std::vector<std::pair<Symbol, size_t>> unify(
+    std::vector<std::pair<Symbol, Expr>> constraints);
 
 }  // namespace lazy
 }  // namespace loop_tool

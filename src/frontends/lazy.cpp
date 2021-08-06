@@ -28,6 +28,7 @@ void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
     constraints_.emplace(shape_.at(i).id(), Expr(s));
   }
 }
+
 void TensorImpl::unify(std::unordered_map<int, Symbol> symbol_map) {
   for (auto& s : shape_) {
     while (symbol_map.count(s.id())) {
@@ -63,6 +64,7 @@ std::vector<void*> TensorImpl::getBuffers() const {
   }
   return all_buffers;
 }
+
 LoopTree TensorImpl::schedule(
     IR ir,
     const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
@@ -99,7 +101,7 @@ IR::NodeRef TensorImpl::resolve(
       ASSERT(constraints_.count(s.id()))
           << "unbound variable in compute " << s.name();
       auto expr = constraints_.at(s.id());
-      auto size = (size_t)expr;
+      auto size = expr.value();
       std::stringstream s_name;
       s_name << s.name();
       s_name << "_";
@@ -128,6 +130,7 @@ IR::NodeRef TensorImpl::resolve(
   }
   return node_ref;
 }
+
 void TensorImpl::populateCompilationCache() {
   unify();
 
@@ -148,6 +151,66 @@ void TensorImpl::populateCompilationCache() {
   auto cc = getBackends().at("cpu")->compile(loop_tree, {}, -1);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
+}
+
+// TODO: AC unification algorithm i.e. Expr = Expr constraints with
+// associativity/commutativity
+std::vector<std::pair<Symbol, size_t>> unify(
+    std::vector<std::pair<Symbol, Expr>> constraints) {
+  std::function<Expr(Expr)> eval_expr;
+  // Symbol.id() -> value
+  std::unordered_map<int, size_t> replacements;
+  auto pass = [&]() -> bool {
+    bool updated = false;
+    for (auto& p : constraints) {
+      p.second = eval_expr(p.second);
+      if (p.second.type() == Expr::Type::value) {
+        if (!replacements.count(p.first.id())) {
+          replacements[p.first.id()] = p.second.value();
+          updated = true;
+        }
+      }
+    }
+    return updated;
+  };
+
+  eval_expr = [&](Expr e) -> Expr {
+    if (e.type() == Expr::Type::value) {
+      return e;
+    } else if (e.type() == Expr::Type::symbol) {
+      auto id = e.symbol().id();
+      if (replacements.count(id)) {
+        return Expr(replacements.at(id));
+      }
+      return e;
+    }
+    ASSERT(e.type() == Expr::Type::function);
+    ASSERT(e.args().size() == 2);
+    auto lhs = eval_expr(e.args().at(0));
+    auto rhs = eval_expr(e.args().at(1));
+    if (e.op() == Operation::add) {
+      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
+        return Expr(lhs.value() + rhs.value());
+      }
+      return e;
+    } else if (e.op() == Operation::multiply) {
+      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
+        return Expr(lhs.value() * rhs.value());
+      }
+      return e;
+    }
+    ASSERT(0) << "unknown expression op";
+    return e;
+  };
+
+  while (pass())
+    ;
+
+  std::vector<std::pair<Symbol, size_t>> out;
+  for (const auto& p : constraints) {
+    out.emplace_back(std::make_pair(p.first, replacements.at(p.first.id())));
+  }
+  return out;
 }
 
 }  // namespace lazy
