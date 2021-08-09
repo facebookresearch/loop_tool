@@ -327,7 +327,7 @@ TEST(Cuda) {
   // test_mm(12, 12, 12);
   // test_mm2(128, 128, 128);
   // test_mm2(1023, 1021, 1025);
-  test_cuda_exec(1023, 1021, 1025);
+  // test_cuda_exec(1023, 1021, 1025);
   // test_cuda_exec(8, 8, 8);
   return;
   // CUdevice cuDevice;

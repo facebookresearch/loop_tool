@@ -13,6 +13,7 @@ LICENSE file in the root directory of this source tree.
 #include <vector>
 
 #include "error.h"
+#include "symbolic.h"
 
 /*
   Intermediate represention is a DAG
@@ -106,6 +107,7 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+// Operations on arrays
 enum struct Operation { constant, add, multiply, view };
 
 struct Node;

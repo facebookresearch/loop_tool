@@ -6,6 +6,7 @@
 
 #include "loop_tool/backend.h"
 #include "loop_tool/ir.h"
+#include "loop_tool/symbolic.h"
 
 namespace detail {
 
@@ -30,7 +31,8 @@ using areT = and_<std::is_same<Ts, Target>...>;
 namespace loop_tool {
 namespace lazy {
 
-const int getNewSymbolId();
+using Symbol = loop_tool::symbolic::Symbol;
+using Expr = loop_tool::symbolic::Expr;
 
 struct CachedCompilation {
   std::shared_ptr<Compiled> compilation;
@@ -40,104 +42,6 @@ struct CachedCompilation {
 };
 
 std::unordered_map<size_t, CachedCompilation>& getCompilationCache();
-
-struct Symbol {
-  // TODO replace with smaller construct
-  std::string name_;
-  int id_ = -1;
-  Symbol() : id_(getNewSymbolId()), name_("X") {}
-  Symbol(std::string name) : id_(getNewSymbolId()), name_(name) {}
-  Symbol(const Symbol& s) : id_(s.id_), name_(s.name_) {}
-  const int id() const { return id_; }
-  bool operator==(const Symbol& s) const { return s.id() == id_; }
-  const std::string& name() const { return name_; }
-};
-
-struct Expr {
-  enum class Type { value, symbol, function } type_;
-  Operation op_ =
-      Operation::constant;  // val_ and symbol_ are constant functions
-  size_t val_;
-  Symbol symbol_;
-  std::vector<Expr> exprs_;
-  explicit Expr(size_t val) : type_(Type::value), val_(val){};
-  explicit Expr(int val) : Expr(static_cast<size_t>(val)){};
-  explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol){};
-  explicit Expr(Operation op, std::vector<Expr> exprs)
-      : type_(Type::function), op_(op), exprs_(exprs){};
-  Expr() = delete;
-  size_t value() const {
-    ASSERT(type_ == Type::value);
-    return val_;
-  }
-  Symbol symbol() const {
-    ASSERT(type_ == Type::symbol);
-    return symbol_;
-  }
-  Operation op() const { return op_; }
-  const std::vector<Expr>& args() const {
-    ASSERT(type_ == Type::function);
-    return exprs_;
-  }
-  Type type() const { return type_; }
-  Expr operator+(const Expr& rhs) { return Expr(Operation::add, {*this, rhs}); }
-  Expr operator*(const Expr& rhs) {
-    return Expr(Operation::multiply, {*this, rhs});
-  }
-  bool operator!=(const Expr& rhs) const { return !(*this == rhs); }
-  bool operator==(const Expr& rhs) const {
-    if (type_ == Type::value) {
-      return rhs.type() == Type::value && rhs.value() == value();
-    } else if (type_ == Type::symbol) {
-      return rhs.type() == Type::symbol && rhs.symbol() == symbol();
-    }
-    ASSERT(type_ == Type::function);
-    if (rhs.type() != Type::function) {
-      return false;
-    }
-    bool match = true;
-    if (args().size() == rhs.args().size()) {
-      for (auto i = 0; i < args().size(); ++i) {
-        match &= args().at(i) == rhs.args().at(i);
-      }
-    } else {
-      match = false;
-    }
-    return rhs.op() == op() && match;
-  }
-  std::string dump() const {
-    std::stringstream ss;
-    if (type_ == Type::value) {
-      ss << value();
-    } else if (type_ == Type::symbol) {
-      ss << symbol().name();
-    } else {
-      ASSERT(args().size() == 2);
-      auto lhs = args().at(0);
-      auto rhs = args().at(1);
-      if (lhs.op() == Operation::constant) {
-        ss << lhs.dump();
-      } else {
-        ss << "(" << lhs.dump() << ")";
-      }
-
-      if (op_ == Operation::add) {
-        ss << "+";
-      } else if (op_ == Operation::multiply) {
-        ss << "*";
-      } else {
-        ASSERT(0) << "can't print this op";
-      }
-
-      if (rhs.op() == Operation::constant) {
-        ss << rhs.dump();
-      } else {
-        ss << "(" << rhs.dump() << ")";
-      }
-    }
-    return ss.str();
-  }
-};
 
 // wrapped by shared ptr for convenience
 struct TensorImpl {
@@ -190,7 +94,14 @@ struct TensorImpl {
 
   inline const std::vector<Symbol>& shape() const { return shape_; }
 
-  void unify(std::unordered_map<int, Symbol> symbol_map = {});
+  // for these methods, int is Symbol::id
+  void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map);
+  void propagateSymbolMap(const std::unordered_map<int, Symbol>& symbol_map);
+  void unifySymbols();
+  void collectConstraints(std::vector<std::pair<int, Expr>>& constraints);
+  void propogateConstraints(
+      const std::unordered_map<int, Expr>& constraint_map);
+  void unifyConstraints();
   void populateCompilationCache();
 
   std::vector<void*> getBuffers() const;
@@ -337,9 +248,6 @@ struct Tensor {
     return impl()->template data<T>();
   };
 };
-
-std::vector<std::pair<Symbol, Expr>> unify(
-    std::vector<std::pair<Symbol, Expr>> constraints);
 
 }  // namespace lazy
 }  // namespace loop_tool

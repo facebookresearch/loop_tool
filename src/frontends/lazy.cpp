@@ -2,11 +2,6 @@
 namespace loop_tool {
 namespace lazy {
 
-const int getNewSymbolId() {
-  static int symbol_count_ = 0;
-  return symbol_count_++;
-}
-
 std::unordered_map<size_t, CachedCompilation>& getCompilationCache() {
   static std::unordered_map<size_t, CachedCompilation> compilation_cache_;
   return compilation_cache_;
@@ -26,29 +21,6 @@ void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
   for (auto i = 0; i < sizes.size(); ++i) {
     const auto& s = sizes.at(i);
     constraints_.emplace(shape_.at(i).id(), Expr(s));
-  }
-}
-
-void TensorImpl::unify(std::unordered_map<int, Symbol> symbol_map) {
-  for (auto& s : shape_) {
-    while (symbol_map.count(s.id())) {
-      auto old_id = s.id();
-      s = symbol_map.at(old_id);
-      if (constraints_.count(old_id)) {
-        constraints_.emplace(s.id(), constraints_.at(old_id));
-        constraints_.erase(old_id);
-      }
-    }
-  }
-  if (op_ == Operation::view) {
-    ASSERT(deps_.size() == 1);
-    const auto& dep_shape = deps_.at(0)->shape();
-    for (auto i = 0; i < shape_.size(); ++i) {
-      symbol_map[dep_shape[i].id()] = shape_[i];
-    }
-  }
-  for (auto d : deps_) {
-    d->unify(symbol_map);
   }
 }
 
@@ -99,7 +71,8 @@ IR::NodeRef TensorImpl::resolve(
   for (const auto& s : shape()) {
     if (!var_map.count(s.id())) {
       ASSERT(constraints_.count(s.id()))
-          << "unbound variable in compute " << s.name();
+          << "unbound variable in compute " << s.name() << " (id: " << s.id()
+          << ")";
       auto expr = constraints_.at(s.id());
       auto size = expr.value();
       std::stringstream s_name;
@@ -131,11 +104,84 @@ IR::NodeRef TensorImpl::resolve(
   return node_ref;
 }
 
+void TensorImpl::collectConstraints(
+    std::vector<std::pair<int, Expr>>& constraints) {
+  for (const auto& c : constraints_) {
+    constraints.emplace_back(c.first, c.second);
+  }
+  for (const auto& d : deps_) {
+    d->collectConstraints(constraints);
+  }
+}
+
+void TensorImpl::propogateConstraints(
+    const std::unordered_map<int, Expr>& constraint_map) {
+  constraints_.clear();
+  for (const auto& s : shape()) {
+    auto id = s.id();
+    if (constraint_map.count(id)) {
+      constraints_.emplace(id, constraint_map.at(id));
+    }
+  }
+  for (const auto& d : deps_) {
+    d->propogateConstraints(constraint_map);
+  }
+}
+
+void TensorImpl::unifyConstraints() {
+  std::vector<std::pair<int, Expr>> constraints;
+  collectConstraints(constraints);
+  for (const auto& c : constraints) {
+  }
+  auto new_constraints = symbolic::unify(constraints);
+  std::unordered_map<int, Expr> constraint_map;
+  for (const auto& c : new_constraints) {
+    constraint_map.emplace(c.first, c.second);
+  }
+  propogateConstraints(constraint_map);
+}
+
+void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
+  // propagates all Tensor::as calls to assign symbols
+  if (op_ == Operation::view) {
+    ASSERT(deps_.size() == 1);
+    const auto& dep_shape = deps_.at(0)->shape();
+    ASSERT(dep_shape.size() == shape_.size()) << "only Tensor::as supported";
+    for (auto i = 0; i < shape_.size(); ++i) {
+      symbol_map[dep_shape[i].id()] = shape_[i];
+    }
+  }
+  for (auto d : deps_) {
+    d->collectSymbolMap(symbol_map);
+  }
+}
+
+void TensorImpl::propagateSymbolMap(
+    const std::unordered_map<int, Symbol>& symbol_map) {
+  for (auto& s : shape_) {
+    while (symbol_map.count(s.id())) {
+      auto old_id = s.id();
+      s = symbol_map.at(old_id);
+      if (constraints_.count(old_id)) {
+        constraints_.emplace(s.id(), constraints_.at(old_id));
+        constraints_.erase(old_id);
+      }
+    }
+  }
+  for (auto d : deps_) {
+    d->propagateSymbolMap(symbol_map);
+  }
+}
+
+void TensorImpl::unifySymbols() {
+  std::unordered_map<int, Symbol> symbol_map;
+  collectSymbolMap(symbol_map);
+  propagateSymbolMap(symbol_map);
+}
+
 void TensorImpl::populateCompilationCache() {
-  // collect constraints
-  // unify constraints
-  // propagate updated constraints
-  unify();
+  unifySymbols();
+  unifyConstraints();
 
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
@@ -154,68 +200,6 @@ void TensorImpl::populateCompilationCache() {
   auto cc = getBackends().at("cpu")->compile(loop_tree, {}, -1);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
-}
-
-// TODO: AC unification algorithm i.e. Expr = Expr constraints with
-// associativity/commutativity
-std::vector<std::pair<Symbol, Expr>> unify(
-    std::vector<std::pair<Symbol, Expr>> constraints) {
-  std::function<Expr(Expr)> eval_expr;
-  // Symbol.id() -> value
-  std::unordered_map<int, Expr> replacements;
-  auto pass = [&]() -> bool {
-    bool updated = false;
-    for (auto& p : constraints) {
-      p.second = eval_expr(p.second);
-      if (!replacements.count(p.first.id())) {
-        replacements.emplace(p.first.id(), p.second);
-        updated = true;
-      }
-      if (replacements.at(p.first.id()) != p.second) {
-        replacements.at(p.first.id()) = p.second;
-        updated = true;
-      }
-    }
-    return updated;
-  };
-
-  eval_expr = [&](Expr e) -> Expr {
-    if (e.type() == Expr::Type::value) {
-      return e;
-    } else if (e.type() == Expr::Type::symbol) {
-      auto id = e.symbol().id();
-      if (replacements.count(id)) {
-        return replacements.at(id);
-      }
-      return e;
-    }
-    ASSERT(e.type() == Expr::Type::function);
-    ASSERT(e.args().size() == 2);
-    auto lhs = eval_expr(e.args().at(0));
-    auto rhs = eval_expr(e.args().at(1));
-    if (e.op() == Operation::add) {
-      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
-        return Expr(lhs.value() + rhs.value());
-      }
-      return lhs + rhs;
-    } else if (e.op() == Operation::multiply) {
-      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
-        return Expr(lhs.value() * rhs.value());
-      }
-      return lhs * rhs;
-    }
-    ASSERT(0) << "unknown expression op";
-    return e;
-  };
-
-  while (pass())
-    ;
-
-  std::vector<std::pair<Symbol, Expr>> out;
-  for (const auto& p : constraints) {
-    out.emplace_back(std::make_pair(p.first, eval_expr(p.second)));
-  }
-  return out;
 }
 
 }  // namespace lazy
