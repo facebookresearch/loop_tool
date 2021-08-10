@@ -18,6 +18,7 @@ enum struct Op {
   constant,
   // unary
   negate,
+  size,
   // binary
   add,
   multiply
@@ -32,18 +33,23 @@ inline int numInputs(const Op& op) {
   return 2;
 }
 
-const int getNewSymbolId();
+struct Expr;
 
 struct Symbol {
   // TODO replace with smaller construct
   std::string name_;
   int id_ = -1;
-  Symbol() : id_(getNewSymbolId()), name_("X") {}
-  Symbol(std::string name) : id_(getNewSymbolId()), name_(name) {}
+  Symbol() : id_(getNewId()), name_("X") {}
+  Symbol(std::string name) : id_(getNewId()), name_(name) {}
   Symbol(const Symbol& s) : id_(s.id_), name_(s.name_) {}
-  const int id() const { return id_; }
-  bool operator==(const Symbol& s) const { return s.id() == id_; }
-  const std::string& name() const { return name_; }
+  static const int getNewId();
+  const int id() const;
+  bool operator==(const Symbol& s) const;
+  const std::string& name() const;
+
+  operator Expr() const;
+  Expr operator+(const Symbol& rhs) const;
+  Expr operator*(const Symbol& rhs) const;
 };
 
 struct Expr {
@@ -63,6 +69,7 @@ struct Expr {
   Op op() const;
   const std::vector<Expr>& args() const;
   Type type() const;
+  static Expr size(const Expr& expr);
   Expr operator+(const Expr& rhs) const;
   Expr operator*(const Expr& rhs) const;
   bool operator!=(const Expr& rhs) const;

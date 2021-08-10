@@ -18,9 +18,7 @@ struct Test {
 std::vector<Test> &getTestRegistry();
 
 struct AddTest {
-  AddTest(std::string file, std::string name, std::function<void()> fn) {
-    getTestRegistry().emplace_back(file, name, fn);
-  }
+  AddTest(std::string file, std::string name, std::function<void()> fn);
 };
 
 void runner(int argc, char *argv[]);

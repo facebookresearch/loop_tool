@@ -14,9 +14,21 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 namespace symbolic {
 
-const int getNewSymbolId() {
+const int Symbol::getNewId() {
   static int symbol_count_ = 0;
   return symbol_count_++;
+}
+
+const int Symbol::id() const { return id_; }
+bool Symbol::operator==(const Symbol& s) const { return s.id() == id_; }
+const std::string& Symbol::name() const { return name_; }
+
+Symbol::operator Expr() const { return Expr(*this); }
+Expr Symbol::operator+(const Symbol& rhs) const {
+  return Expr(*this) + Expr(rhs);
+}
+Expr Symbol::operator*(const Symbol& rhs) const {
+  return Expr(*this) * Expr(rhs);
 }
 
 size_t Expr::value() const {
@@ -38,11 +50,26 @@ const std::vector<Expr>& Expr::args() const {
 
 Expr::Type Expr::type() const { return type_; }
 
+Expr Expr::size(const Expr& expr) {
+  ASSERT(expr.type() == Expr::Type::symbol) << "size() only works on symbols";
+  return Expr(Op::size, {expr});
+}
+
 Expr Expr::operator+(const Expr& rhs) const {
+  if (type() == Expr::Type::value) {
+    if (rhs.type() == Expr::Type::value) {
+      return Expr(value() + rhs.value());
+    }
+  }
   return Expr(Op::add, {*this, rhs});
 }
 
 Expr Expr::operator*(const Expr& rhs) const {
+  if (type() == Expr::Type::value) {
+    if (rhs.type() == Expr::Type::value) {
+      return Expr(value() * rhs.value());
+    }
+  }
   return Expr(Op::multiply, {*this, rhs});
 }
 
@@ -140,14 +167,8 @@ std::vector<std::pair<int, Expr>> unify(
     auto lhs = eval_expr(e.args().at(0));
     auto rhs = eval_expr(e.args().at(1));
     if (e.op() == Op::add) {
-      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
-        return Expr(lhs.value() + rhs.value());
-      }
       return lhs + rhs;
     } else if (e.op() == Op::multiply) {
-      if (lhs.type() == Expr::Type::value && rhs.type() == Expr::Type::value) {
-        return Expr(lhs.value() * rhs.value());
-      }
       return lhs * rhs;
     }
     ASSERT(0) << "unknown expression op";

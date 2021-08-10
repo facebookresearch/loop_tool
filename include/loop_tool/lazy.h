@@ -34,6 +34,11 @@ namespace lazy {
 using Symbol = loop_tool::symbolic::Symbol;
 using Expr = loop_tool::symbolic::Expr;
 
+template <typename... Args>
+std::vector<Expr> Index(const Args&... args) {
+  return std::vector<Expr>{Expr(args)...};
+}
+
 struct CachedCompilation {
   std::shared_ptr<Compiled> compilation;
   IR ir;
@@ -93,6 +98,7 @@ struct TensorImpl {
   }
 
   inline const std::vector<Symbol>& shape() const { return shape_; }
+  size_t size(int dim) const;
 
   // for these methods, int is Symbol::id
   void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map);
@@ -102,6 +108,7 @@ struct TensorImpl {
   void propogateConstraints(
       const std::unordered_map<int, Expr>& constraint_map);
   void unifyConstraints();
+  void unify();
   void populateCompilationCache();
 
   std::vector<void*> getBuffers() const;
@@ -239,8 +246,15 @@ struct Tensor {
     return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps));
   }
 
+  template <typename... Args>
+  Tensor to(const Args&... args) {
+    std::vector<std::vector<Expr>> mapping{args...};
+    return Tensor(impl_);
+  }
+
   std::shared_ptr<TensorImpl> impl() const { return impl_; }
   std::vector<Symbol> shape() const { return impl_->shape(); }
+  size_t size(int dim) const { return impl_->size(dim); }
   LoopTree loop_tree() const { return impl_->loop_tree(); }
 
   template <typename T>

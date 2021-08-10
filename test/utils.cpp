@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <algorithm>
 #include <iostream>
 #include <random>
@@ -7,6 +9,10 @@
 
 namespace loop_tool {
 namespace testing {
+
+AddTest::AddTest(std::string file, std::string name, std::function<void()> fn) {
+  getTestRegistry().emplace_back(file, name, fn);
+}
 
 std::vector<Test>& getTestRegistry() {
   static std::vector<Test> tests_;
@@ -18,6 +24,8 @@ std::vector<Test>& getTestRegistry() {
 #define ANSI_RESET "\033[39m"
 
 void runner(int argc, char* argv[]) {
+  // unsigned int microseconds = 1000;
+  // usleep(microseconds);
   bool verbose = false;
   bool strict = false;
   for (auto i = 0; i < argc; ++i) {
@@ -54,7 +62,7 @@ void runner(int argc, char* argv[]) {
 
   auto tests = getTestRegistry();
   std::sort(tests.begin(), tests.end(), [](const Test& a, const Test& b) {
-    return a.file.compare(b.file);
+    return a.file.compare(b.file) < 0;
   });
   std::string curr_file = "";
   size_t passed = 0;

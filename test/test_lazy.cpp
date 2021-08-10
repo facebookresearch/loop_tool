@@ -270,3 +270,106 @@ TEST(LazySymbolsUnbound) {
     std::cout << p.first << " = " << p.second.dump() << "\n";
   }
 }
+
+TEST(LazyFill) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Tensor A(1);
+  A.data<float>()[0] = 4.5;
+  lz::Symbol M, N;
+  lz::Tensor B(M, N);
+  B.bind(nullptr, {8, 8});
+  for (auto i = 0; i < 64; ++i) {
+    B.data<float>()[i] = 2;
+  }
+  auto Afill = A.to(lz::Index(lz::Expr(0)), lz::Index(lz::Expr(0))).as(M, N);
+  auto C = Afill * B;
+  ASSERT(std::abs(C.data<float>()[7] - 9) < 0.001);
+}
+
+TEST(LazyTranspose) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol M, N;
+  lz::Tensor A(M, N);
+  auto B = A.to(lz::Index(0, N));  // slice and transpose
+  // B.shape() == {N}
+  B = A.to(lz::Index(0, N), lz::Index(M, 0));
+  // B.shape() == {N, M}
+  lz::Symbol K;
+  // K = N * size(M) + M
+  // M = K - N * size(M)
+  B = A.to(lz::Index(N, M)).as(K);  // ugly flatten
+  A.bind(nullptr, {8, 8});
+  ASSERT(B.size(0) == 64);
+}
+
+TEST(LazyConv) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N, N_o, K;
+  lz::Tensor A(N);
+  lz::Tensor W(K);
+  lz::Tensor X = A.to(lz::Index(N_o + K));
+  auto Y = (X * W).sum(K);
+  Y.bind(nullptr, {8});
+  W.bind(nullptr, {3});
+  (void)A.data<float>();
+  for (auto i = 0; i < 10; ++i) {
+    A.data<float>()[i] = 1;
+  }
+  ASSERT(X.shape().size() == 2);
+  ASSERT(X.shape()[0] == N_o);
+  ASSERT(X.shape()[1] == K);
+  ASSERT(A.size(0) == 10);
+  ASSERT(Y.data<float>()[3] == 3);
+}
+
+// TEST(LazyConcat1D) {
+//  namespace lz = ::loop_tool::lazy;
+//	lz::Symbol N, M, NM;
+//	lz::Tensor A(N);
+//	lz::Tensor B(M);
+//	auto C = lz::Tensor::from(
+//      {NM}, // output size
+//			NM < size(N), // condition
+//			A, // true tensor
+//			{NM}, // indexing into true
+//			B, // false tensor
+//			{NM - size(N)} // indexing into false
+//			);
+//}
+//
+// TEST(LazyConcat2D) {
+//  namespace lz = ::loop_tool::lazy;
+//	lz::Symbol N, M0, M1, M;
+//	lz::Tensor A(N, M0);
+//	lz::Tensor B(N, M1);
+//	auto C = lz::Tensor::from(
+//      {N, M}, // output size
+//			M < size(M0), // condition
+//			A, // true tensor
+//			{N, M}, // indexing into true
+//			B, // false tensor
+//			{N, M - size(M0)} // indexing into false
+//			);
+//}
+//
+// TEST(LazyPaddedConv) {
+//  namespace lz = ::loop_tool::lazy;
+//	lz::Symbol N, Np, K;
+//	lz::Tensor X(N);
+//	lz::Tensor W(K);
+//  auto paddedX = lz::Tensor::from(
+//	 		{Np},
+//      (Np < (lz::size(K) / 2)) || (Np > lz::size(N) + (lz::size(K) / 2)),
+//      lz::Zero, // special zero
+//      {0},
+//      X,
+//      {Np}
+//			);
+//
+//  // implicit constraint -> Np = size(N) + size(K) - 1
+//  auto expandedX = paddedX.to(N + K);
+//  ASSERT(expandedX.shape().size() == 2);
+//  ASSERT(expandedX.shape().at(0) == N);
+//  ASSERT(expandedX.shape().at(1) == K);
+//  auto Y = (expandedX * W).sum(K);
+//}

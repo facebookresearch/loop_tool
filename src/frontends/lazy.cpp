@@ -57,6 +57,19 @@ LoopTree TensorImpl::schedule(
   return loop_tree;
 }
 
+size_t TensorImpl::size(int dim) const {
+  ASSERT(dim < shape().size());
+  auto id = shape().at(dim).id();
+  ASSERT(constraints_.count(id));
+  auto expr = constraints_.at(id);
+  if (expr.type() != Expr::Type::value) {
+    const_cast<TensorImpl*>(this)->unify();
+    expr = constraints_.at(id);
+  }
+  ASSERT(expr.type() == Expr::Type::value)
+      << "cannot resolve symbol " << shape().at(dim).name();
+  return expr.value();
+}
 IR::NodeRef TensorImpl::resolve(
     IR& ir,
     std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const {
@@ -179,9 +192,13 @@ void TensorImpl::unifySymbols() {
   propagateSymbolMap(symbol_map);
 }
 
-void TensorImpl::populateCompilationCache() {
+void TensorImpl::unify() {
   unifySymbols();
   unifyConstraints();
+}
+
+void TensorImpl::populateCompilationCache() {
+  unify();
 
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
