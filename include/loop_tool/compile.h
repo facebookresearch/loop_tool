@@ -44,6 +44,9 @@ struct Auxiliary {
 using InnerFnType = std::function<void(const std::vector<void *> &,
                                        int[MAX_DEPTH], int[MAX_DEPTH])>;
 
+// returns pairs loop depth, inner size for the var at that depth
+//   assuming indices is a map from the loop depth to the current loop
+//   iteration, index = indices[p.first] * p.second for p in idx_vec
 std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
                                                    const Auxiliary &aux,
                                                    const Allocation &alloc,

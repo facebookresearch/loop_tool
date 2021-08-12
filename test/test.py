@@ -99,13 +99,17 @@ def check_exec(loop_tree, inps, ref, cuda_threads=[]):
 
     l = lambda x: "[thread]" if x in cuda_threads else ""
 
-    def comp_val(val, backend):
+    def comp_val(val, backend, c = None):
         val = val.to_numpy()
         max_diff = np.max(np.abs(val.flatten() - ref.flatten()))
+        max_idx = np.argmax(np.abs(val.flatten() - ref.flatten()))
         mean_val = np.mean(np.abs(ref))
+        debug_info = f"{loop_tree.dump(l)}"
+        if backend == "cuda":
+          debug_info += f"\n{c.code}\n{val.flatten()}\n{ref.flatten()}\n"#{np.abs(val.flatten() - ref.flatten())}"
         assert (
             max_diff < 1e-3 * mean_val
-        ), f"diff is {max_diff} on {backend} (mean is {mean_val}) for:\n{loop_tree.dump(l)}"
+        ), f"diff is {max_diff} at {max_idx} ({val.flatten()[max_idx]} vs {ref.flatten()[max_idx]}) on {backend} (mean is {mean_val}) for:\n{debug_info}"
 
     cpu_fn = lt.cpu(loop_tree)
     cpu_fn(inps)
@@ -114,7 +118,7 @@ def check_exec(loop_tree, inps, ref, cuda_threads=[]):
     if "cuda" in lt.backends():
         c = lt.cuda(loop_tree, set(cuda_threads))
         c(inps)
-        comp_val(inps[-1], "cuda")
+        comp_val(inps[-1], "cuda", c)
 
 
 def test_rand_pw(size):
@@ -136,9 +140,14 @@ def test_rand_pw(size):
     l = lambda x: "[thread]" if x in p else ""
     try:
         c = lt.cuda(loop_tree, p)
+    except Exception as e:
+        print(loop_tree.dump(l))
+        raise
+    try:
         c([A, B, C])
     except Exception as e:
         print(loop_tree.dump(l))
+        print(c.code)
         raise
     check_exec(loop_tree, [A, B, C], C_ref, p)
 
@@ -241,13 +250,20 @@ if __name__ == "__main__":
     np.random.seed(1337)
     test_annot(32, 1024)
     print("pointwise", end="")
-    for s in [7, 64, 128, 129, 512]:
+    # powers of 2
+    sizes = [2**i for i in range(1,10)]
+    # odd numbers near powers of 2
+    sizes += [2**i + 1 for i in range(1,8)]
+    # primes
+    sizes += [x for x in range(8, 30)
+         if all(x % y != 0 for y in range(2, x))]
+    for s in sizes:
         print(".", end="", flush=True)
         for _ in range(5):
             test_rand_pw(s)
     print("pass!")
     print("reduce", end="")
-    for s in [7, 64, 128, 129, 512]:
+    for s in sizes:
         print(".", end="", flush=True)
         for _ in range(5):
             test_rand_reduce(s)

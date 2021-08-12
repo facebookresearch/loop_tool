@@ -37,11 +37,14 @@ PYBIND11_MODULE(loop_tool_py, m) {
     return backends;
   });
   m.def("set_default_hardware", [](std::string hardware) {
+    bool set = false;
     for (auto &hw : getHardware()) {
       if (hw->name() == hardware) {
         default_hardware_id = hw->id();
+        set = true;
       }
     }
+    ASSERT(set) << "cannot find hardware: " << hardware;
   });
   py::class_<IR>(m, "IR")
       .def(py::init<>())
@@ -93,8 +96,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
              bool sync) {
             std::vector<void *> memory;
             for (auto &t : tensors) {
-              ASSERT(t->data.compatible & cc.hardware_requirement)
-                  << "Tensor on wrong hardware";
+              ASSERT((t->data.compatible & cc.hardware_requirement) ==
+                     cc.hardware_requirement)
+                  << "Tensor on wrong hardware, perhaps use "
+                     "lt.set_default_hardware(...)";
               memory.emplace_back(t->data.address);
             }
             cc.run(memory, sync);

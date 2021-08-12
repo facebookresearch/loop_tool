@@ -73,16 +73,14 @@ std::string gen_access(const LoopTree &lt, const Auxiliary &aux,
   std::reverse(parent_chain.begin(), parent_chain.end());
   auto order = parent_chain;  // lt.loop_order(lt.node(use));
   auto idx_vec = gen_idx_vector(lt, aux, alloc, use);
-  // can we map innermost dims to vector index?
-  // this becomes false if non-innermost sizes cannot be vectorized (TODO relax)
+
+  // To vectorize, every inner size needs to be
+  // evenly divisible by 4 (unless innermost)
+  // TODO relax this by adding modular arithmetic or casting
   bool unrolled_vectorize = true;
   for (const auto &p : idx_vec) {
-    unrolled_vectorize &= (p.second % 4 == 0);
-    auto loop = order[p.first];
-    std::pair<IR::VarRef, int> key = {loop.var, loop.var_depth};
-    if (!unroll.count(key)) {
-      break;
-    }
+    bool innermost = &p == &idx_vec.front();
+    unrolled_vectorize &= (p.second % 4 == 0) || (innermost && (p.second == 1));
   }
 
   bool vectorize = false;
@@ -111,18 +109,22 @@ std::string gen_access(const LoopTree &lt, const Auxiliary &aux,
   }
 
   // memory index
-  bool innermost = true;
   std::string extra = "";
   ss << "[";
   for (const auto &p : idx_vec) {
     auto loop = order.at(p.first);
     auto size = p.second;
-    if (!innermost && vectorize) {
-      ASSERT(size % 4 == 0);
+    bool innermost = &p == &idx_vec.front();
+    if (vectorize) {
+      ASSERT(size % 4 == 0 || (innermost && (size == 1)))
+          << "invalid unroll for " << lt.ir.dump(lt.node(use))
+          << " found innermost size to be " << size << " for var at depth "
+          << p.first << "\n";
     }
     std::pair<IR::VarRef, int> key = {loop.var, loop.var_depth};
     if (unroll.count(key)) {
       ss << unroll.at(key) * size / (vectorize ? 4 : 1);
+      ASSERT((size % (vectorize ? 4 : 1) == 0) || (innermost && (size == 1)));
       if (innermost && vectorize) {
         extra = "." + (std::vector<std::string>(
                           {"x", "y", "z", "w"})[unroll.at(key) % 4]);
@@ -132,9 +134,6 @@ std::string gen_access(const LoopTree &lt, const Auxiliary &aux,
       ss << lt.ir.var(loop.var).name() << "_" << loop.var_depth << " * " << s;
     }
     ss << " + ";
-    if (innermost) {
-      innermost = false;
-    }
   }
   ss << "0";  // keeps the expression well formed
   ss << "]" << extra;
@@ -411,24 +410,14 @@ std::string gen_loop(const LoopTree &lt, const Auxiliary &aux,
       ss << indent(depth) << "{\n";
     }
     ss << indent(depth) << "int " << v_str << " = " << loop_size << ";\n";
-    if (!is_tail) {
-      ss << indent(depth) << "{ // starting tail\n";
-      const_cast<CudaAux &>(cuda_aux).tail[loop.var] = tail_size;
-    } else {
-      ss << indent(depth) << "{ // recursive tail\n";
-      const_cast<CudaAux &>(cuda_aux).tail[loop.var] = tail_size;
-    }
+    ss << indent(depth) << "{ // tail\n";
     ss << gen_mem_decl(lt, aux, cuda_aux, ref);
     for (auto c : lt.tree_node(ref).children) {
+      const_cast<CudaAux &>(cuda_aux).tail[loop.var] = tail_size;
       ss << gen_cuda(lt, aux, cuda_aux, unroll, c);
-    }
-    if (!is_tail) {
-      ss << indent(depth) << "} // killing tail\n";
-      const_cast<CudaAux &>(cuda_aux).tail[loop.var] = 0;
-    } else {
-      ss << indent(depth) << "} // killing recursive tail\n";
       const_cast<CudaAux &>(cuda_aux).tail[loop.var] = 0;
     }
+    ss << indent(depth) << "} // killing tail\n";
     ss << indent(depth) << "}\n";
   }
   return ss.str();

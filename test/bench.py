@@ -73,10 +73,12 @@ s = 1024 * 1024
 best = 0
 code = ""
 loop_tree = ""
-for i in range(1, 8):
-  inner = 512 * 16 * i
-  for vec_pow in range(3):
+inner_scale = 512 * 8
+for i in range(1, s // inner_scale):
+  inner = i * inner_scale
+  for vec_pow in range(0,3):
     vec = 2 ** vec_pow
+    inner = inner // vec
     b, c, l = test_pw(s, inner, vec)
     if b > best:
       best = b

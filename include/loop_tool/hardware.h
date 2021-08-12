@@ -24,7 +24,7 @@ struct Memory {
 struct Hardware {
   std::string name_;
   int count_;
-  int id_;
+  int id_ = 0;  // default for CPU
 
   Hardware(std::string name, int count) : name_(name), count_(count) {}
 
