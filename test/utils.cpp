@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <regex>
 #include <sstream>
 
 #include "test_utils.h"
@@ -28,6 +29,7 @@ void runner(int argc, char* argv[]) {
   // usleep(microseconds);
   bool verbose = false;
   bool strict = false;
+  std::regex filter(".*");
   for (auto i = 0; i < argc; ++i) {
     auto arg = std::string(argv[i]);
     if (arg == "--verbose" || arg == "-v") {
@@ -39,6 +41,14 @@ void runner(int argc, char* argv[]) {
     if (arg == "-fv" || arg == "-vf") {
       strict = true;
       verbose = true;
+    }
+    if (arg == "--filter") {
+      if (argc <= i + 1) {
+        std::cerr << "no argument found for --filter\n";
+        return;
+      }
+      arg = argv[++i];
+      filter = std::regex(arg);
     }
   }
   std::stringstream stdout_buffer;
@@ -64,6 +74,12 @@ void runner(int argc, char* argv[]) {
   std::sort(tests.begin(), tests.end(), [](const Test& a, const Test& b) {
     return a.file.compare(b.file) < 0;
   });
+  tests.erase(std::remove_if(tests.begin(), tests.end(),
+                             [&](const Test& test) {
+                               std::string q = test.file + " " + test.name;
+                               return !std::regex_search(q, filter);
+                             }),
+              tests.end());
   std::string curr_file = "";
   size_t passed = 0;
 
