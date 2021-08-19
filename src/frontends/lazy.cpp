@@ -172,7 +172,16 @@ void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
     const auto& dep_shape = deps_.at(0)->shape();
     ASSERT(dep_shape.size() == shape_.size());
     for (auto i = 0; i < shape_.size(); ++i) {
-      symbol_map[dep_shape[i].id()] = shape_[i];
+      // check there's no cycle before adding to the map
+      auto s = shape_[i];
+      std::unordered_set<int> seen_ids{s.id()};
+      while (symbol_map.count(s.id())) {
+        s = symbol_map.at(s.id());
+        ASSERT(seen_ids.count(s.id()) == 0) << "unexpected cycle found in symbol map";
+      }
+      if (seen_ids.count(dep_shape[i].id()) == 0) {
+        symbol_map[dep_shape[i].id()] = shape_[i];
+      }
     }
   }
   if (op_ == Operation::view) {
