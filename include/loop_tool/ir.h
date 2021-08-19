@@ -108,7 +108,13 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 // Operations on arrays
-enum struct Operation { constant, add, multiply, view };
+enum struct Operation {
+  constant = 0,
+  add,
+  multiply,
+  view,
+  name  // really a no-op
+};
 
 struct Node;
 struct Var;
@@ -125,7 +131,8 @@ class IR {
   };
 
   NodeRef create_node(std::string op, std::vector<NodeRef> inputs,
-                      std::vector<VarRef> vars);
+                      std::vector<VarRef> vars,
+                      std::vector<symbolic::Constraint> constraints = {});
   VarRef create_var(std::string name);
 
   void replace_all_uses(NodeRef old_node, NodeRef new_node);
@@ -217,9 +224,13 @@ std::string dot(const IR &ir);
 class Node {
  protected:
   friend class IR;  // use the IR class to create nodes
+  // Node(std::string op, std::vector<IR::NodeRef> inputs,
+  //     std::vector<IR::VarRef> vars)
+  //    : op_(op), inputs_(inputs), vars_(vars) {}
   Node(std::string op, std::vector<IR::NodeRef> inputs,
-       std::vector<IR::VarRef> vars)
-      : op_(op), inputs_(inputs), vars_(vars) {}
+       std::vector<IR::VarRef> vars,
+       std::vector<symbolic::Constraint> constraints)
+      : op_(op), inputs_(inputs), vars_(vars), constraints_(constraints) {}
 
   void replace_input(IR::NodeRef old_node, IR::NodeRef new_node);
   inline void update_inputs(std::vector<IR::NodeRef> inputs) {
@@ -242,6 +253,8 @@ class Node {
   std::vector<IR::NodeRef> inputs_;
   // denote the output vars
   std::vector<IR::VarRef> vars_;
+  // exclusively used for view operations
+  std::vector<symbolic::Constraint> constraints_;
 
  protected:
   std::vector<IR::NodeRef> outputs_;

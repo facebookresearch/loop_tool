@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -13,9 +14,16 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 namespace symbolic {
 
+inline uint64_t hash(uint64_t x) {
+  x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
+  x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
+  x = x ^ (x >> 31);
+  return x;
+}
+
 enum struct Op {
   // no inputs
-  constant,
+  constant = 0,
   // unary
   negate,
   size,
@@ -44,12 +52,16 @@ struct Symbol {
   Symbol(const Symbol& s) : id_(s.id_), name_(s.name_) {}
   static const int getNewId();
   const int id() const;
+  size_t hash() const;
   bool operator==(const Symbol& s) const;
+  bool operator!=(const Symbol& s) const;
   const std::string& name() const;
 
   operator Expr() const;
   Expr operator+(const Symbol& rhs) const;
   Expr operator*(const Symbol& rhs) const;
+  Expr operator+(const Expr& rhs) const;
+  Expr operator*(const Expr& rhs) const;
 };
 
 struct Expr {
@@ -64,11 +76,17 @@ struct Expr {
   explicit Expr(Op op, std::vector<Expr> exprs)
       : type_(Type::function), op_(op), exprs_(exprs){};
   Expr() = delete;
+  size_t hash() const;
   size_t value() const;
   Symbol symbol() const;
   Op op() const;
   const std::vector<Expr>& args() const;
   Type type() const;
+  // returns a new expr
+  Expr walk(std::function<Expr(const Expr&)> f) const;
+  Expr replace(Symbol A, Symbol B) const;
+  Expr replace(Symbol A, size_t c) const;
+
   static Expr size(const Expr& expr);
   Expr operator+(const Expr& rhs) const;
   Expr operator*(const Expr& rhs) const;
@@ -77,9 +95,12 @@ struct Expr {
   std::string dump() const;
 };
 
-// Symbol::id -> Expr
-std::vector<std::pair<int, Expr>> unify(
-    std::vector<std::pair<int, Expr>> constraints);
+// This might seem generic, but it should be limited to either:
+//  - Expr(Symbol) -> Expr
+//  - Expr::size(Symbol) -> Expr
+using Constraint = std::pair<Expr, Expr>;
+
+std::vector<Constraint> unify(std::vector<Constraint> constraints);
 
 }  // namespace symbolic
 }  // namespace loop_tool

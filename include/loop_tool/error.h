@@ -13,7 +13,7 @@ LICENSE file in the root directory of this source tree.
 
 #define S1(x) #x
 #define S2(x) S1(x)
-#define LOCATION __FILE__ " : " S2(__LINE__)
+#define LOCATION __FILE__ ":" S2(__LINE__)
 
 namespace loop_tool {
 

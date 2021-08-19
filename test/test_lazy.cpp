@@ -229,48 +229,6 @@ TEST(LazyStackMemory) {
   std::cout << D.loop_tree().dump() << "\n";
 }
 
-TEST(LazySymbols) {
-  namespace lz = loop_tool::lazy;
-  std::vector<std::pair<int, lz::Expr>> constraints;
-  lz::Symbol A("A");
-  lz::Symbol B("B");
-  lz::Symbol C("C");
-  lz::Symbol D("D");
-  constraints.emplace_back(std::make_pair(C.id(), lz::Expr(B) * lz::Expr(9)));
-  constraints.emplace_back(std::make_pair(A.id(), lz::Expr(8)));
-  constraints.emplace_back(std::make_pair(B.id(), lz::Expr(A) + lz::Expr(2)));
-  constraints.emplace_back(std::make_pair(D.id(), lz::Expr(A) + lz::Expr(C)));
-
-  auto out = unify(constraints);
-  for (auto p : out) {
-    if (p.first == D.id()) {
-      ASSERT(p.second.value() == 98);
-    }
-    std::cout << p.first << " = " << p.second.dump() << "\n";
-  }
-}
-
-TEST(LazySymbolsUnbound) {
-  namespace lz = loop_tool::lazy;
-  std::vector<std::pair<int, lz::Expr>> constraints;
-  lz::Symbol A("A");
-  lz::Symbol B("B");
-  lz::Symbol C("C");
-  lz::Symbol D("D");
-  // constraints.emplace_back(std::make_pair(A, lz::Expr(8)));
-  constraints.emplace_back(std::make_pair(C.id(), lz::Expr(B) * lz::Expr(9)));
-  constraints.emplace_back(std::make_pair(B.id(), lz::Expr(A) + lz::Expr(2)));
-  constraints.emplace_back(std::make_pair(D.id(), lz::Expr(A) + lz::Expr(C)));
-
-  auto out = unify(constraints);
-  for (auto p : out) {
-    if (p.first == D.id()) {
-      // ASSERT(p.second == 98);
-    }
-    std::cout << p.first << " = " << p.second.dump() << "\n";
-  }
-}
-
 TEST(LazyFill) {
   namespace lz = ::loop_tool::lazy;
   lz::Tensor A(1);
@@ -281,8 +239,7 @@ TEST(LazyFill) {
   for (auto i = 0; i < 64; ++i) {
     B.data<float>()[i] = 2;
   }
-  auto Afill = A.to(lz::Index(lz::Expr(0)), lz::Index(lz::Expr(0))).as(M, N);
-  auto C = Afill * B;
+  auto C = A * B;
   ASSERT(std::abs(C.data<float>()[7] - 9) < 0.001);
 }
 
@@ -290,37 +247,40 @@ TEST(LazyTranspose) {
   namespace lz = ::loop_tool::lazy;
   lz::Symbol M, N;
   lz::Tensor A(M, N);
-  auto B = A.to(lz::Index(0, N));  // slice and transpose
+  auto B = A.to({N});  // slice and transpose
   // B.shape() == {N}
-  B = A.to(lz::Index(0, N), lz::Index(M, 0));
+  B = A.to({N, M});
+  // create_node("view", {A}, {N, M});
+  // create_node("view", {A}, {K}, {K = N * size(M) + M});
   // B.shape() == {N, M}
   lz::Symbol K;
   // K = N * size(M) + M
   // M = K - N * size(M)
-  B = A.to(lz::Index(N, M)).as(K);  // ugly flatten
+  B = A.to({K}, lz::Constraint(K, N * lz::Expr::size(M) + M));  // ugly flatten
   A.bind(nullptr, {8, 8});
   ASSERT(B.size(0) == 64);
 }
 
-TEST(LazyConv) {
-  namespace lz = ::loop_tool::lazy;
-  lz::Symbol N, N_o, K;
-  lz::Tensor A(N);
-  lz::Tensor W(K);
-  lz::Tensor X = A.to(lz::Index(N_o + K));
-  auto Y = (X * W).sum(K);
-  Y.bind(nullptr, {8});
-  W.bind(nullptr, {3});
-  (void)A.data<float>();
-  for (auto i = 0; i < 10; ++i) {
-    A.data<float>()[i] = 1;
-  }
-  ASSERT(X.shape().size() == 2);
-  ASSERT(X.shape()[0] == N_o);
-  ASSERT(X.shape()[1] == K);
-  ASSERT(A.size(0) == 10);
-  ASSERT(Y.data<float>()[3] == 3);
-}
+// TEST(LazyConv) {
+//  namespace lz = ::loop_tool::lazy;
+//  lz::Symbol N, N_o, K;
+//  lz::Tensor A(N);
+//  lz::Tensor W(K);
+//  lz::Tensor X = A.to({No, K}, {{N, N_o + K}});
+//  // create_node("view", {X}, {No, K}, {N = No + K});
+//  auto Y = (X * W).sum(K);
+//  Y.bind(nullptr, {8});
+//  W.bind(nullptr, {3});
+//  (void)A.data<float>();
+//  for (auto i = 0; i < 10; ++i) {
+//    A.data<float>()[i] = 1;
+//  }
+//  ASSERT(X.shape().size() == 2);
+//  ASSERT(X.shape()[0] == N_o);
+//  ASSERT(X.shape()[1] == K);
+//  ASSERT(A.size(0) == 10);
+//  ASSERT(Y.data<float>()[3] == 3);
+//}
 
 // TEST(LazyConcat1D) {
 //  namespace lz = ::loop_tool::lazy;

@@ -20,7 +20,8 @@ void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
   ASSERT(constraints_.size() == 0) << "Already bound";
   for (auto i = 0; i < sizes.size(); ++i) {
     const auto& s = sizes.at(i);
-    constraints_.emplace(shape_.at(i).id(), Expr(s));
+    constraints_.emplace_back(
+        std::make_pair(Expr::size(shape_.at(i)), Expr(s)));
   }
 }
 
@@ -58,13 +59,15 @@ LoopTree TensorImpl::schedule(
 }
 
 size_t TensorImpl::size(int dim) const {
+  const_cast<TensorImpl*>(this)->unify();
   ASSERT(dim < shape().size());
   auto id = shape().at(dim).id();
-  ASSERT(constraints_.count(id));
-  auto expr = constraints_.at(id);
+  ASSERT(size_constraints().count(id))
+      << "couldn't find size of " << Expr(shape().at(dim)).dump() << "\n";
+  auto expr = size_constraints().at(id);
   if (expr.type() != Expr::Type::value) {
     const_cast<TensorImpl*>(this)->unify();
-    expr = constraints_.at(id);
+    expr = size_constraints().at(id);
   }
   ASSERT(expr.type() == Expr::Type::value)
       << "cannot resolve symbol " << shape().at(dim).name();
@@ -83,10 +86,10 @@ IR::NodeRef TensorImpl::resolve(
 
   for (const auto& s : shape()) {
     if (!var_map.count(s.id())) {
-      ASSERT(constraints_.count(s.id()))
+      ASSERT(size_constraints().count(s.id()))
           << "unbound variable in compute " << s.name() << " (id: " << s.id()
           << ")";
-      auto expr = constraints_.at(s.id());
+      auto expr = size_constraints().at(s.id());
       auto size = expr.value();
       std::stringstream s_name;
       s_name << s.name();
@@ -99,8 +102,12 @@ IR::NodeRef TensorImpl::resolve(
     vars.emplace_back(p.first);
   }
   switch (op_) {
+    case Operation::name:
+      ASSERT(node_deps.size() == 1) << "invalid rename (only 1 input allowed)";
+      node_ref = node_deps[0];
+      break;
     case Operation::view:
-      ASSERT(node_deps.size() == 1) << "invalid view";
+      ASSERT(0) << "view not yet supported";
       node_ref = node_deps[0];
       break;
     case Operation::constant:
@@ -114,13 +121,13 @@ IR::NodeRef TensorImpl::resolve(
       node_ref = ir.create_node("mul", node_deps, vars);
       break;
   }
+  ASSERT(node_ref > -1) << "couldn't resolve node op: " << (int)op_;
   return node_ref;
 }
 
-void TensorImpl::collectConstraints(
-    std::vector<std::pair<int, Expr>>& constraints) {
+void TensorImpl::collectConstraints(std::vector<Constraint>& constraints) {
   for (const auto& c : constraints_) {
-    constraints.emplace_back(c.first, c.second);
+    constraints.emplace_back(c);
   }
   for (const auto& d : deps_) {
     d->collectConstraints(constraints);
@@ -128,41 +135,47 @@ void TensorImpl::collectConstraints(
 }
 
 void TensorImpl::propogateConstraints(
-    const std::unordered_map<int, Expr>& constraint_map) {
+    const std::unordered_map<int, Expr>& size_constraints) {
   constraints_.clear();
   for (const auto& s : shape()) {
     auto id = s.id();
-    if (constraint_map.count(id)) {
-      constraints_.emplace(id, constraint_map.at(id));
+    if (size_constraints.count(id)) {
+      constraints_.emplace_back(
+          std::make_pair(Expr::size(s), size_constraints.at(id)));
     }
   }
   for (const auto& d : deps_) {
-    d->propogateConstraints(constraint_map);
+    d->propogateConstraints(size_constraints);
   }
 }
 
 void TensorImpl::unifyConstraints() {
-  std::vector<std::pair<int, Expr>> constraints;
+  std::vector<Constraint> constraints;
   collectConstraints(constraints);
-  for (const auto& c : constraints) {
-  }
   auto new_constraints = symbolic::unify(constraints);
-  std::unordered_map<int, Expr> constraint_map;
+  std::unordered_map<int, Expr> size_constraints;
   for (const auto& c : new_constraints) {
-    constraint_map.emplace(c.first, c.second);
+    const auto& expr = c.first;
+    if (expr.type() == Expr::Type::symbol) {
+    } else {
+      auto symbol = expr.args().at(0).symbol();
+      size_constraints.emplace(symbol.id(), c.second);
+    }
   }
-  propogateConstraints(constraint_map);
+  propogateConstraints(size_constraints);
 }
 
 void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
   // propagates all Tensor::as calls to assign symbols
-  if (op_ == Operation::view) {
+  if (op_ == Operation::name) {
     ASSERT(deps_.size() == 1);
     const auto& dep_shape = deps_.at(0)->shape();
-    ASSERT(dep_shape.size() == shape_.size()) << "only Tensor::as supported";
+    ASSERT(dep_shape.size() == shape_.size());
     for (auto i = 0; i < shape_.size(); ++i) {
       symbol_map[dep_shape[i].id()] = shape_[i];
     }
+  }
+  if (op_ == Operation::view) {
   }
   for (auto d : deps_) {
     d->collectSymbolMap(symbol_map);
@@ -173,11 +186,11 @@ void TensorImpl::propagateSymbolMap(
     const std::unordered_map<int, Symbol>& symbol_map) {
   for (auto& s : shape_) {
     while (symbol_map.count(s.id())) {
-      auto old_id = s.id();
-      s = symbol_map.at(old_id);
-      if (constraints_.count(old_id)) {
-        constraints_.emplace(s.id(), constraints_.at(old_id));
-        constraints_.erase(old_id);
+      auto old_s = s;
+      s = symbol_map.at(old_s.id());
+      for (auto& constraint : constraints_) {
+        constraint.first = constraint.first.replace(old_s, s);
+        constraint.second = constraint.second.replace(old_s, s);
       }
     }
   }

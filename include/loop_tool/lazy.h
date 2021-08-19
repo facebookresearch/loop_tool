@@ -10,13 +10,6 @@
 
 namespace detail {
 
-inline uint64_t hash(uint64_t x) {
-  x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
-  x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
-  x = x ^ (x >> 31);
-  return x;
-}
-
 template <typename... Conds>
 struct and_ : std::true_type {};
 
@@ -33,6 +26,7 @@ namespace lazy {
 
 using Symbol = loop_tool::symbolic::Symbol;
 using Expr = loop_tool::symbolic::Expr;
+using Constraint = loop_tool::symbolic::Constraint;
 
 template <typename... Args>
 std::vector<Expr> Index(const Args&... args) {
@@ -55,20 +49,40 @@ struct TensorImpl {
   mutable void* data_ = nullptr;
   mutable bool owning_ = false;
   std::vector<Symbol> shape_;
-  std::unordered_map<int, Expr> constraints_;
+  // index constraint
+  // shape constraint = inferrable
+  // a = b
+  // a = 0
+  // b = 0
+  std::vector<Constraint> constraints_;
   std::vector<std::shared_ptr<TensorImpl>> deps_;
 
+  std::unordered_map<int, Expr> size_constraints() const {
+    std::unordered_map<int, Expr> out;
+    for (auto c : constraints_) {
+      auto expr = c.first;
+      bool size_expr = (expr.op() == symbolic::Op::size) &&
+                       (expr.args().size() == 1) &&
+                       (expr.args().at(0).type() == Expr::Type::symbol);
+      if (size_expr) {
+        out.emplace(expr.args().at(0).symbol().id(), c.second);
+      }
+    }
+    return out;
+  }
+
   void updateHash() {
-    auto h = detail::hash((size_t)op_);
-    h = detail::hash(h ^ shape_.size());
+    auto h = symbolic::hash((size_t)op_);
+    h = symbolic::hash(h ^ shape_.size());
+    auto cm = size_constraints();
     for (const auto& s : shape_) {
-      if (constraints_.count(s.id())) {
+      if (cm.count(s.id())) {
         // TODO Expr::hash()
-        h = detail::hash(constraints_.at(s.id()).value());
+        h = symbolic::hash(cm.at(s.id()).hash());
       }
     }
     for (const auto& d : deps_) {
-      h = detail::hash(h ^ d->hash());
+      h = symbolic::hash(h ^ d->hash());
     }
     hash_ = h;
   }
@@ -92,8 +106,9 @@ struct TensorImpl {
     updateHash();
   }
   TensorImpl(Operation op, std::vector<Symbol> shape,
-             std::vector<std::shared_ptr<TensorImpl>> deps)
-      : op_(op), shape_(shape), deps_(deps) {
+             std::vector<std::shared_ptr<TensorImpl>> deps,
+             std::vector<Constraint> constraints = {})
+      : op_(op), shape_(shape), deps_(deps), constraints_(constraints) {
     updateHash();
   }
 
@@ -104,9 +119,9 @@ struct TensorImpl {
   void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map);
   void propagateSymbolMap(const std::unordered_map<int, Symbol>& symbol_map);
   void unifySymbols();
-  void collectConstraints(std::vector<std::pair<int, Expr>>& constraints);
+  void collectConstraints(std::vector<Constraint>& constraints);
   void propogateConstraints(
-      const std::unordered_map<int, Expr>& constraint_map);
+      const std::unordered_map<int, Expr>& size_constraints);
   void unifyConstraints();
   void unify();
   void populateCompilationCache();
@@ -118,10 +133,10 @@ struct TensorImpl {
     if (owning_ && !data_) {
       size_t size = 1;
       for (auto i = 0; i < shape().size(); ++i) {
-        ASSERT(constraints_.count(shape()[i].id()))
+        ASSERT(size_constraints().count(shape()[i].id()))
             << "cannot allocate owned tensor, size for " << shape()[i].name()
             << "not provided";
-        size *= constraints_.at(shape()[i].id()).value();
+        size *= size_constraints().at(shape()[i].id()).value();
       }
       data_ = malloc(sizeof(float) * size);
     }
@@ -243,13 +258,15 @@ struct Tensor {
   Tensor as(const Args&... args) {
     std::vector<Symbol> shape{args...};
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
-    return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps));
+    return Tensor(std::make_shared<TensorImpl>(Operation::name, shape, deps));
   }
 
-  template <typename... Args>
-  Tensor to(const Args&... args) {
-    std::vector<std::vector<Expr>> mapping{args...};
-    return Tensor(impl_);
+  template <typename... Constraints>
+  Tensor to(std::vector<Symbol> shape, const Constraints&... args) {
+    std::vector<Constraint> constraints{args...};
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps,
+                                               constraints));
   }
 
   std::shared_ptr<TensorImpl> impl() const { return impl_; }

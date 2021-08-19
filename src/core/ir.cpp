@@ -29,9 +29,13 @@ IR::VarRef IR::create_var(std::string name) {
 }
 
 IR::NodeRef IR::create_node(std::string op, std::vector<IR::NodeRef> inputs,
-                            std::vector<IR::VarRef> vars) {
+                            std::vector<IR::VarRef> vars,
+                            std::vector<symbolic::Constraint> constraints) {
   IR::NodeRef new_idx = nodes_.size();
-  Node n_(op, inputs, vars);
+  if (constraints.size()) {
+    ASSERT(op == "view") << "Can only specify constraints with views\n";
+  }
+  Node n_(op, inputs, vars, constraints);
 
   // auxiliary information
   nodes_.emplace_back(std::move(n_));
