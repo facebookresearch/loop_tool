@@ -41,7 +41,8 @@ size_t Expr::hash() const {
   if (type_ == Type::value) {
     h = symbolic::hash(h ^ symbolic::hash(val_));
   } else if (type_ == Type::symbol) {
-    h = symbolic::hash(h ^ symbol().hash());
+    // for exprs, we pretend all symbols are the same
+    h = symbolic::hash(h ^ symbolic::hash(1337));
   }
   for (const auto& expr : exprs_) {
     h = symbolic::hash(h ^ expr.hash());
