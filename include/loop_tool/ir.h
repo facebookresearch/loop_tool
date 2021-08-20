@@ -350,6 +350,11 @@ struct LoopTree {
     return nodes[ref].parent;
   }
 
+  inline const std::vector<TreeRef> &children(TreeRef ref) const {
+    ASSERT(ref < nodes.size());
+    return nodes[ref].children;
+  }
+
   inline void annotate(TreeRef ref, std::string annot) {
     for (auto i = 0; i < annotations.size(); ++i) {
       const auto &annotation = annotations[i];

@@ -44,4 +44,11 @@ int availableCPUs() {
   return 1;
 }
 
+int &getDefaultHardwareId() {
+  static int default_hardware_id_ = 0;
+  return default_hardware_id_;
+}
+
+void setDefaultHardwareId(int id) { getDefaultHardwareId() = id; }
+
 }  // namespace loop_tool

@@ -19,7 +19,7 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
-                   LoopTree::TreeRef ref);
+                   LoopTree::TreeRef ref, const GenFnType &callback);
 
 // 0 -> not CPU
 // 1 -> CPU
@@ -444,7 +444,8 @@ std::function<void(const std::vector<void *> &)> gen_mem(
 }
 
 InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
-                              LoopTree::TreeRef ref) {
+                              LoopTree::TreeRef ref,
+                              const GenFnType &callback) {
   auto tree_node = lt.tree_node(ref);
   auto depth = tree_node.depth;
   auto loop = tree_node.loop;
@@ -456,7 +457,7 @@ InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
   ASSERT(tail_size >= 0);
   std::vector<InnerFnType> fns;
   for (auto c : tree_node.children) {
-    fns.emplace_back(gen_fn(lt, aux, c));
+    fns.emplace_back(gen_fn(lt, aux, c, callback));
   }
 
   auto inner_size = aux.inner_size.at(ref);
@@ -531,13 +532,13 @@ InnerFnType gen_parallel_loop(const LoopTree &lt, const Auxiliary &aux,
 }
 
 InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
-                     LoopTree::TreeRef ref) {
+                     LoopTree::TreeRef ref, const GenFnType &callback) {
   auto backend = cpu_backend(lt, ref);
   ASSERT(backend) << "backend not yet implemented: " << lt.annotation(ref);
   if (backend == 2) {
     ASSERT(trivially_parallel(lt, ref))
         << "threaded reductions not yet supported";
-    return gen_parallel_loop(lt, aux, ref);
+    return gen_parallel_loop(lt, aux, ref, callback);
   }
   auto tree_node = lt.tree_node(ref);
   auto depth = tree_node.depth;
@@ -550,7 +551,7 @@ InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
   ASSERT(tail_size >= 0);
   std::vector<InnerFnType> fns;
   for (auto c : tree_node.children) {
-    fns.emplace_back(gen_fn(lt, aux, c));
+    fns.emplace_back(gen_fn(lt, aux, c, callback));
   }
 
   auto inner_size = aux.inner_size.at(ref);
@@ -616,12 +617,18 @@ void update_inner_size(
 }
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
-                   LoopTree::TreeRef ref) {
+                   LoopTree::TreeRef ref, const GenFnType &callback) {
   ASSERT(lt.tree_node(ref).depth < MAX_DEPTH);
+  if (callback) {
+    auto callback_fn = callback(lt, aux, ref);
+    if (callback_fn) {
+      return callback_fn;
+    }
+  }
   if (lt.kind(ref) == LoopTree::NODE) {
     return gen_leaf(lt, aux, ref);
   } else {
-    return gen_loop(lt, aux, ref);
+    return gen_loop(lt, aux, ref, callback);
   }
 }
 
@@ -653,12 +660,15 @@ Auxiliary calculate_aux(const LoopTree &lt) {
 
 // function + sizes for intermediates
 std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
-compile(const LoopTree &lt) {
+compile(const LoopTree &lt,
+        std::function<InnerFnType(const LoopTree &, const Auxiliary &,
+                                  LoopTree::TreeRef)>
+            callback) {
   Auxiliary aux = calculate_aux(lt);
 
   std::vector<InnerFnType> fns;
   for (auto root : lt.roots) {
-    fns.emplace_back(gen_fn(lt, aux, root));
+    fns.emplace_back(gen_fn(lt, aux, root, callback));
   }
   auto memory_fn = gen_mem(lt, aux, -1);
 
@@ -704,8 +714,8 @@ struct CPUCompiled : public Compiled {
 
   CPUCompiled(const LoopTree &lt,
               const std::unordered_set<LoopTree::TreeRef> &threaded,
-              LoopTree::TreeRef ref) {
-    std::tie(fn, intermediates) = compile(lt);
+              LoopTree::TreeRef ref, const GenFnType &callback) {
+    std::tie(fn, intermediates) = compile(lt, callback);
   }
 
   void run(const std::vector<void *> &memory, bool sync) const override {
@@ -723,20 +733,16 @@ struct CPUCompiled : public Compiled {
   }
 };
 
-struct CPUBackend : public Backend {
-  CPUBackend() : Backend("cpu") {}
+std::unique_ptr<Compiled> CPUBackend::compile_impl(
+    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+    LoopTree::TreeRef root) {
+  return std::make_unique<CPUCompiled>(lt, parallel, root, callback);
+}
 
-  std::unique_ptr<Compiled> compile_impl(
-      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
-      LoopTree::TreeRef root) override {
-    return std::make_unique<CPUCompiled>(lt, parallel, root);
-  }
-
-  int hardware_requirement() const override {
-    // CPU is the only guaranteed hardware, always id = 0
-    return 1 << 0;
-  }
-};
+int CPUBackend::hardware_requirement() const {
+  // CPU is the only guaranteed hardware, always id = 0
+  return 1 << 0;
+}
 
 static RegisterBackend cpu_backend_reg_(std::make_shared<CPUBackend>());
 

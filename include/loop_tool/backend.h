@@ -68,6 +68,9 @@ struct Backend {
 const std::unordered_map<std::string, std::shared_ptr<Backend>> &getBackends();
 void registerBackend(std::shared_ptr<Backend> backend);
 
+std::shared_ptr<Backend> &getDefaultBackend();
+void setDefaultBackend(std::string backend);
+
 struct RegisterBackend {
   RegisterBackend(std::shared_ptr<Backend> backend) {
     registerBackend(backend);

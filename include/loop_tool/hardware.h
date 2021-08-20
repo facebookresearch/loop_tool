@@ -66,6 +66,9 @@ struct CPUHardware : public Hardware {
 const std::vector<std::shared_ptr<Hardware>> &getHardware();
 int getAvailableHardware();
 
+int &getDefaultHardwareId();
+void setDefaultHardwareId(int id);
+
 void registerHardware(std::shared_ptr<Hardware> hw);
 
 struct RegisterHardware {

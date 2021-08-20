@@ -37,4 +37,14 @@ void registerBackend(std::shared_ptr<Backend> backend) {
   getMutableBackends()[backend->name()] = backend;
 }
 
+std::shared_ptr<Backend> &getDefaultBackend() {
+  static std::shared_ptr<Backend> default_backend_;
+  return default_backend_;
+}
+
+void setDefaultBackend(std::string backend) {
+  ASSERT(getBackends().count(backend)) << "couldn't find backend " << backend;
+  getDefaultBackend() = getBackends().at(backend);
+}
+
 }  // namespace loop_tool

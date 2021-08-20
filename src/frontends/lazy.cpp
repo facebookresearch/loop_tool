@@ -177,7 +177,8 @@ void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
       std::unordered_set<int> seen_ids{s.id()};
       while (symbol_map.count(s.id())) {
         s = symbol_map.at(s.id());
-        ASSERT(seen_ids.count(s.id()) == 0) << "unexpected cycle found in symbol map";
+        ASSERT(seen_ids.count(s.id()) == 0)
+            << "unexpected cycle found in symbol map";
       }
       if (seen_ids.count(dep_shape[i].id()) == 0) {
         symbol_map[dep_shape[i].id()] = shape_[i];
@@ -236,7 +237,7 @@ void TensorImpl::populateCompilationCache() {
   ir.set_outputs({out});
 
   auto loop_tree = schedule(ir, var_map);
-  auto cc = getBackends().at("cpu")->compile(loop_tree, {}, -1);
+  auto cc = getDefaultBackend()->compile(loop_tree, {}, -1);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
 }

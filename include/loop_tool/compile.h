@@ -10,6 +10,7 @@ LICENSE file in the root directory of this source tree.
 #include <unordered_map>
 #include <vector>
 
+#include "backend.h"
 #include "ir.h"
 
 #define MAX_DEPTH 16
@@ -43,6 +44,8 @@ struct Auxiliary {
 // recursively generate functions for loops/nodes(leaves) of the loop tree
 using InnerFnType = std::function<void(const std::vector<void *> &,
                                        int[MAX_DEPTH], int[MAX_DEPTH])>;
+using GenFnType = std::function<InnerFnType(const LoopTree &, const Auxiliary &,
+                                            LoopTree::TreeRef)>;
 
 // returns pairs loop depth, inner size for the var at that depth
 //   assuming indices is a map from the loop depth to the current loop
@@ -60,7 +63,25 @@ void exec(const LoopTree &lt, const std::vector<void *> &memory);
 
 Auxiliary calculate_aux(const LoopTree &lt);
 std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
-compile(const LoopTree &lt);
+compile(const LoopTree &lt,
+        std::function<InnerFnType(const LoopTree &, const Auxiliary &,
+                                  LoopTree::TreeRef)>
+            callback = {});
 bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
+
+struct CPUBackend : public Backend {
+  CPUBackend() : Backend("cpu") {}
+  CPUBackend(std::string name, GenFnType callback_)
+      : Backend(name), callback(callback_) {}
+
+  // for easy CPU overwriting
+  // TODO map annotations to GenFnTypes
+  GenFnType callback = {};
+
+  std::unique_ptr<Compiled> compile_impl(
+      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
+      LoopTree::TreeRef root) override;
+  int hardware_requirement() const override;
+};
 
 }  // namespace loop_tool
