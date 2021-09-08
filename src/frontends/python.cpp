@@ -49,7 +49,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
   py::class_<IR>(m, "IR")
       .def(py::init<>())
       .def("create_var", &IR::create_var)
-      .def("create_node", &IR::create_node)
+      .def("create_node", &IR::create_node, py::arg("op"), py::arg("inputs"),
+           py::arg("vars"),
+           py::arg("constraints") = std::vector<symbolic::Constraint>{})
       .def("set_inputs", &IR::set_inputs)
       .def("set_outputs", &IR::set_outputs)
       .def("set_priority", &IR::set_priority)
