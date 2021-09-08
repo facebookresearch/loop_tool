@@ -13,6 +13,13 @@ file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp
 )
 
+set(WHOLE_ARCHIVE_START "-Wl,--whole-archive -Wl,--no-as-needed")
+set(WHOLE_ARCHIVE_END "-Wl,--no-whole-archive -Wl,--as-needed")
+if (APPLE)
+  set(WHOLE_ARCHIVE_START "-Wl,-all_load")
+  set(WHOLE_ARCHIVE_END "-Wl,-noall_load")
+endif()
+
 set(LIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 
 add_library(loop_tool SHARED ${CORE_SRCS})
@@ -54,11 +61,9 @@ target_link_libraries(loop_tool_test loop_tool_test_utils loop_tool)
 
 if (CUDAToolkit_FOUND)
   target_link_libraries(loop_tool_test
-    -Wl,--no-as-needed
-    -Wl,--whole-archive
+    ${WHOLE_ARCHIVE_START}
     loop_tool_cuda
-    -Wl,--no-whole-archive
-    -Wl,--as-needed
+    ${WHOLE_ARCHIVE_END}
   )
 endif() # CUDAToolkit_FOUND
 
@@ -73,20 +78,16 @@ if (pybind11_FOUND)
   if (CUDAToolkit_FOUND)
     target_compile_definitions(loop_tool_py PUBLIC ENABLE_CUDA)
     target_link_libraries(loop_tool_py PUBLIC
-      -Wl,--no-as-needed
-      -Wl,--whole-archive
+      ${WHOLE_ARCHIVE_START}
       loop_tool_cuda
       loop_tool
-      -Wl,--no-whole-archive
-      -Wl,--as-needed
+      ${WHOLE_ARCHIVE_END}
     )
   else()
 	  target_link_libraries(loop_tool_py PUBLIC
-      -Wl,--no-as-needed
-      -Wl,--whole-archive
+      ${WHOLE_ARCHIVE_START}
       loop_tool
-      -Wl,--no-whole-archive
-      -Wl,--as-needed
+      ${WHOLE_ARCHIVE_END}
     )
   endif()
 else()
