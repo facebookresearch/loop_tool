@@ -101,7 +101,7 @@ TEST(BasicSchedule) {
   ref_mm(in0, in1, M, N, K, out_ref);
   float max_diff = 0;
   for (auto i = 0; i < M * N; ++i) {
-    max_diff = std::max(max_diff, std::abs(out_ref[i] - out[i]));
+    max_diff = std::max(max_diff, std::abs((float)(out_ref[i] - out[i])));
   }
   ASSERT(max_diff < 0.01);
 }

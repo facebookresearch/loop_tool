@@ -7,7 +7,15 @@ jobs:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     env:
-      CIBW_ENVIRONMENT: "CMAKE_GENERATOR='Unix Makefiles'"
+      CIBW_ENVIRONMENT: "CMAKE_GENERATOR='Unix Makefiles' GNUMAKEFLAGS=-j4 CUDA_PATH=/usr/local/cuda"
+      CIBW_BUILD_VERBOSITY: 3
+      CIBW_ARCHS: "native"
+      CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_24"
+      CIBW_MANYLINUX_I686_IMAGE: "manylinux_2_24"
+      CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux_2_24"
+      CIBW_MANYLINUX_PYPY_X86_64_IMAGE: "manylinux_2_24"
+      CIBW_MANYLINUX_PYPY_I686_IMAGE: "manylinux_2_24"
+      CIBW_MANYLINUX_PYPY_AARCH64_IMAGE: "manylinux_2_24"
     strategy:
       matrix:
         os: [ubuntu-20.04, macOS-10.15] # windows-2019
@@ -17,11 +25,11 @@ jobs:
 
       - uses: actions/setup-python@v2
 
-      - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==2.1.1
-
       - name: Build wheels
-        run: python -m cibuildwheel --output-dir wheelhouse
+        uses: pypa/cibuildwheel@v2.1.1
+        env:
+          CIBW_BEFORE_BUILD: pip install ninja
+          CIBW_BEFORE_ALL_LINUX: sh install_cuda.sh
 
       - uses: actions/upload-artifact@v2
         with:
