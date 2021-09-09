@@ -30,7 +30,7 @@ target_include_directories(loop_tool PUBLIC
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-target_link_libraries(loop_tool PRIVATE Threads::Threads)
+target_link_libraries(loop_tool PUBLIC ${CMAKE_DL_LIBS} PRIVATE Threads::Threads)
 
 list(APPEND CMAKE_MODULE_PATH "${SRC_DIR}/backends/cuda")
 find_package(CUDAToolkit)
@@ -40,7 +40,7 @@ if (CUDAToolkit_FOUND)
 
   add_library(loop_tool_cuda SHARED ${CUDA_SRCS})
   target_include_directories(loop_tool_cuda PUBLIC ${LIB_INCLUDE} ${SRC_DIR}/backends/cuda ${CUDAToolkit_INCLUDE_DIRS})
-  target_link_libraries(loop_tool_cuda CUDA::cudart_static CUDA::nvrtc)
+  #target_link_libraries(loop_tool_cuda CUDA::cudart_static CUDA::nvrtc)
 endif()
 
 option(BUILD_TESTS "Build all available tests" ON)
@@ -51,6 +51,7 @@ set(TEST_DIR ${CMAKE_CURRENT_SOURCE_DIR}/test/)
 file(GLOB TEST_SRCS ${TEST_DIR}/test_*.cpp)
 list(APPEND TEST_SRCS "${TEST_DIR}/test.cpp") # main file
 add_library(loop_tool_test_utils "${TEST_DIR}/utils.cpp")
+target_include_directories(loop_tool_test_utils PUBLIC ${SRC_DIR})
 
 if (CUDAToolkit_FOUND)
   list(APPEND TEST_SRCS "${TEST_DIR}/cuda_test.cpp")

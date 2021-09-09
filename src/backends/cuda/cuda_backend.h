@@ -13,11 +13,20 @@ LICENSE file in the root directory of this source tree.
 #include <unordered_set>
 
 #include "loop_tool/compile.h"
+#include "loop_tool/dynlib.h"
 #include "loop_tool/error.h"
 #include "loop_tool/hardware.h"
 #include "loop_tool/ir.h"
 
 namespace loop_tool {
+
+std::shared_ptr<DynamicLibrary> &cudaLib();
+std::shared_ptr<DynamicLibrary> &cudaRuntimeLib();
+std::shared_ptr<DynamicLibrary> &nvrtcLib();
+
+#define CULIB(sym) DYNLIB(loop_tool::cudaLib(), sym)
+#define CURTLIB(sym) DYNLIB(loop_tool::cudaRuntimeLib(), sym)
+#define NVRTCLIB(sym) DYNLIB(loop_tool::nvrtcLib(), sym)
 
 struct CudaAux {
   // maps loops to the inner size of other threaded loops
@@ -40,7 +49,7 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
 inline void gpuAssert(cudaError_t code, const char *file, int line,
                       bool abort = true) {
   if (code != cudaSuccess) {
-    ASSERT(0) << cudaGetErrorString(code) << " " << file << ":" << line;
+    ASSERT(0) << CULIB(cudaGetErrorString)(code) << " " << file << ":" << line;
   }
 }
 
@@ -48,7 +57,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
   do {                                                          \
     CUresult result = x;                                        \
     const char *msg;                                            \
-    cuGetErrorName(result, &msg);                               \
+    CULIB(cuGetErrorName)(result, &msg);                        \
     ASSERT(result == CUDA_SUCCESS)                              \
         << "\nerror: " #x " failed with error " << msg << '\n'; \
   } while (0)

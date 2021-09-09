@@ -16,17 +16,37 @@ LICENSE file in the root directory of this source tree.
 #include "cuda_backend.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
+#include "loop_tool/dynlib.h"
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
 
-#define NVRTC_SAFE_CALL(x)                                                  \
-  do {                                                                      \
-    nvrtcResult result = x;                                                 \
-    ASSERT(result == NVRTC_SUCCESS) << "\nerror: " #x " failed with error " \
-                                    << nvrtcGetErrorString(result) << '\n'; \
+#define NVRTC_SAFE_CALL(x)                                \
+  do {                                                    \
+    nvrtcResult result = x;                               \
+    ASSERT(result == NVRTC_SUCCESS)                       \
+        << "\nerror: " #x " failed with error "           \
+        << NVRTCLIB(nvrtcGetErrorString)(result) << '\n'; \
   } while (0)
 
 namespace loop_tool {
+
+std::shared_ptr<DynamicLibrary> &cudaLib() {
+  static std::shared_ptr<DynamicLibrary> lib =
+      std::make_shared<DynamicLibrary>("libcuda.so.1");
+  return lib;
+}
+
+std::shared_ptr<DynamicLibrary> &cudaRuntimeLib() {
+  static std::shared_ptr<DynamicLibrary> lib =
+      std::make_shared<DynamicLibrary>("libcudart.so");
+  return lib;
+}
+
+std::shared_ptr<DynamicLibrary> &nvrtcLib() {
+  static std::shared_ptr<DynamicLibrary> lib =
+      std::make_shared<DynamicLibrary>("libnvrtc.so");
+  return lib;
+}
 
 namespace {
 struct pair_hash {
@@ -691,7 +711,7 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
 
 CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
                       const std::unordered_set<LoopTree::TreeRef> &threaded_) {
-  CUDA_SAFE_CALL(cuInit(0));
+  CUDA_SAFE_CALL(CULIB(cuInit)(0));
   CudaAux cuda_aux;
   auto threaded = threaded_;
   if (threaded.size() == 1 && threaded.count(-1)) {
@@ -735,13 +755,13 @@ CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
   unroll(lt, cuda_aux);
   // TODO multiple devices
   CUdevice cuDevice;
-  CUDA_SAFE_CALL(cuDeviceGet(&cuDevice, 0));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGet)(&cuDevice, 0));
   // TODO Y, Z thread scheduling
-  CUDA_SAFE_CALL(cuDeviceGetAttribute(&cuda_aux.threads_per_block,
-                                      CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X,
-                                      cuDevice));
-  CUDA_SAFE_CALL(cuDeviceGetAttribute(&cuda_aux.threads_per_warp,
-                                      CU_DEVICE_ATTRIBUTE_WARP_SIZE, cuDevice));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &cuda_aux.threads_per_block, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X,
+      cuDevice));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &cuda_aux.threads_per_warp, CU_DEVICE_ATTRIBUTE_WARP_SIZE, cuDevice));
   gen_threading_info(lt, aux, cuda_aux);
   return cuda_aux;
 }
@@ -815,9 +835,9 @@ std::pair<std::string, std::pair<size_t, size_t>> cuda_code_and_dispatch(
 }
 
 int availableCudaGPUs() {
-  CUDA_SAFE_CALL(cuInit(0));
+  CUDA_SAFE_CALL(CULIB(cuInit)(0));
   int avail;
-  CUDA_SAFE_CALL(cuDeviceGetCount(&avail));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetCount)(&avail));
   return avail;
 }
 
@@ -826,13 +846,13 @@ struct CudaGPUHardware : public Hardware {
 
   Memory alloc(size_t size) override {
     void *ptr = nullptr;
-    auto err = cudaMallocManaged(&ptr, size);
+    auto err = CURTLIB(cudaMallocManaged)(&ptr, size, cudaMemAttachGlobal);
     gpuErrchk(err);
     return Memory{0x1 | 1 << id_, ptr};
   }
 
   void free(Memory &data) override {
-    cudaFree(data.address);
+    CURTLIB(cudaFree)(data.address);
     data.address = nullptr;
     data.compatible = 0;
   }
@@ -861,44 +881,44 @@ struct CudaCompiled : public Compiled {
     num_threads = cc.second.second;
 
     nvrtcProgram prog;
-    NVRTC_SAFE_CALL(nvrtcCreateProgram(&prog,         // prog
-                                       code.c_str(),  // buffer
-                                       "kernel.cu",   // name
-                                       0,             // numHeaders
-                                       NULL,          // headers
-                                       NULL));        // includeNames
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcCreateProgram)(&prog,         // prog
+                                                 code.c_str(),  // buffer
+                                                 "kernel.cu",   // name
+                                                 0,             // numHeaders
+                                                 NULL,          // headers
+                                                 NULL));        // includeNames
     const char *opts[] = {
         //"--extra-device-vectorization"
         //"--gpu-architecture=compute_60",
         //"--generate-line-info"
     };
-    nvrtcResult compileResult = nvrtcCompileProgram(prog,   // prog
-                                                    0,      // numOptions
-                                                    opts);  // options
+    nvrtcResult compileResult = NVRTCLIB(nvrtcCompileProgram)(prog,  // prog
+                                                              0,  // numOptions
+                                                              opts);  // options
     size_t logSize;
-    NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
     char *log = new char[logSize];
-    NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log));
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLog)(prog, log));
     ASSERT(compileResult == NVRTC_SUCCESS) << log;
     delete[] log;
 
     size_t ptxSize;
-    NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTXSize)(prog, &ptxSize));
     ptx = new char[ptxSize];
-    NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx));
-    NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTX)(prog, ptx));
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcDestroyProgram)(&prog));
 
-    CUDA_SAFE_CALL(cuInit(0));
-    CUDA_SAFE_CALL(cuDeviceGet(&cuDevice, 0));
-    CUDA_SAFE_CALL(cuCtxCreate(&context, 0, cuDevice));
-    CUDA_SAFE_CALL(cuModuleLoadDataEx(&module, ptx, 0, 0, 0));
-    CUDA_SAFE_CALL(cuModuleGetFunction(&kernel, module, "kernel"));
+    CUDA_SAFE_CALL(CULIB(cuInit)(0));
+    CUDA_SAFE_CALL(CULIB(cuDeviceGet)(&cuDevice, 0));
+    CUDA_SAFE_CALL(CULIB(cuCtxCreate)(&context, 0, cuDevice));
+    CUDA_SAFE_CALL(CULIB(cuModuleLoadDataEx)(&module, ptx, 0, 0, 0));
+    CUDA_SAFE_CALL(CULIB(cuModuleGetFunction)(&kernel, module, "kernel"));
 
     int memory_clock;
     int memory_bus_width;
-    CUDA_SAFE_CALL(cuDeviceGetAttribute(
+    CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
         &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, cuDevice));
-    CUDA_SAFE_CALL(cuDeviceGetAttribute(
+    CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
         &memory_bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
         cuDevice));
 
@@ -909,7 +929,7 @@ struct CudaCompiled : public Compiled {
   }
 
   ~CudaCompiled() {
-    CUDA_SAFE_CALL(cuCtxDestroy(context));
+    CUDA_SAFE_CALL(CULIB(cuCtxDestroy)(context));
     free(ptx);
   }
 
@@ -919,12 +939,12 @@ struct CudaCompiled : public Compiled {
       mem.emplace_back(reinterpret_cast<void *>(const_cast<void **>(&v)));
     }
     void **args = mem.data();
-    CUDA_SAFE_CALL(cuLaunchKernel(kernel, num_blocks, 1, 1,  // grid dim
-                                  num_threads, 1, 1,         // block dim
-                                  0, NULL,    // shared mem and stream
-                                  args, 0));  // arguments
+    CUDA_SAFE_CALL(CULIB(cuLaunchKernel)(kernel, num_blocks, 1, 1,  // grid dim
+                                         num_threads, 1, 1,         // block dim
+                                         0, NULL,    // shared mem and stream
+                                         args, 0));  // arguments
     if (sync) {
-      CUDA_SAFE_CALL(cuCtxSynchronize());
+      CUDA_SAFE_CALL(CULIB(cuCtxSynchronize)());
     }
   }
 };
@@ -950,7 +970,14 @@ struct CudaBackend : public Backend {
   }
 };
 
-static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
-static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
+static int reg_ = []() {
+  if (DynamicLibrary::exists("libcuda.so.1") &&
+      DynamicLibrary::exists("libnvrtc.so") &&
+      DynamicLibrary::exists("libnvrtc-builtins.so")) {
+    static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
+    static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
+  }
+  return 0;
+}();
 
 }  // namespace loop_tool

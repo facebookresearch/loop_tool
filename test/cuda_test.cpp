@@ -11,25 +11,18 @@ LICENSE file in the root directory of this source tree.
 #include <iostream>
 #include <random>
 
+#include "backends/cuda/cuda_backend.h"
 #include "loop_tool/backend.h"
 #include "test_utils.h"
 
 using namespace loop_tool;
 using namespace loop_tool::testing;
 
-#define gpuErrchk(ans) \
-  { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line,
-                      bool abort = true) {
-  if (code != cudaSuccess) {
-    ASSERT(0) << cudaGetErrorString(code) << " " << file << ":" << line;
-  }
-}
-
 float *cuda_rand(int N) {
   void *ptr = nullptr;
   auto s = N * sizeof(float);
-  auto err = cudaMallocManaged(&ptr, s);  // N * sizeof(float));
+  auto err = CURTLIB(cudaMallocManaged)(
+      &ptr, s, cudaMemAttachGlobal);  // N * sizeof(float));
   gpuErrchk(err);
   float *data = (float *)ptr;
   std::random_device rd;
@@ -67,7 +60,7 @@ void run(int T, int V) {
   ir.set_outputs({w});
   LoopTree lt(ir);
   void *ptr = nullptr;
-  auto err = cudaMallocManaged(&ptr, N);
+  auto err = CURTLIB(cudaMallocManaged)(&ptr, N, cudaMemAttachGlobal);
   gpuErrchk(err);
   auto in0 = cuda_rand(N);
   auto in1 = cuda_rand(N);
@@ -92,9 +85,9 @@ void run(int T, int V) {
   }
   assert(max_diff < 0.01);
   // std::cerr << "max diff " << max_diff << "\n";
-  cudaFree(in0);
-  cudaFree(in1);
-  cudaFree(out);
+  CURTLIB(cudaFree)(in0);
+  CURTLIB(cudaFree)(in1);
+  CURTLIB(cudaFree)(out);
 }
 
 void test_mm(int M, int N, int K) {
@@ -361,7 +354,7 @@ TEST(Cuda) {
   LoopTree lt(ir);
   std::cerr << lt.dump();
   void *ptr = nullptr;
-  auto err = cudaMallocManaged(&ptr, N);
+  auto err = CURTLIB(cudaMallocManaged)(&ptr, N, cudaMemAttachGlobal);
   std::cerr << "latest ptr " << ptr << "\n";
   gpuErrchk(err);
   auto in0 = cuda_rand(N);
@@ -406,9 +399,9 @@ TEST(Cuda) {
   // for (auto i = 0; i < 5; ++i) {
   //  std::cerr << in0[i] << " + " << in1[i] << " = " << out[i] << "\n";
   //}
-  cudaFree(in0);
-  cudaFree(in1);
-  cudaFree(out);
+  CURTLIB(cudaFree)(in0);
+  CURTLIB(cudaFree)(in1);
+  CURTLIB(cudaFree)(out);
   // cuCtxDestroy(context);
   for (auto t : {128, 256, 512, 1024, 1024 * 32, 1024 * 128}) {
     for (auto v : {4, 8, 1}) {

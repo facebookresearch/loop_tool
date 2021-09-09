@@ -20,6 +20,8 @@ LICENSE file in the root directory of this source tree.
 
 #ifdef ENABLE_CUDA
 #include <cuda.h>
+
+#include "cuda_backend.h"
 #endif
 
 using namespace loop_tool;
@@ -214,7 +216,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                data[i] = f;
              }
 #ifdef ENABLE_CUDA
-             cuCtxSynchronize();
+             CULIB(cuCtxSynchronize)();
 #endif
            })
       .def("set",
@@ -225,7 +227,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                data[i] = fs[i];
              }
 #ifdef ENABLE_CUDA
-             cuCtxSynchronize();
+             CULIB(cuCtxSynchronize)();
 #endif
            })
       .def("set",
@@ -240,13 +242,13 @@ PYBIND11_MODULE(loop_tool_py, m) {
                tensor_data[i] = data[i];
              }
 #ifdef ENABLE_CUDA
-             cuCtxSynchronize();
+             CULIB(cuCtxSynchronize)();
 #endif
            })
       .def("to_numpy",
            [](Tensor &t) {
 #ifdef ENABLE_CUDA
-             cuCtxSynchronize();
+             CULIB(cuCtxSynchronize)();
 #endif
              auto result = py::array_t<float>(t.numel);
              py::buffer_info buf = result.request();
