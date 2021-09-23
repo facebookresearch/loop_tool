@@ -168,7 +168,7 @@ std::string gen_compute(const LoopTree &lt, const Auxiliary &aux,
   auto node_ref = lt.node(ref);
   const auto &node = lt.ir.node(node_ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
-                    lt.ir.all_vars(node_ref).size());
+                    lt.ir.loop_vars(node_ref).size());
   ss << gen_access(lt, aux, aux.allocs.at(node_ref), ref, unroll) << " ";
   if (reduction) {
     ss << sym;
@@ -194,13 +194,13 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
   auto node_ref = lt.node(ref);
   auto out_alloc = aux.allocs.at(node_ref);
   const auto &node = lt.ir.node(node_ref);
-  if (node.op() == "add") {
+  if (node.op() == Operation::add) {
     ss << indent(depth);
     ss << gen_compute(lt, aux, unroll, ref, "+");
-  } else if (node.op() == "mul") {
+  } else if (node.op() == Operation::multiply) {
     ss << indent(depth);
     ss << gen_compute(lt, aux, unroll, ref, "*");
-  } else if (node.op() == "read") {
+  } else if (node.op() == Operation::read) {
     int external_memory = -1;
     for (auto i = 0; i < lt.ir.inputs().size(); ++i) {
       if (lt.ir.inputs()[i] == lt.node(ref)) {
@@ -217,7 +217,7 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
     ss << " = ";
     ss << gen_access(lt, aux, inp_alloc, ref, unroll, external_memory);
     ss << ";\n";
-  } else if (node.op() == "write") {
+  } else if (node.op() == Operation::write) {
     int external_memory = -1;
     for (auto i = 0; i < lt.ir.outputs().size(); ++i) {
       if (lt.ir.outputs()[i] == lt.node(ref)) {
@@ -475,7 +475,7 @@ std::string gen_guard(const LoopTree &lt, const Auxiliary &aux,
     }
     return ss.str();
   }
-  auto vs = lt.ir.all_vars(lt.node(ref));
+  auto vs = lt.ir.loop_vars(lt.node(ref));
   std::unordered_set<IR::VarRef> vars(vs.begin(), vs.end());
   auto parent = lt.parent(ref);
   bool first_parent = false;
@@ -672,7 +672,7 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
       bool reduction = false;
       for (auto inp : node.inputs()) {
         reduction |=
-            (lt.ir.pointwise_vars(inp).size() != lt.ir.all_vars(inp).size());
+            (lt.ir.pointwise_vars(inp).size() != lt.ir.loop_vars(inp).size());
       }
       return reduction;
     };

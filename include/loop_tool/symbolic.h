@@ -86,6 +86,7 @@ struct Expr {
   Expr walk(std::function<Expr(const Expr&)> f) const;
   Expr replace(Symbol A, Symbol B) const;
   Expr replace(Symbol A, size_t c) const;
+  bool contains(Symbol s) const;
 
   static Expr size(const Expr& expr);
   Expr operator+(const Expr& rhs) const;
@@ -101,6 +102,8 @@ struct Expr {
 using Constraint = std::pair<Expr, Expr>;
 
 std::vector<Constraint> unify(std::vector<Constraint> constraints);
+
+Expr differentiate(Expr, Symbol);
 
 }  // namespace symbolic
 }  // namespace loop_tool

@@ -28,12 +28,13 @@ IR::VarRef IR::create_var(std::string name) {
   return new_idx;
 }
 
-IR::NodeRef IR::create_node(std::string op, std::vector<IR::NodeRef> inputs,
+IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
                             std::vector<IR::VarRef> vars,
                             std::vector<symbolic::Constraint> constraints) {
   IR::NodeRef new_idx = nodes_.size();
   if (constraints.size()) {
-    ASSERT(op == "view") << "Can only specify constraints with views\n";
+    ASSERT(op == Operation::view)
+        << "Can only specify constraints with views\n";
   }
   Node n_(op, inputs, vars, constraints);
 
@@ -53,7 +54,9 @@ IR::NodeRef IR::create_node(std::string op, std::vector<IR::NodeRef> inputs,
 void IR::reset_aux(IR::NodeRef node_ref) {
   // TODO attempt to preserve old order
   std::vector<std::pair<IR::NodeRef, IR::LoopSize>> order;
-  for (const auto &v : all_vars(node_ref)) {
+  auto &n = node(node_ref);
+  auto vars = loop_vars(node_ref);
+  for (const auto &v : vars) {
     order.emplace_back(v, IR::LoopSize{-1, -1});
   }
   priorities_[node_ref] = 0;
@@ -97,7 +100,7 @@ std::string IR::dump(IR::NodeRef idx) const {
       ss << ", ";
     }
   }
-  ss << "] <- " << n.op() << "(";
+  ss << "] <- " << loop_tool::dump(n.op()) << "(";
   for (const auto &inp : n.inputs()) {
     ss << "%" << inp;
     if (&inp != &n.inputs().back()) {
@@ -128,21 +131,23 @@ std::vector<IR::VarRef> IR::pointwise_vars(IR::NodeRef idx) const {
   return pointwise_vars;
 }
 
-std::vector<IR::VarRef> IR::all_vars(IR::NodeRef idx) const {
+std::vector<IR::VarRef> IR::loop_vars(IR::NodeRef idx) const {
   auto var_vec = node(idx).vars();
   std::unordered_set<IR::VarRef> vars = {var_vec.begin(), var_vec.end()};
-  std::vector<IR::VarRef> all_vars = var_vec;
-  for (auto inp : node(idx).inputs()) {
-    for (auto v : node(inp).vars()) {
-      if (vars.count(v)) {
-        continue;
+  std::vector<IR::VarRef> loop_vars = var_vec;
+  if (node(idx).op() != Operation::view) {
+    for (auto inp : node(idx).inputs()) {
+      for (auto v : node(inp).vars()) {
+        if (vars.count(v)) {
+          continue;
+        }
+        loop_vars.emplace_back(v);
+        vars.insert(v);
       }
-      all_vars.emplace_back(v);
-      vars.insert(v);
     }
   }
-  std::sort(all_vars.begin(), all_vars.end());
-  return all_vars;
+  std::sort(loop_vars.begin(), loop_vars.end());
+  return loop_vars;
 }
 
 std::vector<IR::VarRef> IR::vars() const {
@@ -173,7 +178,7 @@ IR split_node(const IR &ir, IR::NodeRef node_ref,
               std::vector<IR::VarRef> injected) {
   IR new_ir = ir;
   auto &node = new_ir.node(node_ref);
-  auto vs_vec = new_ir.all_vars(node_ref);
+  auto vs_vec = new_ir.loop_vars(node_ref);
   std::unordered_set<IR::VarRef> vs{vs_vec.begin(), vs_vec.end()};
   for (auto v : injected) {
     ASSERT(vs.count(v));

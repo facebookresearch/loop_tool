@@ -107,14 +107,35 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+#define OPS(_) \
+  _(constant)  \
+  _(write)     \
+  _(read)      \
+  _(view)      \
+  _(add)       \
+  _(multiply)  \
+  _(name)
+
 // Operations on arrays
 enum struct Operation {
-  constant = 0,
-  add,
-  multiply,
-  view,
-  name  // really a no-op
+#define X(op) op,
+  OPS(X)
+#undef X
 };
+
+inline std::string dump(const Operation &op) {
+#define X(o)         \
+  case Operation::o: \
+    return #o;
+  switch (op) {
+    OPS(X)
+    default:
+      ASSERT(0) << "unkown op code " << (int)op;
+      return "unknown";
+  }
+  return "unknown";
+#undef X
+}
 
 struct Node;
 struct Var;
@@ -130,7 +151,7 @@ class IR {
     int tail;
   };
 
-  NodeRef create_node(std::string op, std::vector<NodeRef> inputs,
+  NodeRef create_node(Operation op, std::vector<NodeRef> inputs,
                       std::vector<VarRef> vars,
                       std::vector<symbolic::Constraint> constraints = {});
   VarRef create_var(std::string name);
@@ -202,7 +223,7 @@ class IR {
 
   std::string dump(NodeRef ref) const;
   std::vector<VarRef> pointwise_vars(NodeRef ref) const;
-  std::vector<VarRef> all_vars(NodeRef ref) const;
+  std::vector<VarRef> loop_vars(NodeRef ref) const;
 
  private:
   std::vector<Node> nodes_;
@@ -224,7 +245,7 @@ std::string dot(const IR &ir);
 class Node {
  protected:
   friend class IR;  // use the IR class to create nodes
-  Node(std::string op, std::vector<IR::NodeRef> inputs,
+  Node(Operation op, std::vector<IR::NodeRef> inputs,
        std::vector<IR::VarRef> vars,
        std::vector<symbolic::Constraint> constraints)
       : op_(op), inputs_(inputs), vars_(vars), constraints_(constraints) {}
@@ -241,12 +262,15 @@ class Node {
  public:
   inline const std::vector<IR::NodeRef> &inputs() const { return inputs_; }
   inline const std::vector<IR::NodeRef> &outputs() const { return outputs_; }
+  inline const std::vector<symbolic::Constraint> &constraints() const {
+    return constraints_;
+  }
 
-  const std::string &op() const { return op_; }
+  const Operation &op() const { return op_; }
   const std::vector<IR::VarRef> &vars() const { return vars_; }
 
  private:
-  std::string op_;
+  Operation op_;
   std::vector<IR::NodeRef> inputs_;
   // denote the output vars
   std::vector<IR::VarRef> vars_;

@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/symbolic.h"
 
+#include <algorithm>
 #include <functional>
 #include <unordered_map>
 
@@ -51,8 +52,12 @@ size_t Expr::hash() const {
 }
 
 size_t Expr::value() const {
-  ASSERT(type_ == Expr::Type::value)
-      << "attempted to get real value from symbolic or unsimplified expression";
+  if (type_ != Expr::Type::value) {
+    ASSERT(type_ == Expr::Type::value)
+        << "attempted to get real value from symbolic or unsimplified "
+           "expression: "
+        << dump();
+  }
   return val_;
 }
 
@@ -114,6 +119,25 @@ Expr Expr::replace(Symbol A, size_t c) const {
   }
 }
 
+bool Expr::contains(Symbol s) const {
+  switch (type()) {
+    case Expr::Type::symbol:
+      if (symbol() == s) {
+        return true;
+      }
+      return false;
+    case Expr::Type::function: {
+      bool contained = false;
+      for (const auto& arg : args()) {
+        contained |= arg.contains(s);
+      }
+      return contained;
+    }
+    default:
+      return false;
+  }
+}
+
 Expr Expr::walk(std::function<Expr(const Expr&)> f) const {
   if (type() == Expr::Type::function) {
     std::vector<Expr> new_args;
@@ -135,6 +159,9 @@ Expr Expr::operator+(const Expr& rhs) const {
     if (rhs.type() == Expr::Type::value) {
       return Expr(value() + rhs.value());
     }
+    if (value() == 0) {
+      return rhs;
+    }
   }
   return Expr(Op::add, {*this, rhs});
 }
@@ -143,6 +170,12 @@ Expr Expr::operator*(const Expr& rhs) const {
   if (type() == Expr::Type::value) {
     if (rhs.type() == Expr::Type::value) {
       return Expr(value() * rhs.value());
+    }
+    if (value() == 1) {
+      return rhs;
+    }
+    if (value() == 0) {
+      return Expr(0);
     }
   }
   return Expr(Op::multiply, {*this, rhs});
@@ -162,8 +195,15 @@ bool Expr::operator==(const Expr& rhs) const {
   }
   bool match = true;
   if (args().size() == rhs.args().size()) {
-    for (auto i = 0; i < args().size(); ++i) {
-      match &= args().at(i) == rhs.args().at(i);
+    auto sorted_args = args();
+    auto sorted_rhs_args = rhs.args();
+    auto sort_fn = [](const Expr& a, const Expr& b) {
+      return a.hash() < b.hash();
+    };
+    std::sort(sorted_args.begin(), sorted_args.end(), sort_fn);
+    std::sort(sorted_rhs_args.begin(), sorted_rhs_args.end(), sort_fn);
+    for (auto i = 0; i < sorted_args.size(); ++i) {
+      match &= sorted_args.at(i) == sorted_rhs_args.at(i);
     }
   } else {
     match = false;
@@ -376,11 +416,55 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
   std::vector<Constraint> out;
   for (const auto& p : all_symbols) {
     auto symbol = p.second;
-    out.emplace_back(std::make_pair(symbol, eval_expr(symbol)));
+    auto symbolic_expr = eval_expr(symbol);
+    // no need to include identities
+    if (Expr(symbol) != symbolic_expr) {
+      out.emplace_back(std::make_pair(symbol, symbolic_expr));
+    }
     out.emplace_back(
         std::make_pair(Expr::size(symbol), eval_expr(Expr::size(symbol))));
   }
   return out;
+}
+
+Expr differentiate(Expr e, Symbol sym) {
+  if (!e.contains(sym)) {
+    return Expr(0);
+  }
+
+  if (e == Expr(sym)) {
+    return Expr(1);
+  }
+
+  if (e.type() == Expr::Type::function) {
+    if (e.args().size() == 2) {
+      const auto& a = e.args().at(0);
+      const auto& b = e.args().at(1);
+      if (e.op() == Op::add) {
+        if (a.contains(sym) && !b.contains(sym)) {
+          return differentiate(a, sym);
+        } else if (b.contains(sym) && !a.contains(sym)) {
+          return differentiate(b, sym);
+        } else {
+          ASSERT(a.contains(sym) && b.contains(sym));
+          return differentiate(a, sym) + differentiate(b, sym);
+        }
+      } else if (e.op() == Op::multiply) {
+        if (a.contains(sym) && !b.contains(sym)) {
+          return differentiate(a, sym) * b;
+        } else if (b.contains(sym) && !a.contains(sym)) {
+          return differentiate(b, sym) * a;
+        } else {
+          ASSERT(a.contains(sym) && b.contains(sym));
+          return differentiate(a, sym) * b + differentiate(b, sym) * a;
+        }
+      }
+    }
+  }
+
+  ASSERT(0) << "Cannot differentiate " << e.dump() << " with respect to "
+            << sym.name();
+  return Expr(0);
 }
 
 }  // namespace symbolic

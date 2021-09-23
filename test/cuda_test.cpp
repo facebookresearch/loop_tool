@@ -48,10 +48,10 @@ void run(int T, int V) {
   }
   std::cerr << "Threading size " << T << " vec " << V << "\n";
   auto a = ir.create_var("a");
-  auto r0 = ir.create_node("read", {}, {a});
-  auto r1 = ir.create_node("read", {}, {a});
-  auto add = ir.create_node("add", {r0, r1}, {a});
-  auto w = ir.create_node("write", {add}, {a});
+  auto r0 = ir.create_node(Operation::read, {}, {a});
+  auto r1 = ir.create_node(Operation::read, {}, {a});
+  auto add = ir.create_node(Operation::add, {r0, r1}, {a});
+  auto w = ir.create_node(Operation::write, {add}, {a});
   for (auto v : {r0, r1, add, w}) {
     ir.set_order(v, {{a, {N / V / T, 0}}, {a, {T, 0}}, {a, {V, 0}}});
     ir.disable_reuse(v, 2);
@@ -96,13 +96,13 @@ void test_mm(int M, int N, int K) {
   auto n = ir.create_var("n");
   auto k = ir.create_var("k");
 
-  auto r0 = ir.create_node("read", {}, {m, k});
-  auto r1 = ir.create_node("read", {}, {k, n});
+  auto r0 = ir.create_node(Operation::read, {}, {m, k});
+  auto r1 = ir.create_node(Operation::read, {}, {k, n});
 
-  auto mul = ir.create_node("mul", {r1, r0}, {m, k, n});
-  auto add = ir.create_node("add", {mul}, {m, n});
+  auto mul = ir.create_node(Operation::multiply, {r1, r0}, {m, k, n});
+  auto add = ir.create_node(Operation::add, {mul}, {m, n});
 
-  auto w = ir.create_node("write", {add}, {m, n});
+  auto w = ir.create_node(Operation::write, {add}, {m, n});
   int N_unroll = 4;
   int K_unroll = 4;
   ir.set_order(r0, {{m, {M, 0}}, {k, {K / K_unroll, 0}}, {k, {K_unroll, 0}}});
@@ -172,13 +172,13 @@ void test_mm2(int M, int N, int K) {
   auto n = ir.create_var("n");
   auto k = ir.create_var("k");
 
-  auto r0 = ir.create_node("read", {}, {m, k});
-  auto r1 = ir.create_node("read", {}, {k, n});
+  auto r0 = ir.create_node(Operation::read, {}, {m, k});
+  auto r1 = ir.create_node(Operation::read, {}, {k, n});
 
-  auto mul = ir.create_node("mul", {r1, r0}, {m, k, n});
-  auto add = ir.create_node("add", {mul}, {m, n});
+  auto mul = ir.create_node(Operation::multiply, {r1, r0}, {m, k, n});
+  auto add = ir.create_node(Operation::add, {mul}, {m, n});
 
-  auto w = ir.create_node("write", {add}, {m, n});
+  auto w = ir.create_node(Operation::write, {add}, {m, n});
   int N_unroll = 4;
   int M_unroll = 4;
   int K_unroll = 4;
@@ -246,13 +246,13 @@ void test_cuda_exec(int M, int N, int K) {
   auto n = ir.create_var("n");
   auto k = ir.create_var("k");
 
-  auto r0 = ir.create_node("read", {}, {m, k});
-  auto r1 = ir.create_node("read", {}, {k, n});
+  auto r0 = ir.create_node(Operation::read, {}, {m, k});
+  auto r1 = ir.create_node(Operation::read, {}, {k, n});
 
-  auto mul = ir.create_node("mul", {r1, r0}, {m, k, n});
-  auto add = ir.create_node("add", {mul}, {m, n});
+  auto mul = ir.create_node(Operation::multiply, {r1, r0}, {m, k, n});
+  auto add = ir.create_node(Operation::add, {mul}, {m, n});
 
-  auto w = ir.create_node("write", {add}, {m, n});
+  auto w = ir.create_node(Operation::write, {add}, {m, n});
   int N_unroll = 4;
   int M_unroll = 4;
   int K_unroll = 4;
@@ -337,10 +337,10 @@ TEST(Cuda) {
   constexpr int N = 1024 * 1024;
   constexpr int T = 1024 * 8;
   auto a = ir.create_var("a");
-  auto r0 = ir.create_node("read", {}, {a});
-  auto r1 = ir.create_node("read", {}, {a});
-  auto add = ir.create_node("add", {r0, r1}, {a});
-  auto w = ir.create_node("write", {add}, {a});
+  auto r0 = ir.create_node(Operation::read, {}, {a});
+  auto r1 = ir.create_node(Operation::read, {}, {a});
+  auto add = ir.create_node(Operation::add, {r0, r1}, {a});
+  auto w = ir.create_node(Operation::write, {add}, {a});
   for (auto v : {r0, r1, add, w}) {
     // ir.set_order(v, {{a, {N, 0}}});
     // ir.set_order(v, {{a, {N / 4 / 32, 0}}, {a, {32, 0}}, {a, {4, 0}}});

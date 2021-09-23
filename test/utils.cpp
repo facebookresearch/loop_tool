@@ -140,7 +140,7 @@ void ref_mm(const float* A, const float* B, int M, int N, int K, float* C,
       for (auto k = 0; k < K; ++k) {
         tmp += A[m * K + k] * B[k * N + n];
       }
-      C[m * N + n] = alpha * C[m * N + n] + tmp;
+      C[m * N + n] = (alpha ? (alpha * C[m * N + n]) : 0) + tmp;
     }
   }
 }

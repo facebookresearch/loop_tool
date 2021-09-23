@@ -48,7 +48,7 @@ LoopTree TensorImpl::schedule(
   }
   for (const auto& n : ir.nodes()) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
-    for (const auto& v : ir.all_vars(n)) {
+    for (const auto& v : ir.loop_vars(n)) {
       order.emplace_back(
           std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
     }
@@ -93,8 +93,8 @@ IR::NodeRef TensorImpl::resolve(
       auto size = expr.value();
       std::stringstream s_name;
       s_name << s.name();
-      s_name << "_";
-      s_name << s.id();
+      // s_name << ".";
+      // s_name << s.id();
       auto var = ir.create_var(s_name.str());
       var_map[s.id()] = std::make_pair(var, size);
     }
@@ -107,18 +107,17 @@ IR::NodeRef TensorImpl::resolve(
       node_ref = node_deps[0];
       break;
     case Operation::view:
-      ASSERT(0) << "view not yet supported";
-      node_ref = node_deps[0];
+      node_ref = ir.create_node(Operation::view, node_deps, vars, constraints_);
       break;
     case Operation::constant:
-      node_ref = ir.create_node("read", {}, vars);
+      node_ref = ir.create_node(Operation::read, {}, vars);
       ir.add_input(node_ref);
       break;
     case Operation::add:
-      node_ref = ir.create_node("add", node_deps, vars);
+      node_ref = ir.create_node(Operation::add, node_deps, vars);
       break;
     case Operation::multiply:
-      node_ref = ir.create_node("mul", node_deps, vars);
+      node_ref = ir.create_node(Operation::multiply, node_deps, vars);
       break;
   }
   ASSERT(node_ref > -1) << "couldn't resolve node op: " << (int)op_;
@@ -134,18 +133,36 @@ void TensorImpl::collectConstraints(std::vector<Constraint>& constraints) {
   }
 }
 
-void TensorImpl::propogateConstraints(
-    const std::unordered_map<int, Expr>& size_constraints) {
+void TensorImpl::propagateConstraints(
+    const std::vector<Constraint>& constraints) {
+  // collect sym deps for current constraints
+  // TODO: change to set
+  std::vector<Symbol> symbols;
+  for (const auto& c : constraints_) {
+    auto collect_syms = [&](const Expr& e) {
+      if (e.type() == Expr::Type::symbol) {
+        symbols.emplace_back(e.symbol());
+      }
+      return e;
+    };
+    c.first.walk(collect_syms);
+    c.second.walk(collect_syms);
+  }
+  symbols.insert(symbols.end(), shape().begin(), shape().end());
   constraints_.clear();
-  for (const auto& s : shape()) {
-    auto id = s.id();
-    if (size_constraints.count(id)) {
-      constraints_.emplace_back(
-          std::make_pair(Expr::size(s), size_constraints.at(id)));
+  for (auto& c : constraints) {
+    bool insert = false;
+    for (const auto& s : symbols) {
+      if (c.first.contains(s) || c.second.contains(s)) {
+        insert = true;
+      }
+    }
+    if (insert) {
+      constraints_.emplace_back(c);
     }
   }
   for (const auto& d : deps_) {
-    d->propogateConstraints(size_constraints);
+    d->propagateConstraints(constraints);
   }
 }
 
@@ -153,16 +170,7 @@ void TensorImpl::unifyConstraints() {
   std::vector<Constraint> constraints;
   collectConstraints(constraints);
   auto new_constraints = symbolic::unify(constraints);
-  std::unordered_map<int, Expr> size_constraints;
-  for (const auto& c : new_constraints) {
-    const auto& expr = c.first;
-    if (expr.type() == Expr::Type::symbol) {
-    } else {
-      auto symbol = expr.args().at(0).symbol();
-      size_constraints.emplace(symbol.id(), c.second);
-    }
-  }
-  propogateConstraints(size_constraints);
+  propagateConstraints(new_constraints);
 }
 
 void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
@@ -184,8 +192,6 @@ void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
         symbol_map[dep_shape[i].id()] = shape_[i];
       }
     }
-  }
-  if (op_ == Operation::view) {
   }
   for (auto d : deps_) {
     d->collectSymbolMap(symbol_map);
@@ -221,22 +227,14 @@ void TensorImpl::unify() {
 }
 
 void TensorImpl::populateCompilationCache() {
-  unify();
-
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
-  auto node_ref = resolve(ir, var_map);
-
-  std::vector<IR::VarRef> vars;
+  std::tie(ir, var_map) = lower();
+  auto loop_tree = schedule(ir, var_map);
   size_t size = 1;
   for (const auto& s : shape()) {
-    vars.emplace_back(var_map.at(s.id()).first);
     size *= var_map.at(s.id()).second;
   }
-  auto out = ir.create_node("write", {node_ref}, vars);
-  ir.set_outputs({out});
-
-  auto loop_tree = schedule(ir, var_map);
   auto cc = getDefaultBackend()->compile(loop_tree, {}, -1);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});

@@ -38,11 +38,7 @@ void registerBackend(std::shared_ptr<Backend> backend) {
 }
 
 std::shared_ptr<Backend> &getDefaultBackend() {
-  static std::shared_ptr<Backend> default_backend_;
-  if (!default_backend_) {
-    ASSERT(getBackends().count("cpu")) << "couldn't find cpu (default) backend";
-    default_backend_ = getBackends().at("cpu");
-  }
+  static std::shared_ptr<Backend> default_backend_ = getBackends().at("cpu");
   return default_backend_;
 }
 

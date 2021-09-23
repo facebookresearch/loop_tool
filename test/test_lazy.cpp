@@ -202,8 +202,7 @@ TEST(LazyLoopTree) {
 
   auto lt = C.loop_tree();
   ASSERT(lt.roots.size() > 0);
-  ASSERT(A.loop_tree().roots.size() == 0);
-  std::cout << "schedule is:\n" << lt.dump();
+  std::cout << "schedule is:\n" << A.loop_tree().dump();
 }
 
 TEST(LazyStackMemory) {
@@ -261,26 +260,59 @@ TEST(LazyTranspose) {
   ASSERT(B.size(0) == 64);
 }
 
-// TEST(LazyConv) {
-//  namespace lz = ::loop_tool::lazy;
-//  lz::Symbol N, N_o, K;
-//  lz::Tensor A(N);
-//  lz::Tensor W(K);
-//  lz::Tensor X = A.to({No, K}, {{N, N_o + K}});
-//  // create_node("view", {X}, {No, K}, {N = No + K});
-//  auto Y = (X * W).sum(K);
-//  Y.bind(nullptr, {8});
-//  W.bind(nullptr, {3});
-//  (void)A.data<float>();
-//  for (auto i = 0; i < 10; ++i) {
-//    A.data<float>()[i] = 1;
-//  }
-//  ASSERT(X.shape().size() == 2);
-//  ASSERT(X.shape()[0] == N_o);
-//  ASSERT(X.shape()[1] == K);
-//  ASSERT(A.size(0) == 10);
-//  ASSERT(Y.data<float>()[3] == 3);
-//}
+TEST(LazyConv) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N("N"), N_o("N_o"), K("K");
+  lz::Tensor A(N);
+  lz::Tensor W(K);
+
+  lz::Tensor X = A.to({N_o, K}, lz::Constraint(N, N_o + K));
+  auto Y = (X * W).sum(K);
+  Y.bind(nullptr, {8});  // we can infer the size of A from this
+  W.bind(nullptr, {3});
+  float A_data[10] = {0};
+  A.bind(A_data, {10});
+  for (auto i = 0; i < 10; ++i) {
+    A.data<float>()[i] = 1;
+  }
+  for (auto i = 0; i < 3; ++i) {
+    W.data<float>()[i] = 1;
+  }
+  ASSERT(X.shape().size() == 2);
+  ASSERT(X.shape()[0] == N_o);
+  ASSERT(X.shape()[1] == K);
+  ASSERT(A.size(0) == 10);
+  std::cerr << "output data: \n";
+  for (auto i = 0; i < 8; ++i) {
+    std::cerr << Y.data<float>()[i] << " ";
+  }
+  std::cerr << "\n";
+  ASSERT(Y.data<float>()[3] == 3) << "found " << Y.data<float>()[3];
+}
+
+TEST(LazyConvStride) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N("N"), N_o("N_o"), K("K");
+  lz::Tensor A(N);
+  lz::Tensor W(K);
+  lz::Tensor X = A.to({N_o, K}, lz::Constraint(N, lz::Expr(2) * N_o + K));
+  auto Y = (X * W).sum(K);
+  Y.bind(nullptr, {8});  // we can infer the size of A from this
+  W.bind(nullptr, {3});
+  float A_data[17] = {0};
+  A.bind(A_data, {17});
+  for (auto i = 0; i < 10; ++i) {
+    A.data<float>()[i] = 1;
+  }
+  for (auto i = 0; i < 3; ++i) {
+    W.data<float>()[i] = 1;
+  }
+  ASSERT(X.shape().size() == 2);
+  ASSERT(X.shape()[0] == N_o);
+  ASSERT(X.shape()[1] == K);
+  ASSERT(A.size(0) == 17) << "found size to be " << A.size(0);
+  ASSERT(Y.data<float>()[3] == 3);
+}
 
 // TEST(LazyConcat1D) {
 //  namespace lz = ::loop_tool::lazy;

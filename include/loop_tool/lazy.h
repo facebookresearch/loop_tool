@@ -71,15 +71,15 @@ struct TensorImpl {
     return out;
   }
 
+  std::vector<Constraint> constraints() const { return constraints_; }
+
   void updateHash() {
     auto h = symbolic::hash((size_t)op_);
     h = symbolic::hash(h ^ shape_.size());
-    auto cm = size_constraints();
-    for (const auto& s : shape_) {
-      if (cm.count(s.id())) {
-        // TODO Expr::hash()
-        h = symbolic::hash(cm.at(s.id()).hash());
-      }
+    auto cm = constraints();
+    for (auto& p : cm) {
+      h = symbolic::hash(p.first.hash());
+      h = symbolic::hash(p.second.hash());
     }
     for (const auto& d : deps_) {
       h = symbolic::hash(h ^ d->hash());
@@ -120,8 +120,7 @@ struct TensorImpl {
   void propagateSymbolMap(const std::unordered_map<int, Symbol>& symbol_map);
   void unifySymbols();
   void collectConstraints(std::vector<Constraint>& constraints);
-  void propogateConstraints(
-      const std::unordered_map<int, Expr>& size_constraints);
+  void propagateConstraints(const std::vector<Constraint>& constraints);
   void unifyConstraints();
   void unify();
   void populateCompilationCache();
@@ -130,6 +129,9 @@ struct TensorImpl {
 
   template <typename T>
   T* data() const {
+    if (data_) {
+      return static_cast<T*>(data_);
+    }
     if (owning_ && !data_) {
       size_t size = 1;
       for (auto i = 0; i < shape().size(); ++i) {
@@ -139,9 +141,9 @@ struct TensorImpl {
         size *= size_constraints().at(shape()[i].id()).value();
       }
       data_ = malloc(sizeof(float) * size);
-    }
-    if (data_) {
-      return static_cast<T*>(data_);
+      if (deps_.size() == 0) {
+        return static_cast<T*>(data_);
+      }
     }
     if (!getCompilationCache().count(hash())) {
       const_cast<TensorImpl*>(this)->populateCompilationCache();
@@ -155,13 +157,39 @@ struct TensorImpl {
     return static_cast<T*>(data_);
   };
 
-  LoopTree loop_tree() const {
-    if (deps_.size() == 0) {
-      return LoopTree(IR());
+  std::pair<IR, std::unordered_map<int, std::pair<IR::VarRef, size_t>>> lower()
+      const {
+    const_cast<TensorImpl*>(this)->unify();
+    IR ir;
+    std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
+    auto node_ref = resolve(ir, var_map);
+
+    std::vector<IR::VarRef> vars;
+    for (const auto& s : shape()) {
+      vars.emplace_back(var_map.at(s.id()).first);
     }
-    (void)data<void>();
-    auto& cc = getCompilationCache().at(hash());
-    return cc.loop_tree;
+    auto out = ir.create_node(Operation::write, {node_ref}, vars);
+    ir.set_outputs({out});
+    return std::make_pair(ir, var_map);
+  }
+
+  IR ir() const {
+    auto h = hash();
+    if (getCompilationCache().count(h)) {
+      auto& cc = getCompilationCache().at(h);
+      return cc.ir;
+    }
+    return lower().first;
+  }
+
+  LoopTree loop_tree() const {
+    auto h = hash();
+    if (getCompilationCache().count(h)) {
+      auto& cc = getCompilationCache().at(h);
+      return cc.loop_tree;
+    }
+    auto ll = lower();
+    return schedule(ll.first, ll.second);
   }
 
   LoopTree schedule(
@@ -265,6 +293,7 @@ struct Tensor {
   Tensor to(std::vector<Symbol> shape, const Constraints&... args) {
     std::vector<Constraint> constraints{args...};
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+
     return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps,
                                                constraints));
   }

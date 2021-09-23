@@ -40,9 +40,9 @@ TEST(CustomBackend) {
   lt::IR ir;
   auto a = ir.create_var("a");
   auto b = ir.create_var("b");
-  auto r = ir.create_node("read", {}, {a, b});
-  auto add = ir.create_node("add", {r}, {});
-  auto w = ir.create_node("write", {add}, {});
+  auto r = ir.create_node(lt::Operation::read, {}, {a, b});
+  auto add = ir.create_node(lt::Operation::add, {r}, {});
+  auto w = ir.create_node(lt::Operation::write, {add}, {});
   ir.set_inputs({r});
   ir.set_outputs({w});
 

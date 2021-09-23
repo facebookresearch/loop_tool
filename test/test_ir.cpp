@@ -16,9 +16,9 @@ TEST(DotDump) {
   constexpr int N = 16;
   auto a = ir.create_var("a");
   auto b = ir.create_var("b");
-  auto r = ir.create_node("read", {}, {a, b});
-  auto add = ir.create_node("add", {r}, {});
-  auto w = ir.create_node("write", {add}, {});
+  auto r = ir.create_node(Operation::read, {}, {a, b});
+  auto add = ir.create_node(Operation::add, {r}, {});
+  auto w = ir.create_node(Operation::write, {add}, {});
   ir.set_inputs({r});
   ir.set_outputs({w});
   std::cerr << LoopTree(ir).dump() << "\n";
@@ -33,10 +33,10 @@ TEST(SetPriority) {
   IR ir;
   auto a = ir.create_var("a");
   auto b = ir.create_var("b");
-  auto r0 = ir.create_node("read", {}, {a, b});
-  auto r1 = ir.create_node("read", {}, {a, b});
-  auto add = ir.create_node("add", {r0, r1}, {a, b});
-  auto w = ir.create_node("write", {add}, {a, b});
+  auto r0 = ir.create_node(Operation::read, {}, {a, b});
+  auto r1 = ir.create_node(Operation::read, {}, {a, b});
+  auto add = ir.create_node(Operation::add, {r0, r1}, {a, b});
+  auto w = ir.create_node(Operation::write, {add}, {a, b});
   ir.set_inputs({r0, r1});
   ir.set_priority(r1, 10);
   LoopTree lt(ir);
@@ -49,11 +49,11 @@ TEST(NegativeSizes) {
   auto a = ir.create_var("a");
   auto b = ir.create_var("b");
   auto c = ir.create_var("c");
-  auto r0 = ir.create_node("read", {}, {a, b});
-  auto r1 = ir.create_node("read", {}, {b, c});
-  auto mul = ir.create_node("mul", {r0, r1}, {a, b, c});
-  auto add = ir.create_node("add", {mul}, {a, c});
-  auto w = ir.create_node("write", {add}, {a, c});
+  auto r0 = ir.create_node(Operation::read, {}, {a, b});
+  auto r1 = ir.create_node(Operation::read, {}, {b, c});
+  auto mul = ir.create_node(Operation::multiply, {r0, r1}, {a, b, c});
+  auto add = ir.create_node(Operation::add, {mul}, {a, c});
+  auto w = ir.create_node(Operation::write, {add}, {a, c});
   ir.set_inputs({r0, r1});
   ir.set_priority(r1, 10);
   ir.set_priority(r0, 100);
@@ -72,13 +72,13 @@ TEST(BasicSchedule) {
   auto n = ir.create_var("n");
   auto k = ir.create_var("k");
 
-  auto r0 = ir.create_node("read", {}, {m, k});
-  auto r1 = ir.create_node("read", {}, {k, n});
+  auto r0 = ir.create_node(Operation::read, {}, {m, k});
+  auto r1 = ir.create_node(Operation::read, {}, {k, n});
 
-  auto mul = ir.create_node("mul", {r1, r0}, {m, k, n});
-  auto add = ir.create_node("add", {mul}, {m, n});
+  auto mul = ir.create_node(Operation::multiply, {r1, r0}, {m, k, n});
+  auto add = ir.create_node(Operation::add, {mul}, {m, n});
 
-  auto w = ir.create_node("write", {add}, {m, n});
+  auto w = ir.create_node(Operation::write, {add}, {m, n});
 
   ir.set_order(r0, {{m, {M, 0}}, {k, {K, 0}}});
   ir.set_order(r1, {{m, {M, 0}}, {n, {N, 0}}, {k, {K, 0}}});
@@ -102,8 +102,11 @@ TEST(BasicSchedule) {
   float max_diff = 0;
   for (auto i = 0; i < M * N; ++i) {
     max_diff = std::max(max_diff, std::abs((float)(out_ref[i] - out[i])));
+    ASSERT(max_diff < 0.01)
+        << "diff is " << max_diff << " at index " << i << " (" << out[i]
+        << " vs ref " << out_ref[i] << ")";
   }
-  ASSERT(max_diff < 0.01);
+  std::cout << "max diff " << max_diff << "\n";
 }
 
 TEST(NodeSplit) {
@@ -111,16 +114,17 @@ TEST(NodeSplit) {
   constexpr int N = 16;
   auto a = ir.create_var("a");
   auto b = ir.create_var("b");
-  auto r = ir.create_node("read", {}, {a, b});
-  auto add = ir.create_node("add", {r}, {});
-  auto w = ir.create_node("write", {add}, {});
+  auto r = ir.create_node(Operation::read, {}, {a, b});
+  auto add = ir.create_node(Operation::add, {r}, {});
+  auto w = ir.create_node(Operation::write, {add}, {});
   ir.set_inputs({r});
   ir.set_outputs({w});
   ir = split_node(ir, add, {b});
+  std::cout << dot(ir) << "\n";
 
   for (auto n : ir.nodes()) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> sched;
-    for (auto v : ir.all_vars(n)) {
+    for (auto v : ir.loop_vars(n)) {
       sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{v, {N, 0}});
     }
     ir.set_order(n, sched);
@@ -129,7 +133,7 @@ TEST(NodeSplit) {
   auto lt = LoopTree(ir);
   lt.walk([&](LoopTree::TreeRef ref, int) {
     if (trivially_parallel(lt, ref)) {
-      lt.annotate(ref, "cpu_parallel");
+      // lt.annotate(ref, "cpu_parallel");
     }
   });
   std::cout << lt.dump() << "\n";
@@ -137,7 +141,7 @@ TEST(NodeSplit) {
   auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
   std::vector<float> input(N * N);
   for (auto i = 0; i < N * N; ++i) {
-    input[i] = i;
+    input[i] = i * 3;
   }
   std::vector<float> output(1);
   cc->run({input.data(), output.data()}, true);

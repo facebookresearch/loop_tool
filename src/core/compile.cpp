@@ -15,8 +15,10 @@ LICENSE file in the root directory of this source tree.
 
 #include "loop_tool/backend.h"
 #include "loop_tool/error.h"
+#include "loop_tool/symbolic.h"
 
 namespace loop_tool {
+using namespace symbolic;
 
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref, const GenFnType &callback);
@@ -54,7 +56,7 @@ LoopTree::TreeRef get_scope(const LoopTree &lt, LoopTree::TreeRef ref) {
 
   // find least common ancestor
   auto ancestor = lt.parent(ref);
-  if (node.op() == "write") {
+  if (node.op() == Operation::write) {
     ancestor = -1;
   } else {
     for (auto use : uses) {
@@ -80,7 +82,7 @@ bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref) {
         }
         auto node_ref = lt.node(ref);
         bool iters_over = false;
-        for (auto v : lt.ir.all_vars(node_ref)) {
+        for (auto v : lt.ir.loop_vars(node_ref)) {
           if (v == tree_v) {
             iters_over = true;
             break;
@@ -186,13 +188,13 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
 
   auto node_ref = lt.node(ref);
   bool reduction = (lt.ir.pointwise_vars(node_ref).size() !=
-                    lt.ir.all_vars(node_ref).size());
+                    lt.ir.loop_vars(node_ref).size());
   bool should_init = false;
   float init_val = -1337;
-  if (lt.ir.node(node_ref).op() == "mul") {
+  if (lt.ir.node(node_ref).op() == Operation::multiply) {
     should_init = reduction;
     init_val = 1;
-  } else if (lt.ir.node(node_ref).op() == "add") {
+  } else if (lt.ir.node(node_ref).op() == Operation::add) {
     should_init = reduction;
     init_val = 0;
   }
@@ -208,35 +210,142 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
                                                    const Allocation &alloc,
                                                    LoopTree::TreeRef use) {
   std::vector<std::pair<int, size_t>> idx_vec;
+  auto user_ref = lt.node(use);
+  auto producer_ref = lt.node(alloc.producer);
 
   // get index of loop into indices[MAX_DEPTH]
   // by counting number of parents
-  auto loop_ref = lt.parent(use);
-  if (loop_ref == -1) {
+  auto user_loop_ref = lt.parent(use);
+  if (user_loop_ref == -1) {
     return idx_vec;
   }
-  auto idx = 0;
-  auto size = 1;
-  auto depth = lt.tree_node(loop_ref).depth;
+  auto depth = lt.tree_node(user_loop_ref).depth;
 
-  auto vs = lt.ir.node(lt.node(alloc.producer)).vars();
-  std::unordered_set<IR::VarRef> vars = {vs.begin(), vs.end()};
+  auto producer = lt.ir.node(producer_ref);
+  auto user = lt.ir.node(user_ref);
+  auto producer_vars = producer.vars();  // lt.ir.loop_vars(producer_ref);
+  auto user_vars = lt.ir.loop_vars(user_ref);
+  std::unordered_set<IR::VarRef> user_vars_set = {user_vars.begin(),
+                                                  user_vars.end()};
+  std::unordered_set<IR::VarRef> producer_vars_set = {producer_vars.begin(),
+                                                      producer_vars.end()};
+
+  // virtual var -> expr on var, original var
+  std::unordered_map<IR::VarRef, std::pair<symbolic::Expr, IR::VarRef>>
+      user_view_vars;
+  std::unordered_map<IR::VarRef, std::vector<IR::VarRef>> mapped_view_vars;
+
+  // We're used by a view, meaning we have to find vars that are implicitly
+  // used. e.g. read(X) <- view(X, A + B) will have loops A, B but implicitly
+  // depends on X so we track loops A, B and then map them into var X.
+  // user_view_vars will keep this information, mapping A -> {X, A+B}, B -> {X,
+  // A+B}
+  if (user.op() == Operation::view && (producer_ref != user_ref)) {
+    for (const auto &c : user.constraints()) {
+      if (c.first.type() != Expr::Type::symbol) {
+        continue;
+      }
+      std::vector<symbolic::Symbol> view_symbols;
+      auto collect_vars = [&](symbolic::Expr e) {
+        if (e.type() == symbolic::Expr::Type::symbol) {
+          view_symbols.emplace_back(e.symbol());
+        }
+        return e;
+      };
+      c.second.walk(collect_vars);
+      IR::VarRef orig_var = -1;
+      for (auto v : lt.ir.vars()) {
+        if (c.first.symbol().name() == lt.ir.var(v).name()) {
+          orig_var = v;
+        }
+      }
+      ASSERT(orig_var != -1)
+          << "cannot find var for symbolic constraint on " << c.first.dump();
+      for (auto sym : view_symbols) {
+        for (auto v : user_vars) {
+          if (sym.name() == lt.ir.var(v).name()) {
+            user_view_vars.insert(std::make_pair(
+                v, std::make_pair(differentiate(c.second, sym), orig_var)));
+            mapped_view_vars[orig_var].emplace_back(v);
+          }
+        }
+      }
+    }
+  }
 
   // first we collect the orders of each var
-  std::unordered_map<IR::VarRef, std::vector<LoopTree::TreeRef>> var_loops;
-  while (loop_ref != alloc.lca) {
-    auto loop = lt.loop(loop_ref);
-    if (aux.thread_memory.count(loop_ref)) {
+  std::unordered_map<IR::VarRef, std::vector<LoopTree::TreeRef>>
+      producer_var_loops;
+  std::unordered_map<IR::VarRef, std::vector<LoopTree::TreeRef>> user_var_loops;
+  while (user_loop_ref != alloc.lca) {
+    auto loop = lt.loop(user_loop_ref);
+    if (aux.thread_memory.count(user_loop_ref)) {
       // handled by threading!
-    } else if (vars.count(loop.var)) {
-      var_loops[loop.var].emplace_back(loop_ref);
+    } else if (producer_vars_set.count(loop.var) ||
+               user_view_vars.count(loop.var)) {
+      producer_var_loops[loop.var].emplace_back(user_loop_ref);
     }
-    loop_ref = lt.parent(loop_ref);
+    user_loop_ref = lt.parent(user_loop_ref);
   }
-  std::reverse(vs.begin(), vs.end());
-  for (const auto &v : vs) {
-    auto inner_size = size;  // size of all inner vars
-    for (auto l : var_loops[v]) {
+  std::reverse(producer_vars.begin(), producer_vars.end());
+  // producer has real layout {user_vars}, user (if view) has virtual layout
+  auto inner_size_for_var = [&](IR::VarRef v) {
+    auto inner = [&](IR::VarRef v) {
+      size_t size = 1;
+      for (auto iv : producer_vars) {
+        if (iv == v) {
+          break;
+        }
+        if (!producer_var_loops.count(iv)) {
+          continue;
+        }
+        size_t var_size = 1;
+        for (auto l : producer_var_loops.at(iv)) {
+          auto loop = lt.loop(l);
+          var_size = loop.size * var_size + loop.tail;
+        }
+        size *= var_size;
+      }
+      return size;
+    };
+    if (producer_vars_set.count(v)) {
+      return inner(v);
+    }
+    // the idea here is that the user can use a *different* variable
+    // than one of the ones the producer has.
+    // We simply map these different ones to the producer equivalent
+    ASSERT(user_view_vars.count(v));
+    auto base_var = user_view_vars.at(v).second;
+    return inner(base_var);
+  };
+  for (const auto &v : producer_vars) {
+    auto inner_size = inner_size_for_var(v);
+    // could be omitted due to LCA or it could be a view mapping
+    if (!producer_var_loops.count(v) && !mapped_view_vars.count(v)) {
+      continue;
+    }
+    if (mapped_view_vars.count(v)) {
+      ASSERT(user.op() == Operation::view);
+      for (auto mv : mapped_view_vars.at(v)) {
+        ASSERT(user_view_vars.count(mv));
+        auto stride_override = user_view_vars.at(mv);
+        auto inner_scale = stride_override.first;
+        auto orig_var = stride_override.second;
+        ASSERT(inner_scale.type() == symbolic::Expr::Type::value)
+            << "cannot handle symbolic stride (yet): " << inner_scale.dump();
+        auto size = inner_size * inner_scale.value();
+        for (auto l : producer_var_loops.at(mv)) {
+          auto idx = lt.tree_node(l).depth;
+          idx_vec.emplace_back(std::make_pair(idx, size));
+          auto loop = lt.loop(l);
+          size = loop.size * size + loop.tail * inner_size;
+        }
+      }
+      continue;
+    }
+
+    auto size = inner_size;
+    for (auto l : producer_var_loops.at(v)) {
       auto idx = lt.tree_node(l).depth;
       idx_vec.emplace_back(std::make_pair(idx, size));
       auto loop = lt.loop(l);
@@ -278,7 +387,6 @@ InnerFnType gen_read(const LoopTree &lt, const Auxiliary &aux,
     }
   }
   ASSERT(external_memory > -1 && "No input found!");
-
   auto idx_fn = gen_idx_func(lt, aux, alloc, ref);
   auto alloc_read = alloc;
   // TODO this is a hacky way to ensure all variables are in the indexing
@@ -296,8 +404,10 @@ InnerFnType gen_read(const LoopTree &lt, const Auxiliary &aux,
         return;
       }
     }
-    ((float *)memory[inp_memory])[idx_fn(indices)] =
-        ((float *)memory[external_memory])[read_idx_fn(indices)];
+    auto to_idx = idx_fn(indices);
+    auto from_idx = read_idx_fn(indices);
+    ((float *)memory[inp_memory])[to_idx] =
+        ((float *)memory[external_memory])[from_idx];
   };
 }
 
@@ -399,6 +509,34 @@ InnerFnType gen_mul(const LoopTree &lt, const Auxiliary &aux,
   };
 };
 
+InnerFnType gen_view(const LoopTree &lt, const Auxiliary &aux,
+                     LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  const Allocation &alloc = aux.allocs.at(lt.node(ref));
+
+  const auto &node = lt.ir.node(lt.node(ref));
+  ASSERT(node.inputs().size() == 1) << "Cannot execute multi input views yet";
+  const auto &dep = node.inputs().at(0);
+  auto &dep_alloc = aux.allocs.at(dep);
+  auto dep_memory_idx =
+      dep_alloc.idx + lt.ir.inputs().size() + lt.ir.outputs().size();
+  auto memory_idx = alloc.idx + lt.ir.inputs().size() + lt.ir.outputs().size();
+
+  auto dep_idx_fn = gen_idx_func(lt, aux, dep_alloc, ref);
+  auto idx_fn = gen_idx_func(lt, aux, alloc, ref);
+
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
+             int tails[MAX_DEPTH]) {
+    for (auto i = 0; i < MAX_DEPTH; ++i) {
+      if (tails[i]) {
+        return;
+      }
+    }
+    ((float *)memory[memory_idx])[idx_fn(indices)] =
+        ((float *)memory[dep_memory_idx])[dep_idx_fn(indices)];
+  };
+}
+
 InnerFnType gen_leaf(const LoopTree &lt, const Auxiliary &aux,
                      LoopTree::TreeRef ref) {
   auto tree_node = lt.tree_node(ref);
@@ -406,18 +544,22 @@ InnerFnType gen_leaf(const LoopTree &lt, const Auxiliary &aux,
 
   auto alloc = aux.allocs.at(lt.node(ref));
 
-  if (n.op() == "add") {
+  if (n.op() == Operation::add) {
     return gen_add(lt, aux, ref);
-  } else if (n.op() == "mul") {
+  } else if (n.op() == Operation::multiply) {
     return gen_mul(lt, aux, ref);
-  } else if (n.op() == "read") {
+  } else if (n.op() == Operation::read) {
     return gen_read(lt, aux, ref);
-  } else if (n.op() == "write") {
+  } else if (n.op() == Operation::write) {
     return gen_write(lt, aux, ref);
+  } else if (n.op() == Operation::view) {
+    return gen_view(lt, aux, ref);
   }
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
-    ASSERT(0);
+    ASSERT(0) << "Cannot execute operation " << loop_tool::dump(n.op())
+              << " in\n"
+              << lt.dump();
     return;
   };
 }

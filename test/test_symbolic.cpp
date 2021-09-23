@@ -42,19 +42,44 @@ TEST(SymbolicUnbound) {
   lz::Symbol B("B");
   lz::Symbol C("C");
   lz::Symbol D("D");
-  // constraints.emplace_back(std::make_pair(A, lz::Expr(8)));
   constraints.emplace_back(
       std::make_pair(lz::Expr::size(C), lz::Expr(B) * lz::Expr(9)));
   constraints.emplace_back(
       std::make_pair(lz::Expr::size(B), lz::Expr(A) + lz::Expr(2)));
   constraints.emplace_back(
       std::make_pair(lz::Expr::size(D), lz::Expr(A) + lz::Expr(C)));
-  for (auto p : constraints) {
-    // std::cout << p.first.name() << " = " << p.second.dump() << "\n";
-  }
 
   auto out = unify(constraints);
-  for (auto p : out) {
-    // std::cout << p.first.name() << " = " << p.second.dump() << "\n";
+}
+
+TEST(SymbolicDerivative) {
+  namespace lz = loop_tool::lazy;
+  lz::Symbol N("N"), N_o("N_o"), K("K");
+  {
+    auto d = loop_tool::symbolic::differentiate(N_o + K, N_o);
+    ASSERT(d == lz::Expr(1));
+  }
+  {
+    auto d = loop_tool::symbolic::differentiate(N_o + K, N);
+    ASSERT(d == lz::Expr(0));
+  }
+  {
+    auto d = loop_tool::symbolic::differentiate(lz::Expr(2) * N_o + K, N_o);
+    ASSERT(d == lz::Expr(2));
+  }
+  {
+    auto d =
+        loop_tool::symbolic::differentiate(lz::Expr(2) * N_o + K * N_o, N_o);
+    ASSERT(d == lz::Expr(2) + K) << "found " << d.dump();
+  }
+  {
+    auto d = loop_tool::symbolic::differentiate(N + lz::Expr(2) * N_o + K * N_o,
+                                                N_o);
+    ASSERT(d == lz::Expr(2) + K) << "found " << d.dump();
+  }
+  {
+    auto d = loop_tool::symbolic::differentiate(
+        N * (lz::Expr(2) * N_o + K * N_o) + N_o, N_o);
+    ASSERT(d == N * (lz::Expr(2) + K) + lz::Expr(1)) << "found " << d.dump();
   }
 }
