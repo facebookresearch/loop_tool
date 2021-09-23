@@ -28,12 +28,14 @@ using namespace loop_tool;
 namespace py = pybind11;
 
 static int default_hardware_id = 0;  // CPU
+static bool cuda_available = false;
 PYBIND11_MODULE(loop_tool_py, m) {
   m.def("backends", []() {
     std::vector<std::string> backends = {"cpu"};
     for (const auto &hw : getHardware()) {
       if (hw->name() == "cuda") {
         backends.emplace_back("cuda");
+        cuda_available = true;
       }
     }
     return backends;
@@ -216,7 +218,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
                data[i] = f;
              }
 #ifdef ENABLE_CUDA
-             CULIB(cuCtxSynchronize)();
+             if (cuda_available) {
+               CULIB(cuCtxSynchronize)();
+             }
 #endif
            })
       .def("set",
@@ -227,7 +231,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
                data[i] = fs[i];
              }
 #ifdef ENABLE_CUDA
-             CULIB(cuCtxSynchronize)();
+             if (cuda_available) {
+               CULIB(cuCtxSynchronize)();
+             }
 #endif
            })
       .def("set",
@@ -242,13 +248,17 @@ PYBIND11_MODULE(loop_tool_py, m) {
                tensor_data[i] = data[i];
              }
 #ifdef ENABLE_CUDA
-             CULIB(cuCtxSynchronize)();
+             if (cuda_available) {
+               CULIB(cuCtxSynchronize)();
+             }
 #endif
            })
       .def("to_numpy",
            [](Tensor &t) {
 #ifdef ENABLE_CUDA
-             CULIB(cuCtxSynchronize)();
+             if (cuda_available) {
+               CULIB(cuCtxSynchronize)();
+             }
 #endif
              auto result = py::array_t<float>(t.numel);
              py::buffer_info buf = result.request();
