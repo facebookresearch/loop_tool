@@ -224,9 +224,6 @@ std::string dot(const IR &ir);
 class Node {
  protected:
   friend class IR;  // use the IR class to create nodes
-  // Node(std::string op, std::vector<IR::NodeRef> inputs,
-  //     std::vector<IR::VarRef> vars)
-  //    : op_(op), inputs_(inputs), vars_(vars) {}
   Node(std::string op, std::vector<IR::NodeRef> inputs,
        std::vector<IR::VarRef> vars,
        std::vector<symbolic::Constraint> constraints)
