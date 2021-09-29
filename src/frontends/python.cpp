@@ -16,6 +16,7 @@ LICENSE file in the root directory of this source tree.
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
+#include "loop_tool/lazy.h"
 #include "loop_tool/tensor.h"
 
 #ifdef ENABLE_CUDA
@@ -50,6 +51,11 @@ PYBIND11_MODULE(loop_tool_py, m) {
     }
     ASSERT(set) << "cannot find hardware: " << hardware;
   });
+  py::enum_<Operation>(m, "Operation")
+#define X(op) .value(#op, Operation::op)
+      OPS(X)
+#undef X
+          .export_values();
   py::class_<IR>(m, "IR")
       .def(py::init<>())
       .def("create_var", &IR::create_var)
@@ -92,7 +98,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
             return order;
           })
       .def("pointwise_vars", &IR::pointwise_vars)
-      .def("all_vars", &IR::all_vars)
+      .def("loop_vars", &IR::loop_vars)
       .def("output_vars",
            [](IR &ir, IR::NodeRef n) { return ir.node(n).vars(); });
   py::class_<Compiled>(m, "Compiled")
@@ -193,7 +199,11 @@ PYBIND11_MODULE(loop_tool_py, m) {
         return exec(lt, memory);
       });
 
-  py::class_<Tensor, std::shared_ptr<Tensor>>(m, "Tensor")
+  py::class_<lazy::Tensor>(m, "Tensor").def(py::init([](size_t N) {
+    return lazy::Tensor(N);
+  }));
+
+  py::class_<Tensor, std::shared_ptr<Tensor>>(m, "RawTensor")
       .def(py::init([](size_t N, std::string hardware) {
              int hardware_id = -1;
              if (hardware == "default") {
