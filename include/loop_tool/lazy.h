@@ -45,6 +45,7 @@ std::unordered_map<size_t, CachedCompilation>& getCompilationCache();
 // wrapped by shared ptr for convenience
 struct TensorImpl {
   size_t hash_ = 0;
+  bool unified_ = false;
   Operation op_ = Operation::constant;
   mutable void* data_ = nullptr;
   mutable bool owning_ = false;
@@ -110,6 +111,43 @@ struct TensorImpl {
              std::vector<Constraint> constraints = {})
       : op_(op), shape_(shape), deps_(deps), constraints_(constraints) {
     updateHash();
+
+    if (op != Operation::view) {
+      return;
+    }
+
+    // collect all the known symbols
+    std::unordered_map<int, Symbol> sym_lhs;
+    for (auto& p : constraints) {
+      p.first.walk([&](const Expr& e) {
+        if (e.type() == Expr::Type::symbol) {
+          sym_lhs[e.symbol().id()] = e.symbol();
+        }
+        return e;
+      });
+    }
+    // assume all input shapes are calculated
+    for (auto& dep : deps_) {
+      for (auto& sym : dep->shape()) {
+        sym_lhs[sym.id()] = sym;
+      }
+    }
+    for (auto& sym : shape_) {
+      if (sym_lhs.count(sym.id())) {
+        continue;
+      }
+      for (auto& c : constraints) {
+        c.second.walk([&](const Expr& e) {
+          if (e.type() == Expr::Type::symbol) {
+            if (sym_lhs.count(e.symbol().id()) == 0) {
+              auto isolated_constraint = isolate(c, e.symbol());
+              constraints_.emplace_back(isolated_constraint);
+            }
+          }
+          return e;
+        });
+      }
+    }
   }
 
   inline const std::vector<Symbol>& shape() const { return shape_; }
@@ -267,9 +305,11 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  template <typename... Args>
-  Tensor sum(const Args&... args) {
-    std::unordered_set<int> reduction = {args.id()...};
+  inline Tensor sum(std::vector<Symbol> reduction_vars) {
+    std::unordered_set<int> reduction;
+    for (auto rv : reduction_vars) {
+      reduction.insert(rv.id());
+    }
     std::vector<Symbol> new_shape;
     for (const auto& s : shape()) {
       if (reduction.count(s.id())) {
@@ -283,30 +323,62 @@ struct Tensor {
   }
 
   template <typename... Args>
-  Tensor as(const Args&... args) {
-    std::vector<Symbol> shape{args...};
+  Tensor sum(const Args&... args) {
+    std::vector<Symbol> reduction_vars = {args...};
+    return sum(reduction_vars);
+  }
+
+  inline Tensor as(std::vector<Symbol> shape) {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
     return Tensor(std::make_shared<TensorImpl>(Operation::name, shape, deps));
   }
 
-  template <typename... Constraints>
-  Tensor to(std::vector<Symbol> shape, const Constraints&... args) {
-    std::vector<Constraint> constraints{args...};
+  template <typename... Args>
+  Tensor as(const Args&... args) {
+    std::vector<Symbol> shape{args...};
+    return as(shape);
+  }
+
+  inline Tensor to(std::vector<Symbol> shape,
+                   std::vector<Constraint> constraints) {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
 
     return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps,
                                                constraints));
   }
 
-  std::shared_ptr<TensorImpl> impl() const { return impl_; }
-  std::vector<Symbol> shape() const { return impl_->shape(); }
-  size_t size(int dim) const { return impl_->size(dim); }
-  LoopTree loop_tree() const { return impl_->loop_tree(); }
+  template <typename... Constraints>
+  Tensor to(std::vector<Symbol> shape, const Constraints&... args) {
+    std::vector<Constraint> constraints{args...};
+    return to(shape, constraints);
+  }
+
+  inline std::shared_ptr<TensorImpl> impl() const { return impl_; }
+  inline std::vector<Symbol> shape() const { return impl_->shape(); }
+  inline size_t size(int dim) const { return impl_->size(dim); }
+  inline std::vector<size_t> sizes() const {
+    std::vector<size_t> sizes_;
+    for (auto i = 0; i < shape().size(); ++i) {
+      sizes_.emplace_back(size(i));
+    }
+
+    return sizes_;
+  }
+  inline size_t numel() const {
+    size_t total = 1;
+    for (auto i = 0; i < shape().size(); ++i) {
+      total *= size(i);
+    }
+    return total;
+  }
+  inline LoopTree loop_tree() const { return impl_->loop_tree(); }
 
   template <typename T>
-  T* data() const {
+  inline T* data() const {
     return impl()->template data<T>();
   };
+
+  inline void unify() const { const_cast<TensorImpl*>(impl_.get())->unify(); }
 };
 
 }  // namespace lazy

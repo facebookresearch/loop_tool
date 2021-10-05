@@ -51,7 +51,7 @@ size_t Expr::hash() const {
   return h;
 }
 
-size_t Expr::value() const {
+int64_t Expr::value() const {
   if (type_ != Expr::Type::value) {
     ASSERT(type_ == Expr::Type::value)
         << "attempted to get real value from symbolic or unsimplified "
@@ -97,7 +97,7 @@ Expr Expr::replace(Symbol A, Symbol B) const {
   }
 }
 
-Expr Expr::replace(Symbol A, size_t c) const {
+Expr Expr::replace(Symbol A, int64_t c) const {
   switch (type()) {
     case Expr::Type::symbol:
       if (symbol() == A) {
@@ -181,6 +181,27 @@ Expr Expr::operator*(const Expr& rhs) const {
   return Expr(Op::multiply, {*this, rhs});
 }
 
+Expr Expr::operator-() const {
+  if (type() == Expr::Type::value) {
+    return Expr(-value());
+  }
+  return Expr(Op::negate, {*this});
+}
+
+Expr Expr::operator-(const Expr& rhs) const { return *this + (-rhs); }
+
+Expr Expr::reciprocal() const {
+  if (type() == Expr::Type::value) {
+    ASSERT(value() != 0) << "cannot calculate 1/0";
+    return Expr(1 / value());
+  }
+  return Expr(Op::reciprocal, {*this});
+}
+
+Expr Expr::operator/(const Expr& rhs) const {
+  return *this * (rhs.reciprocal());
+}
+
 bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
 
 bool Expr::operator==(const Expr& rhs) const {
@@ -220,6 +241,12 @@ std::string Expr::dump() const {
   } else if (op_ == Op::size) {
     ASSERT(args().size() == 1);
     ss << "|" << args().at(0).dump() << "|";
+  } else if (op_ == Op::negate) {
+    ASSERT(args().size() == 1);
+    ss << "-" << args().at(0).dump();
+  } else if (op_ == Op::reciprocal) {
+    ASSERT(args().size() == 1);
+    ss << args().at(0).dump() << "^-1";
   } else {
     ASSERT(args().size() == 2);
     auto lhs = args().at(0);
@@ -245,6 +272,66 @@ std::string Expr::dump() const {
     }
   }
   return ss.str();
+}
+
+size_t Expr::size() const {
+  size_t s = 0;
+  walk([&](const Expr& e) {
+    s++;
+    return e;
+  });
+  return s;
+}
+
+// isolate(x)
+// y = A * x
+// -> A * x = y
+// -> x = y / A
+//
+// C + x = y
+// -> x = y - C
+Constraint isolate(const Constraint& c, const Symbol& sym) {
+  const auto& lhs = c.first;
+  const auto& rhs = c.second;
+  if (!lhs.contains(sym) && rhs.contains(sym)) {
+    return isolate(std::make_pair(rhs, lhs), sym);
+  }
+  ASSERT(lhs.contains(sym) && !rhs.contains(sym))
+      << "cannot isolate with variable on both rhs and lhs of constraint yet: "
+      << lhs.dump() << " = " << rhs.dump();
+  if (lhs == Expr(sym)) {
+    return std::make_pair(lhs, rhs);
+  }
+
+  if (lhs.type() == Expr::Type::function) {
+    switch (lhs.op()) {
+      case Op::add: {
+        auto llhs = lhs.args().at(0);
+        auto lrhs = lhs.args().at(1);
+        if (llhs.contains(sym)) {
+          return isolate(std::make_pair(llhs, rhs - lrhs), sym);
+        }
+        return isolate(std::make_pair(lrhs, rhs - llhs), sym);
+      }
+      case Op::multiply: {
+        auto llhs = lhs.args().at(0);
+        auto lrhs = lhs.args().at(1);
+        if (llhs.contains(sym)) {
+          return isolate(std::make_pair(llhs, rhs / lrhs), sym);
+        }
+        return isolate(std::make_pair(lrhs, rhs / llhs), sym);
+      }
+      case Op::negate:
+        return isolate(std::make_pair(lhs.args().at(0), -rhs), sym);
+      case Op::reciprocal:
+        return isolate(std::make_pair(lhs.args().at(0), Expr(1) / rhs), sym);
+      default:
+        ASSERT(0) << "cannot isolate through " << lhs.dump();
+    }
+  }
+  ASSERT(0) << "error isolating for " << sym.name() << " in constraint "
+            << lhs.dump() << " = " << rhs.dump();
+  return std::make_pair(Expr(0), Expr(0));
 }
 
 // TODO: AC unification algorithm i.e. Expr = Expr constraints with
@@ -280,18 +367,26 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
   auto pass = [&]() -> bool {
     bool updated = false;
     for (auto& p : constraints) {
-      p.second = eval_expr(p.second);
+      auto old = p.second;
+      p.second = eval_expr(old);
+      if (p.first.type() == Expr::Type::symbol &&
+          p.second.contains(p.first.symbol())) {
+        p.second = old;
+      }
       // we've proven an identity, no need to process it
       if (p.first == p.second) {
         continue;
       }
       // same logic for either updating Symbol or size(Symbol)
-      auto update_replacements = [&](int id,
+      auto update_replacements = [&](const Symbol& sym,
                                      std::unordered_map<int, Expr>& reps) {
+        int id = sym.id();
         if (!reps.count(id)) {
           reps.emplace(id, p.second);
           updated = true;
-        } else if (reps.at(id) != p.second) {
+        } else if (reps.at(id) != p.second &&
+                   (reps.at(id).size() > p.second.size()) &&
+                   !p.second.contains(sym)) {
           auto old = reps.at(id);
           ASSERT(old != p.second);
           ASSERT(old.type() != Expr::Type::value)
@@ -303,12 +398,13 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
       };
 
       if (p.first.type() == Expr::Type::symbol) {
-        auto id = p.first.symbol().id();
-        update_replacements(id, replacements);
+        if (p.second.contains(p.first.symbol())) {
+          continue;
+        }
+        update_replacements(p.first.symbol(), replacements);
       } else {
         ASSERT(is_simple_size_expr(p.first));
-        auto id = p.first.args().at(0).symbol().id();
-        update_replacements(id, size_replacements);
+        update_replacements(p.first.args().at(0).symbol(), size_replacements);
       }
     }
     return updated;
@@ -340,6 +436,12 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
         return lhs * rhs;
       }
       ASSERT(0) << "unknown expression op";
+    } else if (e.args().size() == 1) {
+      if (e.op() == Op::negate) {
+        return -e.args().at(0);
+      } else if (e.op() == Op::reciprocal) {
+        return e;
+      }
     }
     ASSERT(0) << "unknown expression op";
     return e;
@@ -368,6 +470,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
   //  |X| - 1 = 7 * 8 + 7
   //  |X| = 64
   auto derive_size_function = [&](const Symbol& s) {
+    ASSERT(replacements.count(s.id()))
+        << "couldn't derive size function for symbol " << s.name();
     auto expr = replacements.at(s.id());
 
     // Find symbol make up
@@ -375,7 +479,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
     expr.walk([&](const Expr& e) {
       if (e.type() == Expr::Type::symbol) {
         composed_symbols.emplace_back(e.symbol());
-        ASSERT(s != e.symbol()) << "impossible constraint found";
+        ASSERT(s != e.symbol()) << "impossible constraint found: " << e.dump()
+                                << " = " << expr.dump();
       }
       return e;
     });
@@ -458,6 +563,13 @@ Expr differentiate(Expr e, Symbol sym) {
           ASSERT(a.contains(sym) && b.contains(sym));
           return differentiate(a, sym) * b + differentiate(b, sym) * a;
         }
+      }
+    } else if (e.args().size() == 1) {
+      const auto& arg = e.args().at(0);
+      if (e.op() == Op::negate) {
+        return -differentiate(arg, sym);
+      } else if (e.op() == Op::reciprocal) {
+        return differentiate(arg, sym) / (arg * arg);
       }
     }
   }

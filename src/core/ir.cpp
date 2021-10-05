@@ -15,6 +15,8 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+using namespace symbolic;
+
 IR::VarRef IR::create_var(std::string name) {
   auto version = 0;
   for (const auto &v : vars_) {

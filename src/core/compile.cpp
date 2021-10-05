@@ -261,11 +261,18 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
       }
       ASSERT(orig_var != -1)
           << "cannot find var for symbolic constraint on " << c.first.dump();
+      // we can't get information from mapping a user var to another user var
+      if (user_vars_set.count(orig_var)) {
+        continue;
+      }
       for (auto sym : view_symbols) {
         for (auto v : user_vars) {
           if (sym.name() == lt.ir.var(v).name()) {
-            user_view_vars.insert(std::make_pair(
-                v, std::make_pair(differentiate(c.second, sym), orig_var)));
+            auto stride = differentiate(c.second, sym);
+            ASSERT(user_view_vars.count(v) == 0)
+                << "remapped " << lt.ir.var(v).name();
+            user_view_vars.insert(
+                std::make_pair(v, std::make_pair(stride, orig_var)));
             mapped_view_vars[orig_var].emplace_back(v);
           }
         }

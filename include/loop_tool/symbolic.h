@@ -26,6 +26,7 @@ enum struct Op {
   constant = 0,
   // unary
   negate,
+  reciprocal,
   size,
   // binary
   add,
@@ -67,17 +68,16 @@ struct Symbol {
 struct Expr {
   enum class Type { value, symbol, function } type_;
   Op op_ = Op::constant;  // val_ and symbol_ are constant functions
-  size_t val_;
+  int64_t val_;
   Symbol symbol_;
   std::vector<Expr> exprs_;
-  explicit Expr(size_t val) : type_(Type::value), val_(val){};
-  explicit Expr(int val) : Expr(static_cast<size_t>(val)){};
+  explicit Expr(int64_t val) : type_(Type::value), val_(val){};
   explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol){};
   explicit Expr(Op op, std::vector<Expr> exprs)
       : type_(Type::function), op_(op), exprs_(exprs){};
   Expr() = delete;
   size_t hash() const;
-  size_t value() const;
+  int64_t value() const;
   Symbol symbol() const;
   Op op() const;
   const std::vector<Expr>& args() const;
@@ -85,15 +85,20 @@ struct Expr {
   // returns a new expr
   Expr walk(std::function<Expr(const Expr&)> f) const;
   Expr replace(Symbol A, Symbol B) const;
-  Expr replace(Symbol A, size_t c) const;
+  Expr replace(Symbol A, int64_t c) const;
   bool contains(Symbol s) const;
 
   static Expr size(const Expr& expr);
   Expr operator+(const Expr& rhs) const;
   Expr operator*(const Expr& rhs) const;
+  Expr operator-(const Expr& rhs) const;
+  Expr operator-() const;
+  Expr operator/(const Expr& rhs) const;
+  Expr reciprocal() const;
   bool operator!=(const Expr& rhs) const;
   bool operator==(const Expr& rhs) const;
   std::string dump() const;
+  size_t size() const;
 };
 
 // This might seem generic, but it should be limited to either:
@@ -102,6 +107,7 @@ struct Expr {
 using Constraint = std::pair<Expr, Expr>;
 
 std::vector<Constraint> unify(std::vector<Constraint> constraints);
+Constraint isolate(const Constraint& c, const Symbol& sym);
 
 Expr differentiate(Expr, Symbol);
 

@@ -199,9 +199,103 @@ PYBIND11_MODULE(loop_tool_py, m) {
         return exec(lt, memory);
       });
 
-  py::class_<lazy::Tensor>(m, "Tensor").def(py::init([](size_t N) {
-    return lazy::Tensor(N);
-  }));
+  py::class_<lazy::Symbol>(m, "Symbol")
+      .def(py::init<std::string>())
+      .def("__mul__",
+           [](lazy::Symbol &s, lazy::Symbol &other) { return s * other; })
+      .def("__add__",
+           [](lazy::Symbol &s, lazy::Symbol &other) { return s + other; });
+  py::class_<lazy::Expr>(m, "Expr").def(py::init<size_t>());
+  py::class_<lazy::Tensor>(m, "Tensor")
+      .def(py::init([](py::args args) {
+        std::vector<size_t> sizes;
+        std::vector<lazy::Symbol> shape;
+        for (auto &arg : args) {
+          if ((std::string)py::str(arg.get_type()) ==
+              "<class 'loop_tool_py.Symbol'>") {
+            shape.emplace_back(py::cast<lazy::Symbol>(arg));
+          } else {
+            sizes.emplace_back(py::cast<size_t>(arg));
+          }
+        }
+        ASSERT(!!sizes.size() ^ !!shape.size())
+            << "cannot mix numeric and symbolic instantiation yet";
+        if (sizes.size()) {
+          return lazy::Tensor(
+              std::make_shared<lazy::TensorImpl>(nullptr, sizes));
+        }
+        return lazy::Tensor(shape);
+      }))
+      .def("__mul__",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t * other; })
+      .def("__add__",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t + other; })
+      .def("sum",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<lazy::Symbol> vars;
+             for (const auto &arg : args) {
+               vars.emplace_back(py::cast<lazy::Symbol>(arg));
+             }
+             return t.sum(vars);
+           })
+      .def("to",
+           [](lazy::Tensor &t, py::args args, const py::kwargs &kwargs) {
+             std::vector<lazy::Symbol> output_shape;
+             for (const auto &arg : args) {
+               output_shape.emplace_back(py::cast<lazy::Symbol>(arg));
+             }
+             if (kwargs.size()) {
+               ASSERT(kwargs.size() == 1);
+               auto kw = *kwargs.begin();
+               ASSERT(std::string(py::str(kw.first)) == "constraints");
+               std::vector<lazy::Constraint> constraints;
+               for (auto t : py::cast<py::list>(kw.second)) {
+                 auto sym = py::cast<lazy::Symbol>(py::cast<py::tuple>(t)[0]);
+                 auto expr = py::cast<lazy::Expr>(py::cast<py::tuple>(t)[1]);
+                 constraints.emplace_back(std::make_pair(sym, expr));
+               }
+               return t.to(output_shape, constraints);
+             }
+             return t.as(output_shape);
+           })
+      .def("set",
+           [](lazy::Tensor &t,
+              py::array_t<float, py::array::c_style | py::array::forcecast>
+                  array) {
+             py::buffer_info buf = array.request();
+             size_t numel = t.numel();
+             ASSERT(buf.size == numel);
+             float *data = static_cast<float *>(buf.ptr);
+             float *tensor_data = t.data<float>();
+             for (auto i = 0; i < numel; ++i) {
+               tensor_data[i] = data[i];
+             }
+           })
+      .def("numpy",
+           [](lazy::Tensor &t) {
+#ifdef ENABLE_CUDA
+             if (cuda_available) {
+               CULIB(cuCtxSynchronize)();
+             }
+#endif
+             size_t numel = t.numel();
+             auto result = py::array_t<float>(t.sizes());
+             py::buffer_info buf = result.request();
+             float *data = static_cast<float *>(buf.ptr);
+             float *tensor_data = t.data<float>();
+             for (auto i = 0; i < numel; ++i) {
+               data[i] = tensor_data[i];
+             }
+             return result;
+           })
+      .def("unify", [](lazy::Tensor &t) { t.unify(); })
+      .def_property_readonly("shape", [](lazy::Tensor &t) {
+        std::vector<size_t> sizes;
+        for (auto i = 0; i < t.shape().size(); ++i) {
+          sizes.emplace_back(t.size(i));
+        }
+        return sizes;
+      });
 
   py::class_<Tensor, std::shared_ptr<Tensor>>(m, "RawTensor")
       .def(py::init([](size_t N, std::string hardware) {
