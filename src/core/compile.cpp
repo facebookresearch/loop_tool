@@ -28,7 +28,7 @@ InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
 // 2 -> parallel CPU
 int cpu_backend(const LoopTree &lt, LoopTree::TreeRef ref) {
   auto annot = lt.annotation(ref);
-  if (annot == "cpu_parallel") {
+  if (annot == "parallel") {
     return 2;
   } else if (annot == "cpu") {
     return 1;
@@ -253,28 +253,23 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
         return e;
       };
       c.second.walk(collect_vars);
-      IR::VarRef orig_var = -1;
-      for (auto v : lt.ir.vars()) {
-        if (c.first.symbol().name() == lt.ir.var(v).name()) {
-          orig_var = v;
-        }
-      }
-      ASSERT(orig_var != -1)
+      auto sym = c.first.symbol();
+      ASSERT(user.has_sym(sym))
           << "cannot find var for symbolic constraint on " << c.first.dump();
+      IR::VarRef orig_var = user.var(sym);
       // we can't get information from mapping a user var to another user var
       if (user_vars_set.count(orig_var)) {
         continue;
       }
       for (auto sym : view_symbols) {
-        for (auto v : user_vars) {
-          if (sym.name() == lt.ir.var(v).name()) {
-            auto stride = differentiate(c.second, sym);
-            ASSERT(user_view_vars.count(v) == 0)
-                << "remapped " << lt.ir.var(v).name();
-            user_view_vars.insert(
-                std::make_pair(v, std::make_pair(stride, orig_var)));
-            mapped_view_vars[orig_var].emplace_back(v);
-          }
+        if (user.has_sym(sym)) {
+          auto v = user.var(sym);
+          auto stride = differentiate(c.second, sym);
+          ASSERT(user_view_vars.count(v) == 0)
+              << "mapping already mapped variable " << lt.ir.var(v).name();
+          user_view_vars.insert(
+              std::make_pair(v, std::make_pair(stride, orig_var)));
+          mapped_view_vars[orig_var].emplace_back(v);
         }
       }
     }
@@ -696,7 +691,7 @@ InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
   auto tail_size = loop.tail;
   auto var_idx = aux.var_idx.at(loop.var);
 
-  ASSERT(size > 0);
+  ASSERT(size > 0) << "invalid size for loop L" << ref << " in\n" << lt.dump();
   ASSERT(tail_size >= 0);
   std::vector<InnerFnType> fns;
   for (auto c : tree_node.children) {

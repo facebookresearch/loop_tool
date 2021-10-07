@@ -9,6 +9,7 @@ LICENSE file in the root directory of this source tree.
 #include <cassert>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -153,7 +154,8 @@ class IR {
 
   NodeRef create_node(Operation op, std::vector<NodeRef> inputs,
                       std::vector<VarRef> vars,
-                      std::vector<symbolic::Constraint> constraints = {});
+                      std::vector<symbolic::Constraint> constraints = {},
+                      std::unordered_map<int, IR::VarRef> sym_var_map = {});
   VarRef create_var(std::string name);
 
   void replace_all_uses(NodeRef old_node, NodeRef new_node);
@@ -247,8 +249,13 @@ class Node {
   friend class IR;  // use the IR class to create nodes
   Node(Operation op, std::vector<IR::NodeRef> inputs,
        std::vector<IR::VarRef> vars,
-       std::vector<symbolic::Constraint> constraints)
-      : op_(op), inputs_(inputs), vars_(vars), constraints_(constraints) {}
+       std::vector<symbolic::Constraint> constraints,
+       std::unordered_map<int, IR::VarRef> sym_var_map)
+      : op_(op),
+        inputs_(inputs),
+        vars_(vars),
+        constraints_(constraints),
+        sym_var_map_(sym_var_map) {}
 
   void replace_input(IR::NodeRef old_node, IR::NodeRef new_node);
   inline void update_inputs(std::vector<IR::NodeRef> inputs) {
@@ -265,6 +272,15 @@ class Node {
   inline const std::vector<symbolic::Constraint> &constraints() const {
     return constraints_;
   }
+  inline const IR::VarRef var(symbolic::Symbol sym) {
+    ASSERT(sym_var_map_.count(sym.id()))
+        << "symbol " << sym.name() << "#" << sym.id()
+        << " is not mapped to a variable";
+    return sym_var_map_.at(sym.id());
+  }
+  inline bool has_sym(symbolic::Symbol sym) {
+    return sym_var_map_.count(sym.id());
+  }
 
   const Operation &op() const { return op_; }
   const std::vector<IR::VarRef> &vars() const { return vars_; }
@@ -276,6 +292,7 @@ class Node {
   std::vector<IR::VarRef> vars_;
   // exclusively used for view operations
   std::vector<symbolic::Constraint> constraints_;
+  std::unordered_map<int, IR::VarRef> sym_var_map_;
 
  protected:
   std::vector<IR::NodeRef> outputs_;

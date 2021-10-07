@@ -133,7 +133,7 @@ TEST(NodeSplit) {
   auto lt = LoopTree(ir);
   lt.walk([&](LoopTree::TreeRef ref, int) {
     if (trivially_parallel(lt, ref)) {
-      // lt.annotate(ref, "cpu_parallel");
+      // lt.annotate(ref, "parallel");
     }
   });
   std::cout << lt.dump() << "\n";

@@ -51,6 +51,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
     }
     ASSERT(set) << "cannot find hardware: " << hardware;
   });
+  m.def("set_default_backend", [](std::string backend) {
+      setDefaultBackend(backend);
+  });
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -61,7 +64,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("create_var", &IR::create_var)
       .def("create_node", &IR::create_node, py::arg("op"), py::arg("inputs"),
            py::arg("vars"),
-           py::arg("constraints") = std::vector<symbolic::Constraint>{})
+           py::arg("constraints") = std::vector<symbolic::Constraint>{},
+           py::arg("sym_var_map") = std::unordered_map<int, IR::VarRef>{})
       .def("set_inputs", &IR::set_inputs)
       .def("set_outputs", &IR::set_outputs)
       .def("set_priority", &IR::set_priority)
@@ -78,6 +82,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
            })
       .def("disable_reuse", &IR::disable_reuse)
       .def("enable_reuse", &IR::enable_reuse)
+      .def("__repr__", &dot)
       .def("dump", &IR::dump)
       .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
       .def_property_readonly("vars", &IR::vars)
@@ -263,6 +268,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
               py::array_t<float, py::array::c_style | py::array::forcecast>
                   array) {
              py::buffer_info buf = array.request();
+             ASSERT(!t.has_deps()) << "cannot set data to a computed tensor";
              size_t numel = t.numel();
              ASSERT(buf.size == numel);
              float *data = static_cast<float *>(buf.ptr);
@@ -271,6 +277,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
                tensor_data[i] = data[i];
              }
            })
+      .def("set", [](lazy::Tensor &t, const IR ir) { t.set(ir); })
+      .def("set",
+           [](lazy::Tensor &t, const LoopTree loop_tree) { t.set(loop_tree); })
       .def("numpy",
            [](lazy::Tensor &t) {
 #ifdef ENABLE_CUDA
@@ -289,6 +298,11 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return result;
            })
       .def("unify", [](lazy::Tensor &t) { t.unify(); })
+      .def("compile", [](lazy::Tensor &t) { t.compile(); })
+      .def("resolve", [](lazy::Tensor &t) { (void)t.data<float>(); })
+      .def_property_readonly("ir", [](lazy::Tensor &t) { return t.ir(); })
+      .def_property_readonly("loop_tree",
+                             [](lazy::Tensor &t) { return t.loop_tree(); })
       .def_property_readonly("shape", [](lazy::Tensor &t) {
         std::vector<size_t> sizes;
         for (auto i = 0; i < t.shape().size(); ++i) {

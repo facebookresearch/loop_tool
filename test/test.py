@@ -212,7 +212,7 @@ def test_annot(N, M):
     ir.set_order(add1, [(n, (N, 0))])
     ir.set_order(w, [])
     loop_tree = lt.LoopTree(ir)
-    loop_tree.annotate(loop_tree.roots[0], "cpu_parallel")
+    loop_tree.annotate(loop_tree.roots[0], "parallel")
     print(loop_tree)
     cpu_fn = lt.cpu(loop_tree)
     A = lt.RawTensor(N*M)
@@ -224,7 +224,7 @@ def test_annot(N, M):
     #read = lt.tensor("J")
     #A_tmp = lt.tensor("K")
     #B = lt.tensor()
-    #for k in lt.iter("K", 16, backend="cpu_parallel"):
+    #for k in lt.iter("K", 16, backend="parallel"):
     #  for j in lt.iter("J", 16):
     #    read[j] = A[k, j]
     #  for j in lt.iter("J", 16):

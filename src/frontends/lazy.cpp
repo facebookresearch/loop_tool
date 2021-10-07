@@ -39,7 +39,7 @@ std::vector<void*> TensorImpl::getBuffers() const {
 }
 
 LoopTree TensorImpl::schedule(
-    IR ir,
+    IR& ir,
     const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
     const {
   std::unordered_map<IR::VarRef, size_t> var_sizes;
@@ -79,6 +79,7 @@ IR::NodeRef TensorImpl::resolve(
     std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const {
   std::vector<IR::NodeRef> node_deps;
   std::vector<IR::VarRef> vars;
+  std::unordered_map<int, IR::VarRef> sym_var_map;
   for (const auto& d : deps_) {
     auto node_ref = d->resolve(ir, var_map);
     node_deps.emplace_back(node_ref);
@@ -94,21 +95,26 @@ IR::NodeRef TensorImpl::resolve(
       auto size = expr.value();
       std::stringstream s_name;
       s_name << s.name();
-      // s_name << ".";
-      // s_name << s.id();
+      s_name << "_";
+      s_name << s.id();
       auto var = ir.create_var(s_name.str());
       var_map[s.id()] = std::make_pair(var, size);
     }
     auto& p = var_map.at(s.id());
     vars.emplace_back(p.first);
   }
+  for (auto& p : var_map) {
+    sym_var_map[p.first] = p.second.first;
+  }
+
   switch (op_) {
     case Operation::name:
       ASSERT(node_deps.size() == 1) << "invalid rename (only 1 input allowed)";
       node_ref = node_deps[0];
       break;
     case Operation::view:
-      node_ref = ir.create_node(Operation::view, node_deps, vars, constraints_);
+      node_ref = ir.create_node(Operation::view, node_deps, vars, constraints_,
+                                sym_var_map);
       break;
     case Operation::constant:
       node_ref = ir.create_node(Operation::read, {}, vars);
@@ -231,6 +237,17 @@ void TensorImpl::unify() {
   unifyConstraints();
 }
 
+std::unique_ptr<Compiled> TensorImpl::backend_compile(
+    const LoopTree& loop_tree) {
+  std::unordered_set<LoopTree::TreeRef> parallel;
+  loop_tree.walk([&](LoopTree::TreeRef ref, int) {
+    if (loop_tree.annotation(ref).find("parallel") != std::string::npos) {
+      parallel.insert(ref);
+    }
+  });
+  return getDefaultBackend()->compile(loop_tree, parallel, -1);
+}
+
 void TensorImpl::populateCompilationCache() {
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
@@ -240,7 +257,7 @@ void TensorImpl::populateCompilationCache() {
   for (const auto& s : shape()) {
     size *= var_map.at(s.id()).second;
   }
-  auto cc = getDefaultBackend()->compile(loop_tree, {}, -1);
+  auto cc = backend_compile(loop_tree);
   getCompilationCache().emplace(
       hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
 }

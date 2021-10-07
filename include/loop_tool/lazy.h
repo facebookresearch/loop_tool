@@ -162,6 +162,7 @@ struct TensorImpl {
   void unifyConstraints();
   void unify();
   void populateCompilationCache();
+  std::unique_ptr<Compiled> backend_compile(const LoopTree& lt);
 
   std::vector<void*> getBuffers() const;
 
@@ -211,7 +212,7 @@ struct TensorImpl {
     return std::make_pair(ir, var_map);
   }
 
-  IR ir() const {
+  inline IR ir() const {
     auto h = hash();
     if (getCompilationCache().count(h)) {
       auto& cc = getCompilationCache().at(h);
@@ -220,7 +221,7 @@ struct TensorImpl {
     return lower().first;
   }
 
-  LoopTree loop_tree() const {
+  inline LoopTree loop_tree() const {
     auto h = hash();
     if (getCompilationCache().count(h)) {
       auto& cc = getCompilationCache().at(h);
@@ -230,8 +231,38 @@ struct TensorImpl {
     return schedule(ll.first, ll.second);
   }
 
+  inline void compile() {
+    if (!getCompilationCache().count(hash())) {
+      populateCompilationCache();
+    }
+  }
+
+  inline void set(const IR& ir) {
+    auto h = hash();
+    ASSERT(getCompilationCache().count(h))
+        << "please call compile() to populate the size information before "
+           "setting a custom schedule";
+    auto& cc = getCompilationCache().at(h);
+    LoopTree loop_tree(ir);
+    auto new_cc = backend_compile(loop_tree);
+    getCompilationCache().emplace(
+        h, CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size});
+  }
+
+  inline void set(const LoopTree& loop_tree) {
+    auto h = hash();
+    ASSERT(getCompilationCache().count(h))
+        << "please call compile() to populate the size information before "
+           "setting a custom schedule";
+    auto& cc = getCompilationCache().at(h);
+    auto new_cc = backend_compile(loop_tree);
+    getCompilationCache().emplace(
+        h, CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,
+                             cc.output_size});
+  }
+
   LoopTree schedule(
-      IR ir,
+      IR& ir,
       const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
       const;
   IR::NodeRef resolve(
@@ -372,6 +403,9 @@ struct Tensor {
     return total;
   }
   inline LoopTree loop_tree() const { return impl_->loop_tree(); }
+  inline IR ir() const { return impl_->ir(); }
+  inline void set(const IR& ir) { impl_->set(ir); }
+  inline void set(const LoopTree& loop_tree) { impl_->set(loop_tree); }
 
   template <typename T>
   inline T* data() const {
@@ -379,6 +413,11 @@ struct Tensor {
   };
 
   inline void unify() const { const_cast<TensorImpl*>(impl_.get())->unify(); }
+  inline void compile() const {
+    const_cast<TensorImpl*>(impl_.get())->compile();
+  }
+
+  inline bool has_deps() const { return impl_->deps_.size() > 0; }
 };
 
 }  // namespace lazy

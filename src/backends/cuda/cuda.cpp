@@ -899,7 +899,7 @@ struct CudaCompiled : public Compiled {
     NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
     char *log = new char[logSize];
     NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLog)(prog, log));
-    ASSERT(compileResult == NVRTC_SUCCESS) << log;
+    ASSERT(compileResult == NVRTC_SUCCESS) << log << "\n\ncode:\n" << code;
     delete[] log;
 
     size_t ptxSize;

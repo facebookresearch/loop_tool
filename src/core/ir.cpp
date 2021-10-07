@@ -32,13 +32,14 @@ IR::VarRef IR::create_var(std::string name) {
 
 IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
                             std::vector<IR::VarRef> vars,
-                            std::vector<symbolic::Constraint> constraints) {
+                            std::vector<symbolic::Constraint> constraints,
+                            std::unordered_map<int, IR::VarRef> sym_var_map) {
   IR::NodeRef new_idx = nodes_.size();
   if (constraints.size()) {
     ASSERT(op == Operation::view)
         << "Can only specify constraints with views\n";
   }
-  Node n_(op, inputs, vars, constraints);
+  Node n_(op, inputs, vars, constraints, sym_var_map);
 
   // auxiliary information
   nodes_.emplace_back(std::move(n_));
@@ -452,11 +453,56 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
 std::string dot(const IR &ir) {
   std::stringstream ss;
   ss << "digraph G {\n";
+  ss << " node [fontname = \"courier\", fontsize=12];\n";
+  ss << " { rank=sink; vars[shape=record,label=\"";
+  auto vars = ir.vars();
+  for (auto &v : vars) {
+    ss << "<" << v << ">";
+    ss << ir.var(v).name();
+    if (&v != &vars.back()) {
+      ss << "|";
+    }
+  }
+  ss << "\"]; }\n";
+  auto short_name = [](std::string name) {
+    return name.substr(0, name.find("_"));
+  };
   for (auto n : toposort(ir)) {
     ss << " ";
-    ss << n << "[label=\"" << ir.dump(n) << "\"];\n";
+    ss << n << "[shape=record,";
+    ss << "label=\"{" << loop_tool::dump(ir.node(n).op());
+    ss << " : [";
+    auto vars = ir.node(n).vars();
+    for (auto &v : vars) {
+      ss << short_name(ir.var(v).name());
+      if (&v != &vars.back()) {
+        ss << ", ";
+      }
+    }
+    ss << "]|{";
+    auto order = ir.order(n);
+    int i = 0;
+    for (auto &p : order) {
+      ss << "<" << i++ << ">";
+      ss << short_name(ir.var(p.first).name());
+      if (p.second.size > 0) {
+        ss << ":" << p.second.size;
+      }
+      if (p.second.tail > 0) {
+        ss << "r" << p.second.tail;
+      }
+      if (&p != &order.back()) {
+        ss << "|";
+      }
+    }
+    ss << "}}\"];\n";
     for (auto out : ir.node(n).outputs()) {
       ss << " " << n << " -> " << out << ";\n";
+    }
+    i = 0;
+    for (auto &p : order) {
+      ss << " \"vars\":" << p.first << " -> \"" << n << "\":" << i++;
+      ss << "[style=dotted,arrowhead=none,weight=0];\n";
     }
   }
   ss << "}\n";
