@@ -792,7 +792,6 @@ std::pair<std::string, std::pair<size_t, size_t>> cuda_code_and_dispatch(
 }
 
 int availableCudaGPUs() {
-  CUDA_SAFE_CALL(CULIB(cuInit)(0));
   int avail;
   CUDA_SAFE_CALL(CULIB(cuDeviceGetCount)(&avail));
   return avail;
@@ -1006,8 +1005,11 @@ static int reg_ = []() {
   if (DynamicLibrary::exists("libcuda.so.1") &&
       DynamicLibrary::exists("libnvrtc.so") &&
       DynamicLibrary::exists("libnvrtc-builtins.so")) {
-    static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
-    static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
+    CUresult result = CULIB(cuInit)(0);
+    if (result == CUDA_SUCCESS && availableCudaGPUs() > 0) {
+      static RegisterHardware cuda_hw_reg_(std::make_shared<CudaGPUHardware>());
+      static RegisterBackend cuda_backend_reg_(std::make_shared<CudaBackend>());
+    }
   }
   return 0;
 }();
