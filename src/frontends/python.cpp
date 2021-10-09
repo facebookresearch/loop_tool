@@ -242,7 +242,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def(py::init([](py::args args) {
         std::vector<size_t> sizes;
         std::vector<lazy::Symbol> shape;
-        for (auto &arg : args) {
+        for (const auto &arg : args) {
           if ((std::string)py::str(arg.get_type()) ==
               "<class 'loop_tool_py.Symbol'>") {
             shape.emplace_back(py::cast<lazy::Symbol>(arg));

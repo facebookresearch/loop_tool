@@ -129,6 +129,8 @@ IR::NodeRef TensorImpl::resolve(
     case Operation::multiply:
       node_ref = ir.create_node(Operation::multiply, node_deps, vars);
       break;
+    default:
+      break;
   }
   ASSERT(node_ref > -1) << "couldn't resolve node op: " << (int)op_;
   return node_ref;
