@@ -3,8 +3,8 @@ import numpy as np
 import time
 
 if "cuda" in lt.backends():
-  lt.set_default_hardware("cuda")
-  lt.set_default_backend("cuda")
+    lt.set_default_hardware("cuda")
+    lt.set_default_backend("cuda")
 
 
 m, n, k = 8, 8, 8
@@ -23,6 +23,7 @@ def mm(A, B):
 
 
 C = mm(A, B)
+print(C.compiled.code)
 C_ref = A.numpy() @ B.numpy()
 assert np.allclose(C.numpy(), C_ref, atol=0.0001, rtol=0.0001)
 

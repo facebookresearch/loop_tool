@@ -816,7 +816,7 @@ struct CudaGPUHardware : public Hardware {
 };
 
 struct CudaCompiled : public Compiled {
-  char *ptx;
+  char *ptx_or_cubin;
   CUfunction kernel;
   std::string code;
   size_t num_blocks = 0;
@@ -832,7 +832,7 @@ struct CudaCompiled : public Compiled {
                const std::unordered_set<LoopTree::TreeRef> &threaded,
                LoopTree::TreeRef ref);
 
-  ~CudaCompiled() { free(ptx); }
+  ~CudaCompiled() { delete[] ptx_or_cubin; }
 
   void run(const std::vector<void *> &memory, bool sync) const override {
     std::vector<void *> mem;
@@ -914,30 +914,47 @@ CudaCompiled::CudaCompiled(
   CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
       &cap_min, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device));
   std::stringstream cc_ss;
-  cc_ss << "--gpu-architecture=compute_";
+  cc_ss << "compute_";
   cc_ss << cap_maj << cap_min;
   const char *opts[] = {
-      cc_ss.str().c_str()
+      "-arch", cc_ss.str().c_str()
       //"--extra-device-vectorization"
       //"--generate-line-info"
   };
   nvrtcResult compileResult = NVRTCLIB(nvrtcCompileProgram)(prog,  // prog
-                                                            1,     // numOptions
+                                                            2,     // numOptions
                                                             opts);  // options
   size_t logSize;
   NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
   char *log = new char[logSize];
   NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLog)(prog, log));
   ASSERT(compileResult == NVRTC_SUCCESS) << log << "\n\ncode:\n" << code;
-  delete[] log;
 
-  size_t ptxSize;
-  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTXSize)(prog, &ptxSize));
-  ptx = new char[ptxSize];
-  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTX)(prog, ptx));
+  bool use_ptx = true;
+  if (use_ptx) {
+    size_t ptxSize;
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTXSize)(prog, &ptxSize));
+    ptx_or_cubin = new char[ptxSize];
+    ASSERT(ptxSize) << "found size 0 PTX! log:\n" << log;
+    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTX)(prog, ptx_or_cubin));
+  } else {
+    // only works on 11.4 +
+    // size_t cubinSize;
+    // NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetCUBINSize)(prog, &cubinSize));
+    // ptx_or_cubin = new char[cubinSize];
+    // NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetCUBIN)(prog, ptx_or_cubin));
+  }
+
+  delete[] log;
   NVRTC_SAFE_CALL(NVRTCLIB(nvrtcDestroyProgram)(&prog));
 
-  CUDA_SAFE_CALL(CULIB(cuModuleLoadDataEx)(&module, ptx, 0, 0, 0));
+  if (use_ptx) {
+    CUresult result = CULIB(cuModuleLoadDataEx)(&module, ptx_or_cubin, 0, 0, 0);
+    ASSERT(result == CUDA_SUCCESS) << "invalid PTX loaded:\n" << ptx_or_cubin;
+  } else {
+    // only works on 11.4 +
+    // CUDA_SAFE_CALL(CULIB(cuModuleLoadFatBinary)(&module, ptx_or_cubin));
+  }
   CUDA_SAFE_CALL(CULIB(cuModuleGetFunction)(&kernel, module, "kernel"));
 
   int memory_clock;

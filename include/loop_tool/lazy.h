@@ -260,6 +260,15 @@ struct TensorImpl {
                            cc.output_size};
   }
 
+  inline std::shared_ptr<Compiled> compiled() {
+    auto h = hash();
+    if (!getCompilationCache().count(h)) {
+      compile();
+    }
+    auto& cc = getCompilationCache().at(h);
+    return cc.compilation;
+  }
+
   LoopTree schedule(
       IR& ir,
       const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
@@ -414,6 +423,9 @@ struct Tensor {
   inline void unify() const { const_cast<TensorImpl*>(impl_.get())->unify(); }
   inline void compile() const {
     const_cast<TensorImpl*>(impl_.get())->compile();
+  }
+  inline std::shared_ptr<Compiled> compiled() const {
+    return const_cast<TensorImpl*>(impl_.get())->compiled();
   }
 
   inline bool has_deps() const { return impl_->deps_.size() > 0; }

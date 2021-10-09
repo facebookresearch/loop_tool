@@ -106,30 +106,30 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("loop_vars", &IR::loop_vars)
       .def("output_vars",
            [](IR &ir, IR::NodeRef n) { return ir.node(n).vars(); });
-  py::class_<Compiled>(m, "Compiled")
+  py::class_<Compiled, std::shared_ptr<Compiled>>(m, "Compiled")
       .def(
           "__call__",
-          [](const Compiled &cc, std::vector<std::shared_ptr<Tensor>> tensors,
+          [](Compiled *cc, std::vector<std::shared_ptr<Tensor>> tensors,
              bool sync) {
             std::vector<void *> memory;
             for (auto &t : tensors) {
-              ASSERT((t->data.compatible & cc.hardware_requirement) ==
-                     cc.hardware_requirement)
+              ASSERT((t->data.compatible & cc->hardware_requirement) ==
+                     cc->hardware_requirement)
                   << "Tensor on wrong hardware, perhaps use "
                      "lt.set_default_hardware(...)";
               memory.emplace_back(t->data.address);
             }
-            cc.run(memory, sync);
+            cc->run(memory, sync);
           },
           py::arg("tensors"), py::arg("sync") = true)
-      .def("__getattr__", [](const Compiled &cc, std::string name) {
-        if (cc.int_properties.count(name)) {
-          return py::cast(cc.int_properties.at(name));
+      .def("__getattr__", [](Compiled *cc, std::string name) {
+        if (cc->int_properties.count(name)) {
+          return py::cast(cc->int_properties.at(name));
         }
-        if (cc.string_properties.count(name)) {
-          return py::cast(cc.string_properties.at(name));
+        if (cc->string_properties.count(name)) {
+          return py::cast(cc->string_properties.at(name));
         }
-        ASSERT(0) << "Couldn't find property " << name << " in " << cc.name
+        ASSERT(0) << "Couldn't find property " << name << " in " << cc->name
                   << " Compiled object";
         return py::cast(0);
       });
@@ -140,8 +140,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
           backend->name().c_str(),
           [=](const LoopTree &lt,
               const std::unordered_set<LoopTree::TreeRef> &parallel,
-              LoopTree::TreeRef root) {
-            return backend->compile(lt, parallel, root).release();
+              LoopTree::TreeRef root) -> std::shared_ptr<Compiled> {
+            return backend->compile(lt, parallel, root);
           },
           py::arg("loop_tree"),
           py::arg("parallel") = std::unordered_set<LoopTree::TreeRef>{},
@@ -327,6 +327,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("unify", [](lazy::Tensor &t) { t.unify(); })
       .def("compile", [](lazy::Tensor &t) { t.compile(); })
       .def("resolve", [](lazy::Tensor &t) { (void)t.data<float>(); })
+      .def_property_readonly("compiled",
+                             [](lazy::Tensor &t) { return t.compiled(); })
       .def_property_readonly("ir", [](lazy::Tensor &t) { return t.ir(); })
       .def_property_readonly("loop_tree",
                              [](lazy::Tensor &t) { return t.loop_tree(); })
