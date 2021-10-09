@@ -907,13 +907,22 @@ CudaCompiled::CudaCompiled(
                                                0,             // numHeaders
                                                NULL,          // headers
                                                NULL));        // includeNames
+  int cap_maj;
+  int cap_min;
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &cap_maj, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &cap_min, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, device));
+  std::stringstream cc_ss;
+  cc_ss << "--gpu-architecture=compute_";
+  cc_ss << cap_maj << cap_min;
   const char *opts[] = {
+      cc_ss.str().c_str()
       //"--extra-device-vectorization"
-      //"--gpu-architecture=compute_60",
       //"--generate-line-info"
   };
   nvrtcResult compileResult = NVRTCLIB(nvrtcCompileProgram)(prog,  // prog
-                                                            0,     // numOptions
+                                                            1,     // numOptions
                                                             opts);  // options
   size_t logSize;
   NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
