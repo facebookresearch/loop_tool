@@ -47,7 +47,7 @@ struct TensorImpl {
   size_t hash_ = 0;
   bool unified_ = false;
   Operation op_ = Operation::constant;
-  mutable void* data_ = nullptr;
+  mutable Memory memory_;
   mutable bool owning_ = false;
   std::vector<Symbol> shape_;
   // index constraint
@@ -92,7 +92,7 @@ struct TensorImpl {
 
   ~TensorImpl() {
     if (owning_) {
-      free(data_);
+      getDefaultHardware()->free(memory_);
     }
   }
 
@@ -168,10 +168,11 @@ struct TensorImpl {
 
   template <typename T>
   T* data() const {
-    if (data_) {
-      return static_cast<T*>(data_);
+    auto alloc = [&](size_t size) { return getDefaultHardware()->alloc(size); };
+    if (memory_.address) {
+      return static_cast<T*>(memory_.address);
     }
-    if (owning_ && !data_) {
+    if (owning_ && !memory_.address) {
       size_t size = 1;
       for (auto i = 0; i < shape().size(); ++i) {
         ASSERT(size_constraints().count(shape()[i].id()))
@@ -179,21 +180,21 @@ struct TensorImpl {
             << "not provided";
         size *= size_constraints().at(shape()[i].id()).value();
       }
-      data_ = malloc(sizeof(float) * size);
+      memory_ = alloc(sizeof(float) * size);
       if (deps_.size() == 0) {
-        return static_cast<T*>(data_);
+        return static_cast<T*>(memory_.address);
       }
     }
     if (!getCompilationCache().count(hash())) {
       const_cast<TensorImpl*>(this)->populateCompilationCache();
     }
     auto& cc = getCompilationCache().at(hash());
-    data_ = malloc(sizeof(float) * cc.output_size);
+    memory_ = alloc(sizeof(float) * cc.output_size);
     owning_ = true;
     auto buffers = getBuffers();
-    buffers.emplace_back(data_);
+    buffers.emplace_back(memory_.address);
     cc.compilation->run(buffers, true);
-    return static_cast<T*>(data_);
+    return static_cast<T*>(memory_.address);
   };
 
   std::pair<IR, std::unordered_map<int, std::pair<IR::VarRef, size_t>>> lower()
@@ -245,8 +246,7 @@ struct TensorImpl {
     auto& cc = getCompilationCache().at(h);
     LoopTree loop_tree(ir);
     auto new_cc = backend_compile(loop_tree);
-    getCompilationCache().emplace(
-        h, CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size});
+    cc = CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size};
   }
 
   inline void set(const LoopTree& loop_tree) {
@@ -256,9 +256,8 @@ struct TensorImpl {
            "setting a custom schedule";
     auto& cc = getCompilationCache().at(h);
     auto new_cc = backend_compile(loop_tree);
-    getCompilationCache().emplace(
-        h, CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,
-                             cc.output_size});
+    cc = CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,
+                           cc.output_size};
   }
 
   LoopTree schedule(

@@ -46,14 +46,14 @@ PYBIND11_MODULE(loop_tool_py, m) {
     for (auto &hw : getHardware()) {
       if (hw->name() == hardware) {
         default_hardware_id = hw->id();
+        setDefaultHardwareId(hw->id());
         set = true;
       }
     }
     ASSERT(set) << "cannot find hardware: " << hardware;
   });
-  m.def("set_default_backend", [](std::string backend) {
-      setDefaultBackend(backend);
-  });
+  m.def("set_default_backend",
+        [](std::string backend) { setDefaultBackend(backend); });
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -148,6 +148,13 @@ PYBIND11_MODULE(loop_tool_py, m) {
           py::arg("root") = -1);
     }
   }
+  py::class_<LoopTree::Loop>(m, "Loop")
+      .def_property_readonly("var",
+                             [](LoopTree::Loop &loop) { return loop.var; })
+      .def_property_readonly("size",
+                             [](LoopTree::Loop &loop) { return loop.size; })
+      .def_property_readonly("tail",
+                             [](LoopTree::Loop &loop) { return loop.tail; });
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
       .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
@@ -184,10 +191,30 @@ PYBIND11_MODULE(loop_tool_py, m) {
                                });
                                return loops;
                              })
+      .def_property_readonly("ir", [](const LoopTree &lt) { return lt.ir; })
       .def("ir_node",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              ASSERT(lt.kind(ref) == LoopTree::NODE);
              return lt.node(ref);
+           })
+      .def("loop",
+           [](const LoopTree &lt, LoopTree::TreeRef ref) {
+             ASSERT(lt.kind(ref) == LoopTree::LOOP);
+             return lt.loop(ref);
+           })
+      .def("dump",
+           [](const LoopTree &lt, LoopTree::TreeRef ref) {
+             if (lt.kind(ref) == LoopTree::LOOP) {
+               auto loop = lt.loop(ref);
+               std::stringstream ss;
+               ss << "L{" << lt.ir.var(loop.var).name() << ":" << loop.size;
+               if (loop.tail) {
+                 ss << "r" << loop.tail;
+               }
+               ss << "}";
+               return ss.str();
+             }
+             return lt.ir.dump(lt.node(ref));
            })
       .def(
           "dump", &LoopTree::dump,
@@ -282,15 +309,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Tensor &t, const LoopTree loop_tree) { t.set(loop_tree); })
       .def("numpy",
            [](lazy::Tensor &t) {
+             size_t numel = t.numel();
+             auto result = py::array_t<float>(t.sizes());
+             py::buffer_info buf = result.request();
+             float *data = static_cast<float *>(buf.ptr);
 #ifdef ENABLE_CUDA
              if (cuda_available) {
                CULIB(cuCtxSynchronize)();
              }
 #endif
-             size_t numel = t.numel();
-             auto result = py::array_t<float>(t.sizes());
-             py::buffer_info buf = result.request();
-             float *data = static_cast<float *>(buf.ptr);
              float *tensor_data = t.data<float>();
              for (auto i = 0; i < numel; ++i) {
                data[i] = tensor_data[i];

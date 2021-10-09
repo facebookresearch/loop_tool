@@ -8,9 +8,12 @@ std::unordered_map<size_t, CachedCompilation>& getCompilationCache() {
 }
 
 void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
-  data_ = data;
+  if (data) {
+    std::cerr << "WARNING deprecated feature TensorImpl::bind\n";
+  }
+  memory_.address = data;
   // if no data is specified, we need to allocate
-  if (data_ == nullptr) {
+  if (memory_.address == nullptr) {
     owning_ = true;
   }
   if (shape_.size() == 0) {

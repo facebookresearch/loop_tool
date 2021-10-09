@@ -97,7 +97,7 @@ std::string gen_access(const LoopTree &lt, const Auxiliary &aux,
   // To vectorize, every inner size needs to be
   // evenly divisible by 4 (unless innermost)
   // TODO relax this by adding modular arithmetic or casting
-  bool unrolled_vectorize = true;
+  bool unrolled_vectorize = false;
   for (const auto &p : idx_vec) {
     bool innermost = &p == &idx_vec.front();
     unrolled_vectorize &= (p.second % 4 == 0) || (innermost && (p.second == 1));
@@ -235,6 +235,20 @@ std::string gen_node(const LoopTree &lt, const Auxiliary &aux,
     ss << " = ";
     ss << gen_access(lt, aux, inp_alloc, ref, unroll);
     ss << ";\n";
+  } else if (node.op() == Operation::view) {
+    auto out_alloc = aux.allocs.at(node_ref);
+    ASSERT(node.inputs().size() == 1)
+        << "Cuda backend can only emit simple views";
+    auto dep_ref = node.inputs().at(0);
+    auto inp_alloc = aux.allocs.at(dep_ref);
+
+    ss << indent(depth);
+    ss << gen_access(lt, aux, out_alloc, ref, unroll);
+    ss << " = ";
+    ss << gen_access(lt, aux, inp_alloc, ref, unroll);
+    ss << ";\n";
+  } else {
+    ASSERT(0) << "node in IR yet supported in CUDA " << lt.ir.dump(node_ref);
   }
 
   return ss.str();
@@ -709,63 +723,6 @@ void gen_threading_info(const LoopTree &lt, const Auxiliary &aux,
   cuda_aux.syncs = syncs;
 }
 
-CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
-                      const std::unordered_set<LoopTree::TreeRef> &threaded_) {
-  CUDA_SAFE_CALL(CULIB(cuInit)(0));
-  CudaAux cuda_aux;
-  auto threaded = threaded_;
-  if (threaded.size() == 1 && threaded.count(-1)) {
-    threaded.clear();
-    lt.walk([&](LoopTree::TreeRef ref, int) {
-      if (trivially_parallel(lt, ref)) {
-        threaded.insert(ref);
-      }
-    });
-  } else {
-    for (auto ref : threaded) {
-      ASSERT(trivially_parallel(lt, ref) &&
-             "Loop not yet threadable! TODO: warp-level reductions");
-    }
-  }
-  lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (lt.kind(ref) != LoopTree::NODE) {
-      return;
-    }
-    auto parent = lt.parent(ref);
-    auto inner = 1;
-    while (parent != -1) {
-      ASSERT(lt.kind(parent) == LoopTree::LOOP);
-      if (threaded.count(parent)) {
-        if (cuda_aux.threaded.count(parent)) {
-          auto alt_inner = cuda_aux.threaded.at(parent);
-          inner = std::max(inner, alt_inner);
-          // self consistency
-          // ASSERT((alt_inner == -1 || alt_inner == inner)) <<
-          //       "Found mismatched threading strategy for " <<
-          //			 lt.ir.var(lt.loop(parent).var).name() <<
-          //			 " size: " << alt_inner << " vs " << inner;
-        }
-        cuda_aux.threaded[parent] = inner;
-        inner *= lt.loop(parent).size;
-      }
-      parent = lt.parent(parent);
-    }
-    cuda_aux.threaded[-1] = std::max(inner, cuda_aux.threaded[-1]);
-  });
-  unroll(lt, cuda_aux);
-  // TODO multiple devices
-  CUdevice cuDevice;
-  CUDA_SAFE_CALL(CULIB(cuDeviceGet)(&cuDevice, 0));
-  // TODO Y, Z thread scheduling
-  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
-      &cuda_aux.threads_per_block, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X,
-      cuDevice));
-  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
-      &cuda_aux.threads_per_warp, CU_DEVICE_ATTRIBUTE_WARP_SIZE, cuDevice));
-  gen_threading_info(lt, aux, cuda_aux);
-  return cuda_aux;
-}
-
 /*
 TODO: this logic is not yet implemented -- runs checks instead
 
@@ -868,70 +825,15 @@ struct CudaCompiled : public Compiled {
 
   size_t peak_bandwidth_gb = 0;
 
-  CUcontext context;
   CUmodule module;
-  CUdevice cuDevice;
+  CUcontext &context;
+  CUdevice &device;
 
   CudaCompiled(const LoopTree &lt,
                const std::unordered_set<LoopTree::TreeRef> &threaded,
-               LoopTree::TreeRef ref) {
-    auto cc = cuda_code_and_dispatch(lt, threaded);
-    code = cc.first;
-    num_blocks = cc.second.first;
-    num_threads = cc.second.second;
+               LoopTree::TreeRef ref);
 
-    nvrtcProgram prog;
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcCreateProgram)(&prog,         // prog
-                                                 code.c_str(),  // buffer
-                                                 "kernel.cu",   // name
-                                                 0,             // numHeaders
-                                                 NULL,          // headers
-                                                 NULL));        // includeNames
-    const char *opts[] = {
-        //"--extra-device-vectorization"
-        //"--gpu-architecture=compute_60",
-        //"--generate-line-info"
-    };
-    nvrtcResult compileResult = NVRTCLIB(nvrtcCompileProgram)(prog,  // prog
-                                                              0,  // numOptions
-                                                              opts);  // options
-    size_t logSize;
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
-    char *log = new char[logSize];
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLog)(prog, log));
-    ASSERT(compileResult == NVRTC_SUCCESS) << log << "\n\ncode:\n" << code;
-    delete[] log;
-
-    size_t ptxSize;
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTXSize)(prog, &ptxSize));
-    ptx = new char[ptxSize];
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTX)(prog, ptx));
-    NVRTC_SAFE_CALL(NVRTCLIB(nvrtcDestroyProgram)(&prog));
-
-    CUDA_SAFE_CALL(CULIB(cuInit)(0));
-    CUDA_SAFE_CALL(CULIB(cuDeviceGet)(&cuDevice, 0));
-    CUDA_SAFE_CALL(CULIB(cuCtxCreate)(&context, 0, cuDevice));
-    CUDA_SAFE_CALL(CULIB(cuModuleLoadDataEx)(&module, ptx, 0, 0, 0));
-    CUDA_SAFE_CALL(CULIB(cuModuleGetFunction)(&kernel, module, "kernel"));
-
-    int memory_clock;
-    int memory_bus_width;
-    CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
-        &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, cuDevice));
-    CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
-        &memory_bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-        cuDevice));
-
-    peak_bandwidth_gb =
-        2 * ((long)memory_clock * (long)memory_bus_width) / 1e6 / 8;
-    int_properties["bandwidth"] = peak_bandwidth_gb;
-    string_properties["code"] = code;
-  }
-
-  ~CudaCompiled() {
-    CUDA_SAFE_CALL(CULIB(cuCtxDestroy)(context));
-    free(ptx);
-  }
+  ~CudaCompiled() { free(ptx); }
 
   void run(const std::vector<void *> &memory, bool sync) const override {
     std::vector<void *> mem;
@@ -950,7 +852,26 @@ struct CudaCompiled : public Compiled {
 };
 
 struct CudaBackend : public Backend {
-  CudaBackend() : Backend("cuda") {}
+  CUcontext context;
+  CUdevice device;
+
+  CUcontext &getCUcontext() { return context; }
+  CUdevice &getCUdevice() { return device; }
+
+  static std::shared_ptr<CudaBackend> get() {
+    return std::dynamic_pointer_cast<CudaBackend>(getBackends().at("cuda"));
+  }
+
+  CudaBackend() : Backend("cuda") {
+    CUDA_SAFE_CALL(CULIB(cuInit)(0));
+    CUDA_SAFE_CALL(CULIB(cuDeviceGet)(&device, 0));
+    CUDA_SAFE_CALL(CULIB(cuCtxCreate)(&context, 0, device));
+  }
+
+  ~CudaBackend() {
+    // TODO this causes segfaults
+    // CUDA_SAFE_CALL(CULIB(cuCtxDestroy)(context));
+  }
 
   std::unique_ptr<Compiled> compile_impl(
       const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
@@ -969,6 +890,117 @@ struct CudaBackend : public Backend {
     return 0;
   }
 };
+
+CudaCompiled::CudaCompiled(
+    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &threaded,
+    LoopTree::TreeRef ref)
+    : device(CudaBackend::get()->getCUdevice()),
+      context(CudaBackend::get()->getCUcontext()) {
+  auto cc = cuda_code_and_dispatch(lt, threaded);
+  code = cc.first;
+  num_blocks = cc.second.first;
+  num_threads = cc.second.second;
+
+  nvrtcProgram prog;
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcCreateProgram)(&prog,         // prog
+                                               code.c_str(),  // buffer
+                                               "kernel.cu",   // name
+                                               0,             // numHeaders
+                                               NULL,          // headers
+                                               NULL));        // includeNames
+  const char *opts[] = {
+      //"--extra-device-vectorization"
+      //"--gpu-architecture=compute_60",
+      //"--generate-line-info"
+  };
+  nvrtcResult compileResult = NVRTCLIB(nvrtcCompileProgram)(prog,  // prog
+                                                            0,     // numOptions
+                                                            opts);  // options
+  size_t logSize;
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLogSize)(prog, &logSize));
+  char *log = new char[logSize];
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetProgramLog)(prog, log));
+  ASSERT(compileResult == NVRTC_SUCCESS) << log << "\n\ncode:\n" << code;
+  delete[] log;
+
+  size_t ptxSize;
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTXSize)(prog, &ptxSize));
+  ptx = new char[ptxSize];
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcGetPTX)(prog, ptx));
+  NVRTC_SAFE_CALL(NVRTCLIB(nvrtcDestroyProgram)(&prog));
+
+  CUDA_SAFE_CALL(CULIB(cuModuleLoadDataEx)(&module, ptx, 0, 0, 0));
+  CUDA_SAFE_CALL(CULIB(cuModuleGetFunction)(&kernel, module, "kernel"));
+
+  int memory_clock;
+  int memory_bus_width;
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &memory_bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device));
+
+  peak_bandwidth_gb =
+      2 * ((long)memory_clock * (long)memory_bus_width) / 1e6 / 8;
+  int_properties["bandwidth"] = peak_bandwidth_gb;
+  string_properties["code"] = code;
+}
+
+CudaAux calc_cuda_aux(const LoopTree &lt, const Auxiliary &aux,
+                      const std::unordered_set<LoopTree::TreeRef> &threaded_) {
+  CUDA_SAFE_CALL(CULIB(cuInit)(0));
+  CudaAux cuda_aux;
+  auto threaded = threaded_;
+  if (threaded.size() == 1 && threaded.count(-1)) {
+    threaded.clear();
+    lt.walk([&](LoopTree::TreeRef ref, int) {
+      if (trivially_parallel(lt, ref)) {
+        threaded.insert(ref);
+      }
+    });
+  } else {
+    for (auto ref : threaded) {
+      ASSERT(trivially_parallel(lt, ref) &&
+             "Loop not yet threadable! TODO: warp-level reductions");
+    }
+  }
+  lt.walk([&](LoopTree::TreeRef ref, int) {
+    if (lt.kind(ref) != LoopTree::NODE) {
+      return;
+    }
+    auto parent = lt.parent(ref);
+    auto inner = 1;
+    while (parent != -1) {
+      ASSERT(lt.kind(parent) == LoopTree::LOOP);
+      if (threaded.count(parent)) {
+        if (cuda_aux.threaded.count(parent)) {
+          auto alt_inner = cuda_aux.threaded.at(parent);
+          inner = std::max(inner, alt_inner);
+          // self consistency
+          // ASSERT((alt_inner == -1 || alt_inner == inner)) <<
+          //       "Found mismatched threading strategy for " <<
+          //			 lt.ir.var(lt.loop(parent).var).name() <<
+          //			 " size: " << alt_inner << " vs " << inner;
+        }
+        cuda_aux.threaded[parent] = inner;
+        inner *= lt.loop(parent).size;
+      }
+      parent = lt.parent(parent);
+    }
+    cuda_aux.threaded[-1] = std::max(inner, cuda_aux.threaded[-1]);
+  });
+  unroll(lt, cuda_aux);
+
+  // TODO multiple devices
+  CUdevice &device = CudaBackend::get()->getCUdevice();
+  // TODO Y, Z thread scheduling
+  CUDA_SAFE_CALL(
+      CULIB(cuDeviceGetAttribute)(&cuda_aux.threads_per_block,
+                                  CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, device));
+  CUDA_SAFE_CALL(CULIB(cuDeviceGetAttribute)(
+      &cuda_aux.threads_per_warp, CU_DEVICE_ATTRIBUTE_WARP_SIZE, device));
+  gen_threading_info(lt, aux, cuda_aux);
+  return cuda_aux;
+}
 
 static int reg_ = []() {
   if (DynamicLibrary::exists("libcuda.so.1") &&

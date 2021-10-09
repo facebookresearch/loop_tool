@@ -17,8 +17,8 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 struct Memory {
-  int compatible;
-  void *address;
+  int compatible = 0;
+  void *address = 0;
 };
 
 struct Hardware {
@@ -68,6 +68,7 @@ int getAvailableHardware();
 
 int &getDefaultHardwareId();
 void setDefaultHardwareId(int id);
+const std::shared_ptr<Hardware> &getDefaultHardware();
 
 void registerHardware(std::shared_ptr<Hardware> hw);
 

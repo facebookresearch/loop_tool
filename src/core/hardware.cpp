@@ -49,6 +49,15 @@ int &getDefaultHardwareId() {
   return default_hardware_id_;
 }
 
+const std::shared_ptr<Hardware> &getDefaultHardware() {
+  for (auto &hw : getHardware()) {
+    if (hw->id() == getDefaultHardwareId()) {
+      return hw;
+    }
+  }
+  return getHardware().at(0);
+}
+
 void setDefaultHardwareId(int id) { getDefaultHardwareId() = id; }
 
 }  // namespace loop_tool

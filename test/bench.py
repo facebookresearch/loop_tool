@@ -6,6 +6,7 @@ import time
 
 lt.set_default_hardware("cuda")
 
+
 def gen_pw_add():
     ir = lt.IR()
     a = ir.create_var("a")
@@ -20,19 +21,17 @@ def gen_pw_add():
 
 def test_pw(size, inner_size, vec_size):
     assert size >= (inner_size * vec_size)
-    ir, v = gen_pw_add() # v = pointwise var
+    ir, v = gen_pw_add()  # v = pointwise var
     size_map = {}
     size_map[v] = size
     for n in ir.nodes:
-      outer = size // (inner_size * vec_size)
-      outer_rem = size % (inner_size * vec_size)
+        outer = size // (inner_size * vec_size)
+        outer_rem = size % (inner_size * vec_size)
 
-      ir.set_order(n, [
-        (v, (outer, outer_rem)),
-        (v, (inner_size, 0)),
-        (v, (vec_size, 0))
-        ])
-      ir.disable_reuse(n, 2)
+        ir.set_order(
+            n, [(v, (outer, outer_rem)), (v, (inner_size, 0)), (v, (vec_size, 0))]
+        )
+        ir.disable_reuse(n, 2)
     loop_tree = lt.LoopTree(ir)
     A = lt.RawTensor(size)
     B = lt.RawTensor(size)
@@ -44,6 +43,7 @@ def test_pw(size, inner_size, vec_size):
     C_ref = Ap + Bp
     C.set(1337.0)
     parallel = set(loop_tree.children(loop_tree.roots[0]))
+    print(loop_tree)
     c = lt.cuda(loop_tree, parallel)
     c([A, B, C])
     C_test = C.to_numpy()
@@ -53,21 +53,29 @@ def test_pw(size, inner_size, vec_size):
     iters = 10000
     # warmup
     for i in range(50):
-      c([A, B, C])
+        c([A, B, C])
     t = time.time()
     for i in range(iters - 1):
-      c([A, B, C], False)
+        c([A, B, C], False)
     c([A, B, C])
     t_ = time.time()
-    #print(loop_tree.dump(lambda x: "[threaded]" if x in parallel else ""))
-    #print(c.code)
+    # print(loop_tree.dump(lambda x: "[threaded]" if x in parallel else ""))
+    # print(c.code)
     # 2 read 1 write, 4 bytes per float
     bytes_moved = (2 + 1) * 4 * size * iters / (t_ - t) / 1e9
     pct = bytes_moved / c.bandwidth
     usec = (t_ - t) / iters * 1e6
-    #print(f"peak: {c.bandwidth} GB/sec")
-    print(f"{bytes_moved:.2f} GB/sec", f"({100 * pct:.2f}% of peak, {usec:.2f} usec per iter)")
-    return bytes_moved, c.code, loop_tree.dump(lambda x: "// Threaded" if x in parallel else "")
+    # print(f"peak: {c.bandwidth} GB/sec")
+    print(
+        f"{bytes_moved:.2f} GB/sec",
+        f"({100 * pct:.2f}% of peak, {usec:.2f} usec per iter)",
+    )
+    return (
+        bytes_moved,
+        c.code,
+        loop_tree.dump(lambda x: "// Threaded" if x in parallel else ""),
+    )
+
 
 s = 1024 * 1024
 best = 0
@@ -75,16 +83,15 @@ code = ""
 loop_tree = ""
 inner_scale = 512 * 8
 for i in range(1, s // inner_scale):
-  inner = i * inner_scale
-  for vec_pow in range(0,3):
-    vec = 2 ** vec_pow
-    inner = inner // vec
-    b, c, l = test_pw(s, inner, vec)
-    if b > best:
-      best = b
-      code = c
-      loop_tree = l
+    inner = i * inner_scale
+    for vec_pow in range(0, 3):
+        vec = 2 ** vec_pow
+        inner = inner // vec
+        b, c, l = test_pw(s, inner, vec)
+        if b > best:
+            best = b
+            code = c
+            loop_tree = l
 print(f"Best kernel found ({best:.2f} GB/sec):")
 print(loop_tree)
 print(code)
-

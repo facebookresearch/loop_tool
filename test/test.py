@@ -12,6 +12,7 @@ import time
 # this works with both CPU and CudaGPU backends
 lt.set_default_hardware("cuda")
 
+
 def gen_pw_add():
     ir = lt.IR()
     a = ir.create_var("a")
@@ -99,14 +100,14 @@ def check_exec(loop_tree, inps, ref, cuda_threads=[]):
 
     l = lambda x: "[thread]" if x in cuda_threads else ""
 
-    def comp_val(val, backend, c = None):
+    def comp_val(val, backend, c=None):
         val = val.to_numpy()
         max_diff = np.max(np.abs(val.flatten() - ref.flatten()))
         max_idx = np.argmax(np.abs(val.flatten() - ref.flatten()))
         mean_val = np.mean(np.abs(ref))
         debug_info = f"{loop_tree.dump(l)}"
         if backend == "cuda":
-          debug_info += f"\n{c.code}\n{val.flatten()}\n{ref.flatten()}\n"#{np.abs(val.flatten() - ref.flatten())}"
+            debug_info += f"\n{c.code}\n{val.flatten()}\n{ref.flatten()}\n"  # {np.abs(val.flatten() - ref.flatten())}"
         assert (
             max_diff < 1e-3 * mean_val
         ), f"diff is {max_diff} at {max_idx} ({val.flatten()[max_idx]} vs {ref.flatten()[max_idx]}) on {backend} (mean is {mean_val}) for:\n{debug_info}"
@@ -195,6 +196,7 @@ def test_rand_reduce(size):
     p = set([l for l in loop_tree.loops if loop_tree.trivially_parallel(l)])
     check_exec(loop_tree, [A, B], B_ref, p)
 
+
 def test_annot(N, M):
     ir = lt.IR()
     n = ir.create_var("N")
@@ -215,23 +217,22 @@ def test_annot(N, M):
     loop_tree.annotate(loop_tree.roots[0], "parallel")
     print(loop_tree)
     cpu_fn = lt.cpu(loop_tree)
-    A = lt.RawTensor(N*M)
+    A = lt.RawTensor(N * M)
     B = lt.RawTensor(1)
-    Ap = np.random.randn(N*M)
+    Ap = np.random.randn(N * M)
     print(lt.backends())
 
-    #A = lt.tensor("K", "J")
-    #read = lt.tensor("J")
-    #A_tmp = lt.tensor("K")
-    #B = lt.tensor()
-    #for k in lt.iter("K", 16, backend="parallel"):
+    # A = lt.tensor("K", "J")
+    # read = lt.tensor("J")
+    # A_tmp = lt.tensor("K")
+    # B = lt.tensor()
+    # for k in lt.iter("K", 16, backend="parallel"):
     #  for j in lt.iter("J", 16):
     #    read[j] = A[k, j]
     #  for j in lt.iter("J", 16):
     #    A_tmp[k] += read[j]
-    #for k in lt.iter("K", 16):
+    # for k in lt.iter("K", 16):
     #  B[] += A_tmp[k]
-
 
     A.set(Ap)
     B_ref = np.sum(Ap)
@@ -239,10 +240,9 @@ def test_annot(N, M):
     cpu_fn([A, B])
     t = time.time()
     for i in range(100):
-      cpu_fn([A, B])
+        cpu_fn([A, B])
     print(time.time() - t)
     print(B.to_numpy(), B_ref)
-
 
 
 if __name__ == "__main__":
@@ -251,12 +251,11 @@ if __name__ == "__main__":
     test_annot(32, 1024)
     print("pointwise", end="")
     # powers of 2
-    sizes = [2**i for i in range(1,10)]
+    sizes = [2 ** i for i in range(1, 10)]
     # odd numbers near powers of 2
-    sizes += [2**i + 1 for i in range(1,8)]
+    sizes += [2 ** i + 1 for i in range(1, 8)]
     # primes
-    sizes += [x for x in range(8, 30)
-         if all(x % y != 0 for y in range(2, x))]
+    sizes += [x for x in range(8, 30) if all(x % y != 0 for y in range(2, x))]
     for s in sizes:
         print(".", end="", flush=True)
         for _ in range(5):
