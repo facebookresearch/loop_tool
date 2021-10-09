@@ -2,8 +2,9 @@ import loop_tool_py as lt
 import numpy as np
 import time
 
-lt.set_default_hardware("cuda")
-lt.set_default_backend("cuda")
+if "cuda" in lt.backends():
+  lt.set_default_hardware("cuda")
+  lt.set_default_backend("cuda")
 
 
 m, n, k = 8, 8, 8
@@ -129,7 +130,7 @@ for l in loop_tree.loops:
     if loop_tree.trivially_parallel(l):
         loop = loop_tree.loop(l)
         for n in ir.nodes:
-            ir.set_order(n, split(loop, 8))
+            ir.set_order(n, split(loop, L // 2))
 
 loop_tree = lt.LoopTree(ir)
 # parallelize the outermost loop
