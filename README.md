@@ -123,6 +123,24 @@ if "cuda" in lt.backends():
   W.set(loop_tree)
   print(W.compiled.code)
 ```
+Almost all examples above have nearly identical C++ interfaces, e.g.
+
+```cpp
+namespace lz = ::loop_tool::lazy;
+
+lz::Tensor A(128);
+lz::Tensor B(128);
+A.data<float>()[0] = 1.3; // rather than "set()"
+  
+auto N = lz::Symbol("N");
+auto C = A.as(N) + B.as(N);
+  
+auto lt = C.loop_tree();
+std::cout << lt.dump() << "\n";
+
+lt.annotate(lt.loops()[0], "parallel");
+C.set(lt);
+```
 
 ## Tutorial
 
