@@ -9,6 +9,38 @@ pip install loop_tool_py
 python -c 'import loop_tool_py as lt; print(lt.backends())'
 ```
 
+## Usage
+
+```python
+import loop_tool_py as lt
+import numpy as np
+
+# tensor of size 128, initialized with numpy
+X = lt.Tensor(128).set(np.random.randn(128))
+
+# name the dimension and then reduce over it
+N = lt.Symbol("N")
+Y = X.to(N).sum(N)
+
+assert np.allclose(Y.numpy(), np.sum(X.numpy()))
+
+# tensor of size K, uninitialized
+K = lt.Symbol("K")
+Z = lt.Tensor(K)
+
+# use the uninitialized tensor (and rename dimensions)
+W = (Z.to(N) * X.to(N)).sum(N)
+
+# derive information about symbolic shapes
+W.unify()
+assert Z.shape[0] == 128
+
+# tensor Z initialized later
+Z.set(np.random.randn(128))
+
+assert np.allclose(W.numpy(), np.sum(X.numpy() * Z.numpy()))
+```
+
 ## Tutorial
 
 A Python notebook tutorial can be found here:

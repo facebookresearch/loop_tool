@@ -100,10 +100,12 @@ endif()
 
 if(DEFINED ENV{EMCC_DIR})
   SET(EMCC $ENV{EMCC_DIR}/emcc)
+  message("Using ${EMCC} to compile javascript bindings...")
   SET(EMCC_INCLUDE $ENV{EMCC_DIR}/system/include)
   file(GLOB JS_SRCS ${SRC_DIR}/frontends/javascript*.cpp)
   add_custom_command(OUTPUT loop_tool_js_emcc
     COMMAND ${EMCC} -I${EMCC_INCLUDE} -I${LIB_INCLUDE} ${CORE_SRCS} ${JS_SRCS} -o loop_tool.js -Oz --bind
+    -s ASSERTIONS=1
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS "${CORE_SRCS}"
     COMMENT "Compiling with emcc"

@@ -303,6 +303,8 @@ struct Tensor {
 
   Tensor(void* data, std::vector<size_t> sizes)
       : impl_(std::make_shared<TensorImpl>(data, sizes)) {}
+  Tensor(std::vector<size_t> sizes)
+      : impl_(std::make_shared<TensorImpl>(nullptr, sizes)) {}
   void bind(void* data, std::vector<size_t> sizes) {
     impl()->bind(data, sizes);
   }
@@ -379,7 +381,7 @@ struct Tensor {
   }
 
   inline Tensor to(std::vector<Symbol> shape,
-                   std::vector<Constraint> constraints) {
+                   std::vector<Constraint> constraints) const {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
 
     return Tensor(std::make_shared<TensorImpl>(Operation::view, shape, deps,
@@ -387,7 +389,7 @@ struct Tensor {
   }
 
   template <typename... Constraints>
-  Tensor to(std::vector<Symbol> shape, const Constraints&... args) {
+  Tensor to(std::vector<Symbol> shape, const Constraints&... args) const {
     std::vector<Constraint> constraints{args...};
     return to(shape, constraints);
   }

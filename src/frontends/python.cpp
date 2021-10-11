@@ -253,8 +253,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         ASSERT(!!sizes.size() ^ !!shape.size())
             << "cannot mix numeric and symbolic instantiation yet";
         if (sizes.size()) {
-          return lazy::Tensor(
-              std::make_shared<lazy::TensorImpl>(nullptr, sizes));
+          return lazy::Tensor(sizes);
         }
         return lazy::Tensor(shape);
       }))
@@ -293,7 +292,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("set",
            [](lazy::Tensor &t,
               py::array_t<float, py::array::c_style | py::array::forcecast>
-                  array) {
+                  array) -> lazy::Tensor & {
              py::buffer_info buf = array.request();
              ASSERT(!t.has_deps()) << "cannot set data to a computed tensor";
              size_t numel = t.numel();
@@ -303,10 +302,18 @@ PYBIND11_MODULE(loop_tool_py, m) {
              for (auto i = 0; i < numel; ++i) {
                tensor_data[i] = data[i];
              }
+             return t;
            })
-      .def("set", [](lazy::Tensor &t, const IR ir) { t.set(ir); })
       .def("set",
-           [](lazy::Tensor &t, const LoopTree loop_tree) { t.set(loop_tree); })
+           [](lazy::Tensor &t, const IR ir) -> lazy::Tensor & {
+             t.set(ir);
+             return t;
+           })
+      .def("set",
+           [](lazy::Tensor &t, const LoopTree loop_tree) -> lazy::Tensor & {
+             t.set(loop_tree);
+             return t;
+           })
       .def("numpy",
            [](lazy::Tensor &t) {
              size_t numel = t.numel();

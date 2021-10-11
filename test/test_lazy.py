@@ -2,16 +2,16 @@ import loop_tool_py as lt
 import numpy as np
 import time
 
+backend = "cpu"
 if "cuda" in lt.backends():
+    backend = "cuda"
     lt.set_default_hardware("cuda")
     lt.set_default_backend("cuda")
 
 
 m, n, k = 8, 8, 8
-A = lt.Tensor(m, k)
-B = lt.Tensor(k, n)
-A.set(np.random.randn(m, k))
-B.set(np.random.randn(k, n))
+A = lt.Tensor(m, k).set(np.random.randn(m, k))
+B = lt.Tensor(k, n).set(np.random.randn(k, n))
 
 
 def mm(A, B):
@@ -23,7 +23,8 @@ def mm(A, B):
 
 
 C = mm(A, B)
-print(C.compiled.code)
+if backend == "cuda":
+    print(C.compiled.code)
 C_ref = A.numpy() @ B.numpy()
 assert np.allclose(C.numpy(), C_ref, atol=0.0001, rtol=0.0001)
 
@@ -39,10 +40,8 @@ def conv(X, W):
     return Y
 
 
-X = lt.Tensor(128)
-W = lt.Tensor(3)
-X.set(np.random.randn(128))
-W.set(np.random.randn(3))
+X = lt.Tensor(128).set(np.random.randn(128))
+W = lt.Tensor(3).set(np.random.randn(3))
 
 Y = conv(X, W)
 Y_ref = np.correlate(X.numpy(), W.numpy(), mode="valid")

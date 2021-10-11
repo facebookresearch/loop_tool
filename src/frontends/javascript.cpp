@@ -5,8 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 #include "emscripten/bind.h"
-#include "loop_tool/compile.h"
-#include "loop_tool/ir.h"
+#include "loop_tool/loop_tool.h"
 
 using namespace loop_tool;
 
@@ -44,16 +43,16 @@ struct TypeID<
 
 std::string dump(const LoopTree &lt) { return lt.dump(); }
 
+lazy::Tensor to_impl(const lazy::Tensor &t, std::vector<lazy::Symbol> symbols) {
+  return t.to(symbols);
+}
+
 EMSCRIPTEN_BINDINGS(loop_tool) {
-  // js::register_vector<int>("VectorInt");
-  js::class_<IR>("IR")
-      .constructor<>()
-      .function("create_var", &IR::create_var)
-      .function("create_node", &IR::create_node)
-      .function("set_inputs", &IR::set_inputs)
-      .function("set_outputs", &IR::set_outputs)
-      .function("set_priority", &IR::set_priority);
-  js::class_<LoopTree>("LoopTree")
-      .constructor<const IR &>()
-      .function("dump", &dump);
+  js::class_<lazy::Symbol>("Symbol").constructor<std::string>();
+
+  js::class_<lazy::Tensor>("Tensor")
+      .constructor<std::vector<size_t>>()
+      .function("to", &to_impl)
+      .function("mul", &lazy::Tensor::operator*)
+      .function("add", &lazy::Tensor::operator+);
 }
