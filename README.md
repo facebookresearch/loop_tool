@@ -11,6 +11,8 @@ python -c 'import loop_tool_py as lt; print(lt.backends())'
 
 ## Usage
 
+As an eager linear algebra API
+
 ```python
 import loop_tool_py as lt
 import numpy as np
@@ -23,7 +25,11 @@ N = lt.Symbol("N")
 Y = X.to(N).sum(N)
 
 assert np.allclose(Y.numpy(), np.sum(X.numpy()))
+```
 
+As a lazy linear algebra API
+
+```python
 # tensor of size K, uninitialized
 K = lt.Symbol("K")
 Z = lt.Tensor(K)
@@ -39,6 +45,63 @@ assert Z.shape[0] == 128
 Z.set(np.random.randn(128))
 
 assert np.allclose(W.numpy(), np.sum(X.numpy() * Z.numpy()))
+```
+
+As an optimization toolkit
+
+```python
+# dump information about the computation
+print(W.loop_tree)
+# for N_6 in 128 : L0
+#  %0[N_6] <- read()
+#  %1[N_6] <- read()
+#  %2[N_6] <- multiply(%0, %1)
+#  %3[] <- add(%2)
+# %4[] <- write(%3)
+
+# schedule different loop orders
+ir = W.ir
+v = ir.vars[0]
+for n in ir.nodes:
+  ir.set_order(n, [(v, (8, 0)), (v, (16, 0))])
+  # force multiply to have a different inner loop
+  if "multiply" in ir.dump(n):
+    ir.disable_reuse(n, 1)
+W.set(ir)
+
+print(W.loop_tree)
+# for N_6 in 8 : L0
+#  for N_6' in 16 : L1
+#   %0[N_6] <- read()
+#   %1[N_6] <- read()
+#   %2[N_6] <- multiply(%0, %1)
+#  for N_6' in 16 : L5
+#   %3[] <- add(%2)
+# for N_6 in 8 : L7
+#  for N_6' in 16 : L8
+#   %4[] <- write(%3)
+
+new_X = lt.Tensor(128).set(np.random.randn(128))
+new_Z = lt.Tensor(K)
+new_W = (new_Z.to(N) * new_X.to(N)).sum(N)
+new_W.unify()
+new_Z.set(np.random.randn(128))
+
+# same compute, same loop_tree
+assert str(new_W.loop_tree) == """\
+for N_6 in 8 : L0
+ for N_6' in 16 : L1
+  %0[N_6] <- read()
+  %1[N_6] <- read()
+  %2[N_6] <- multiply(%0, %1)
+ for N_6' in 16 : L5
+  %3[] <- add(%2)
+for N_6 in 8 : L7
+ for N_6' in 16 : L8
+  %4[] <- write(%3)
+"""
+
+assert np.allclose(new_W.numpy(), np.sum(new_X.numpy() * new_Z.numpy()))
 ```
 
 ## Tutorial
