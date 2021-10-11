@@ -98,9 +98,25 @@ assert str(new_W.loop_tree) == str(W.loop_tree)
 assert np.allclose(new_W.numpy(), np.sum(new_X.numpy() * new_Z.numpy()))
 ```
 
+As a CUDA code generator
+
+```python
+if "cuda" in lt.backends():
+  lt.set_default_backend("cuda")
+  lt.set_default_hardware("cuda")
+  W = lt.Tensor(128).to(N) + lt.Tensor(128).to(N)
+  print(W.compiled.code)
+
+  loop_tree = W.loop_tree
+  loop_tree.annotate(loop_tree.loops[0], "parallel")
+  W.set(loop_tree)
+  print(W.compiled.code)
+```
+
 ## Tutorial
 
-A Python notebook tutorial can be found here:
+For zero-install interactive usage examples,
+a step by step Python notebook tutorial can be found here:
 https://github.com/facebookresearch/loop_tool/blob/main/tutorial.ipynb
 
 ## Build C++ API from source
