@@ -6,6 +6,11 @@
 
 ```
 pip install loop_tool_py
+```
+
+Verify the installation worked and determine which backends are supported:
+
+```
 python -c 'import loop_tool_py as lt; print(lt.backends())'
 ```
 
