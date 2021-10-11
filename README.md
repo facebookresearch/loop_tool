@@ -42,7 +42,7 @@ W.unify()
 assert Z.shape[0] == 128
 
 # tensor Z initialized later
-Z.set(np.random.randn(128))
+Z.set(np.random.randn(Z.shape[0]))
 
 assert np.allclose(W.numpy(), np.sum(X.numpy() * Z.numpy()))
 ```
@@ -88,18 +88,7 @@ new_W.unify()
 new_Z.set(np.random.randn(128))
 
 # same compute, same loop_tree
-assert str(new_W.loop_tree) == """\
-for N_6 in 8 : L0
- for N_6' in 16 : L1
-  %0[N_6] <- read()
-  %1[N_6] <- read()
-  %2[N_6] <- multiply(%0, %1)
- for N_6' in 16 : L5
-  %3[] <- add(%2)
-for N_6 in 8 : L7
- for N_6' in 16 : L8
-  %4[] <- write(%3)
-"""
+assert str(new_W.loop_tree) == str(W.loop_tree)
 
 assert np.allclose(new_W.numpy(), np.sum(new_X.numpy() * new_Z.numpy()))
 ```
