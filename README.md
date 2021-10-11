@@ -1,6 +1,17 @@
 # `loop_tool`
 
-`loop_tool` is an experimental, lightweight, and highly-portable linear algebra toolkit.
+`loop_tool` is an experimental loop-based computation toolkit.
+Building on the fact that many useful operations (in linear algebra, neural networks, and media processing)
+can be written as highly optimized bounded loops,
+`loop_tool` is composed of two ideas:
+
+1. A lazy symbolic frontend
+    - Extension of typical eager interfaces (e.g. [Numpy](https://numpy.org) or earlier [PyTorch](https://pytorch.org))
+    - Symbolic shape deduction (including input shapes)
+    - Transparent JIT compilation
+2. A simple functional IR
+    - Optimized through local node-level annotations
+    - Lowered to various backends (currently CPU and CUDA)
    
 ## Install
 
@@ -154,7 +165,7 @@ schedule that hits ~70% of peak bandwidth regardless of GPU.
 
 ## Extra builds/tests
 
-#### JavaScript
+#### JavaScript (work in progress)
 
 To build a JavaScript target,
 specify your `emcc` directory to `cmake`
