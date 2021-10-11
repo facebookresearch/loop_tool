@@ -12,7 +12,7 @@ can be written as highly optimized bounded loops,
 2. A simple functional IR
     - Optimized through local node-level annotations
     - Lowered to various backends (currently CPU and CUDA)
-   
+
 ## Install
 
 ```
@@ -26,6 +26,22 @@ python -c 'import loop_tool_py as lt; print(lt.backends())'
 ```
 
 ## Usage
+
+Generally,
+```python
+for i in range(I):
+  for j in range(J):
+    c[j] += a[i, j] * b[i]
+```
+is equivalent to
+```python
+I, J = lt.Symbol("I"), lt.Symbol("J")
+a = lt.Tensor(I, J)
+b = lt.Tensor(I)
+c = (a * b).sum(I)
+```
+
+There are a couple of ways to use `loop_tool`:
 
 As an eager linear algebra API
 
