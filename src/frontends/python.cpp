@@ -304,15 +304,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return t.as(output_shape);
            })
       .def("set",
-           [](lazy::Tensor &t, py::args args) {
-             std::vector<size_t> sizes;
-             for (const auto &arg : args) {
-               sizes.emplace_back(py::cast<size_t>(arg));
-             }
-             t.bind(nullptr, sizes);
-             return t;
-           })
-      .def("set",
            [](lazy::Tensor &t,
               py::array_t<float, py::array::c_style | py::array::forcecast>
                   array) -> lazy::Tensor & {
@@ -325,6 +316,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
              for (auto i = 0; i < numel; ++i) {
                tensor_data[i] = data[i];
              }
+             return t;
+           })
+      .def("set_size",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<size_t> sizes;
+             for (const auto &arg : args) {
+               sizes.emplace_back(py::cast<size_t>(arg));
+             }
+             t.bind(nullptr, sizes);
              return t;
            })
       .def("set",
