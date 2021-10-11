@@ -30,7 +30,8 @@ enum struct Op {
   size,
   // binary
   add,
-  multiply
+  multiply,
+  divide
 };
 
 inline int numInputs(const Op& op) {

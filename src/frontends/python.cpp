@@ -236,8 +236,22 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__mul__",
            [](lazy::Symbol &s, lazy::Symbol &other) { return s * other; })
       .def("__add__",
-           [](lazy::Symbol &s, lazy::Symbol &other) { return s + other; });
-  py::class_<lazy::Expr>(m, "Expr").def(py::init<size_t>());
+           [](lazy::Symbol &s, lazy::Symbol &other) { return s + other; })
+      .def("__mul__",
+           [](lazy::Symbol &s, lazy::Expr &other) { return s * other; })
+      .def("__add__",
+           [](lazy::Symbol &s, lazy::Expr &other) { return s + other; });
+  py::class_<lazy::Expr>(m, "Expr")
+      .def(py::init<size_t>())
+      .def("__mul__",
+           [](lazy::Expr &s, lazy::Expr &other) { return s * other; })
+      .def("__add__",
+           [](lazy::Expr &s, lazy::Expr &other) { return s + other; })
+      .def("__mul__",
+           [](lazy::Expr &s, lazy::Symbol &other) { return s * other; })
+      .def("__add__",
+           [](lazy::Expr &s, lazy::Symbol &other) { return s + other; });
+
   py::class_<lazy::Tensor>(m, "Tensor")
       .def(py::init([](py::args args) {
         std::vector<size_t> sizes;
@@ -288,6 +302,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
                return t.to(output_shape, constraints);
              }
              return t.as(output_shape);
+           })
+      .def("set",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<size_t> sizes;
+             for (const auto &arg : args) {
+               sizes.emplace_back(py::cast<size_t>(arg));
+             }
+             t.bind(nullptr, sizes);
+             return t;
            })
       .def("set",
            [](lazy::Tensor &t,

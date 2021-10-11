@@ -163,6 +163,11 @@ Expr Expr::operator+(const Expr& rhs) const {
       return rhs;
     }
   }
+  if (rhs.type() == Expr::Type::value) {
+    if (rhs.value() == 0) {
+      return *this;
+    }
+  }
   return Expr(Op::add, {*this, rhs});
 }
 
@@ -176,6 +181,14 @@ Expr Expr::operator*(const Expr& rhs) const {
     }
     if (value() == 0) {
       return Expr(0);
+    }
+  }
+  if (rhs.type() == Expr::Type::value) {
+    if (rhs.value() == 0) {
+      return Expr(0);
+    }
+    if (rhs.value() == 1) {
+      return *this;
     }
   }
   return Expr(Op::multiply, {*this, rhs});
@@ -193,13 +206,17 @@ Expr Expr::operator-(const Expr& rhs) const { return *this + (-rhs); }
 Expr Expr::reciprocal() const {
   if (type() == Expr::Type::value) {
     ASSERT(value() != 0) << "cannot calculate 1/0";
-    return Expr(1 / value());
   }
   return Expr(Op::reciprocal, {*this});
 }
 
 Expr Expr::operator/(const Expr& rhs) const {
-  return *this * (rhs.reciprocal());
+  if (type() == Expr::Type::value) {
+    if (rhs.type() == Expr::Type::value) {
+      return Expr(value() / rhs.value());
+    }
+  }
+  return Expr(Op::divide, {*this, rhs});
 }
 
 bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
@@ -261,6 +278,8 @@ std::string Expr::dump() const {
       ss << "+";
     } else if (op_ == Op::multiply) {
       ss << "*";
+    } else if (op_ == Op::divide) {
+      ss << "/";
     } else {
       ASSERT(0) << "can't print this op";
     }
@@ -434,13 +453,15 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
         return lhs + rhs;
       } else if (e.op() == Op::multiply) {
         return lhs * rhs;
+      } else if (e.op() == Op::divide) {
+        return lhs / rhs;
       }
       ASSERT(0) << "unknown expression op";
     } else if (e.args().size() == 1) {
       if (e.op() == Op::negate) {
-        return -e.args().at(0);
+        return -eval_expr(e.args().at(0));
       } else if (e.op() == Op::reciprocal) {
-        return e;
+        return eval_expr(e.args().at(0)).reciprocal();
       }
     }
     ASSERT(0) << "unknown expression op";
@@ -562,6 +583,16 @@ Expr differentiate(Expr e, Symbol sym) {
         } else {
           ASSERT(a.contains(sym) && b.contains(sym));
           return differentiate(a, sym) * b + differentiate(b, sym) * a;
+        }
+      } else if (e.op() == Op::divide) {
+        if (a.contains(sym) && !b.contains(sym)) {
+          return differentiate(a, sym) / b;
+        } else if (b.contains(sym) && !a.contains(sym)) {
+          return a * differentiate(b, sym) / (b * b);
+        } else {
+          ASSERT(a.contains(sym) && b.contains(sym));
+          return (differentiate(a, sym) * b - a * differentiate(b, sym)) /
+                 (b * b);
         }
       }
     } else if (e.args().size() == 1) {
