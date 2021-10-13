@@ -30,7 +30,9 @@ namespace py = pybind11;
 
 static int default_hardware_id = 0;  // CPU
 static bool cuda_available = false;
+
 PYBIND11_MODULE(loop_tool_py, m) {
+  m.def("load_lib", [](std::string lib_name) { loadLibrary(lib_name); });
   m.def("backends", []() {
     std::vector<std::string> backends = {"cpu"};
     for (const auto &hw : getHardware()) {

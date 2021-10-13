@@ -82,6 +82,7 @@ if (pybind11_FOUND)
   if (CUDAToolkit_FOUND)
     target_compile_definitions(loop_tool_py PUBLIC ENABLE_CUDA)
     target_link_libraries(loop_tool_py PUBLIC
+     -rdynamic
       ${WHOLE_ARCHIVE_START}
       loop_tool_cuda
       loop_tool
@@ -89,6 +90,7 @@ if (pybind11_FOUND)
     )
   else()
 	  target_link_libraries(loop_tool_py PUBLIC
+     -rdynamic
       ${WHOLE_ARCHIVE_START}
       loop_tool
       ${WHOLE_ARCHIVE_END}
