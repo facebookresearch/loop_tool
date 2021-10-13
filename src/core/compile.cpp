@@ -820,8 +820,8 @@ compile(const LoopTree &lt,
   auto memory_fn = gen_mem(lt, aux, -1);
 
   auto fn = [=](const std::vector<void *> &memory) {
-    // TODO
-    // memory_fn(memory);
+    // TODO this is slow
+    memory_fn(memory);
     for (const auto &fn : fns) {
       int indices[MAX_DEPTH] = {0};
       int tails[MAX_DEPTH] = {0};
