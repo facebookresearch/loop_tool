@@ -167,20 +167,20 @@ class IR {
   std::vector<NodeRef> nodes() const;
 
   inline const Node &node(NodeRef ref) const {
-    ASSERT(ref < nodes_.size());
+    ASSERT(ref < nodes_.size()) << "node ref '" << ref << "' not valid";
     return nodes_[ref];
   }
   inline Node &node(NodeRef ref) {
-    ASSERT(ref < nodes_.size());
+    ASSERT(ref < nodes_.size()) << "node ref '" << ref << "' not valid";
     return nodes_[ref];
   }
 
   inline const Var &var(VarRef ref) const {
-    ASSERT(ref < vars_.size());
+    ASSERT(ref < vars_.size()) << "var ref '" << ref << "' not valid";
     return vars_[ref];
   }
   inline Var &var(VarRef ref) {
-    ASSERT(ref < vars_.size());
+    ASSERT(ref < vars_.size()) << "var ref '" << ref << "' not valid";
     return vars_[ref];
   }
 

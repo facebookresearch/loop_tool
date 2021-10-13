@@ -13,7 +13,7 @@ LICENSE file in the root directory of this source tree.
 #include "backend.h"
 #include "ir.h"
 
-#define MAX_DEPTH 16
+#define MAX_DEPTH 8
 
 namespace loop_tool {
 
@@ -71,6 +71,7 @@ bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
 
 struct CPUBackend : public Backend {
   CPUBackend() : Backend("cpu") {}
+  ~CPUBackend() {}
   CPUBackend(std::string name, GenFnType callback_)
       : Backend(name), callback(callback_) {}
 

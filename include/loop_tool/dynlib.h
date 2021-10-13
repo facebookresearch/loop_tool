@@ -10,13 +10,16 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 struct DynamicLibrary {
-  DynamicLibrary(const char* name) : name_(name) {
-    lib_ = dlopen(name, RTLD_LOCAL | RTLD_NOW);
-    ASSERT(lib_) << "Couldn't load library " << name_;
+  DynamicLibrary(const char* name, bool expose_symbols = false) : name_(name) {
+    int symbol_flag = expose_symbols ? RTLD_GLOBAL : RTLD_LOCAL;
+    lib_ = dlopen(name, symbol_flag | RTLD_NOW);
+    ASSERT(lib_) << "Couldn't load library " << name_
+                 << " dlerror: " << dlerror();
   }
 
-  static bool exists(const char* name) {
-    return !!dlopen(name, RTLD_LOCAL | RTLD_NOW);
+  static bool exists(const char* name, bool expose_symbols = false) {
+    int symbol_flag = expose_symbols ? RTLD_GLOBAL : RTLD_LOCAL;
+    return !!dlopen(name, symbol_flag | RTLD_NOW);
   }
 
   inline void* sym(const char* sym_name) const {

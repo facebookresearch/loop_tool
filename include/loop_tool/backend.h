@@ -55,6 +55,7 @@ struct Backend {
       const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
       LoopTree::TreeRef root) = 0;
   virtual int hardware_requirement() const = 0;
+
   std::unique_ptr<Compiled> compile(
       const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
       LoopTree::TreeRef root) {
@@ -76,5 +77,7 @@ struct RegisterBackend {
     registerBackend(backend);
   }
 };
+
+void loadLibrary(std::string lib_name);
 
 }  // namespace loop_tool

@@ -750,7 +750,10 @@ void update_inner_size(
     auto s = var_sizes[loop.var];
     auto old_size = s.first + s.second;
     if (inner_size.count(loop_ref)) {
-      ASSERT(inner_size[loop_ref] == old_size);
+      ASSERT(inner_size[loop_ref] == old_size)
+          << "found inner size " << inner_size[loop_ref] << " but expected "
+          << old_size << "\n"
+          << lt.dump();
     } else {
       inner_size[loop_ref] = old_size;
     }
@@ -817,7 +820,8 @@ compile(const LoopTree &lt,
   auto memory_fn = gen_mem(lt, aux, -1);
 
   auto fn = [=](const std::vector<void *> &memory) {
-    memory_fn(memory);
+    // TODO
+    // memory_fn(memory);
     for (const auto &fn : fns) {
       int indices[MAX_DEPTH] = {0};
       int tails[MAX_DEPTH] = {0};

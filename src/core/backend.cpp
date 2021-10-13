@@ -9,7 +9,10 @@ LICENSE file in the root directory of this source tree.
 #include <mutex>
 #include <unordered_map>
 
+#include "loop_tool/dynlib.h"
+
 static std::mutex registration_mutex_;
+static std::vector<loop_tool::DynamicLibrary> loaded_libs;
 
 namespace loop_tool {
 
@@ -45,6 +48,10 @@ std::shared_ptr<Backend> &getDefaultBackend() {
 void setDefaultBackend(std::string backend) {
   ASSERT(getBackends().count(backend)) << "couldn't find backend " << backend;
   getDefaultBackend() = getBackends().at(backend);
+}
+
+void loadLibrary(std::string lib_name) {
+  loaded_libs.emplace_back(lib_name.c_str(), true);
 }
 
 }  // namespace loop_tool
