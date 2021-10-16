@@ -83,3 +83,44 @@ TEST(SymbolicDerivative) {
     ASSERT(d == N * (lz::Expr(2) + K) + lz::Expr(1)) << "found " << d.dump();
   }
 }
+
+TEST(SymbolicPaddedConv) {
+  namespace lz = loop_tool::lazy;
+  auto xi = lz::Symbol("xi");
+  auto xp = lz::Symbol("xp");
+  auto xo = lz::Symbol("xo");
+  auto k = lz::Symbol("k");
+  std::vector<lz::Constraint> constraints = {
+      {xi + lz::Expr(k) / lz::Expr(2), xp},  // pad left
+      {lz::Expr::size(xp),
+       lz::Expr::size(xi) + lz::Expr::size(k) / lz::Expr(2)},  // pad right
+      {xp, xo + k},                                            // conv
+      {lz::Expr::size(xo), lz::Expr(100)},
+      {lz::Expr::size(k), lz::Expr(3)},
+      //{lz::Expr::size(xp), lz::Expr(102)},
+      {lz::Expr::size(xi), lz::Expr(100)}};
+  auto out = unify(constraints);
+}
+
+TEST(SymbolicConcat) {
+  namespace lz = loop_tool::lazy;
+  auto k = lz::Symbol("k");
+  auto j = lz::Symbol("j");
+  auto kj = lz::Symbol("kj");
+  std::vector<lz::Constraint> constraints = {
+      {kj, k},
+      {kj, j + lz::Expr::size(k)},
+      {lz::Expr::size(k), lz::Expr(10)},
+      {lz::Expr::size(j), lz::Expr(7)},
+  };
+  auto out = unify(constraints);
+  for (auto& p : out) {
+    if (p.first == lz::Expr::size(kj)) {
+      ASSERT(p.second == lz::Expr(17))
+          << "found kj size to be " << p.second.dump();
+    }
+    std::cerr << p.first.dump() << ": " << p.second.dump() << "\n";
+  }
+}
+
+TEST(SymbolicCanonicalization) {}

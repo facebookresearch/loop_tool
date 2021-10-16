@@ -9,6 +9,7 @@ LICENSE file in the root directory of this source tree.
 #include <algorithm>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "loop_tool/error.h"
 
@@ -37,13 +38,17 @@ Expr Symbol::operator*(const Symbol& rhs) const {
 Expr Symbol::operator+(const Expr& rhs) const { return Expr(*this) + rhs; }
 Expr Symbol::operator*(const Expr& rhs) const { return Expr(*this) * rhs; }
 
-size_t Expr::hash() const {
+size_t Expr::hash(bool symbol_sensitive) const {
   size_t h = symbolic::hash((int)op_);
   if (type_ == Type::value) {
     h = symbolic::hash(h ^ symbolic::hash(val_));
   } else if (type_ == Type::symbol) {
-    // for exprs, we pretend all symbols are the same
-    h = symbolic::hash(h ^ symbolic::hash(1337));
+    // for exprs, we usually pretend all symbols are the same
+    if (symbol_sensitive) {
+      h = symbolic::hash(h ^ symbol().hash());
+    } else {
+      h = symbolic::hash(h ^ symbolic::hash(1337));
+    }
   }
   for (const auto& expr : exprs_) {
     h = symbolic::hash(h ^ expr.hash());
@@ -75,6 +80,27 @@ const std::vector<Expr>& Expr::args() const {
 
 Expr::Type Expr::type() const { return type_; }
 
+Expr Expr::replace(Symbol A, Expr e) const {
+  switch (type()) {
+    case Expr::Type::symbol:
+      if (symbol() == A) {
+        return e;
+      }
+      return symbol();
+    case Expr::Type::value:
+      return *this;
+    case Expr::Type::function: {
+      std::vector<Expr> new_args;
+      for (const auto& arg : args()) {
+        new_args.emplace_back(arg.replace(A, e));
+      }
+      return Expr(op(), new_args);
+    }
+    default:
+      ASSERT(0) << "couldn't process replacement!";
+      return e;
+  }
+}
 Expr Expr::replace(Symbol A, Symbol B) const {
   switch (type()) {
     case Expr::Type::symbol:
@@ -88,6 +114,27 @@ Expr Expr::replace(Symbol A, Symbol B) const {
       std::vector<Expr> new_args;
       for (const auto& arg : args()) {
         new_args.emplace_back(arg.replace(A, B));
+      }
+      return Expr(op(), new_args);
+    }
+    default:
+      ASSERT(0) << "couldn't process replacement!";
+      return B;
+  }
+}
+
+Expr Expr::replace(const Expr& e, Symbol B) const {
+  if (*this == e) {
+    return B;
+  }
+  switch (type()) {
+    case Expr::Type::symbol:
+    case Expr::Type::value:
+      return *this;
+    case Expr::Type::function: {
+      std::vector<Expr> new_args;
+      for (const auto& arg : args()) {
+        new_args.emplace_back(arg.replace(e, B));
       }
       return Expr(op(), new_args);
     }
@@ -119,22 +166,22 @@ Expr Expr::replace(Symbol A, int64_t c) const {
   }
 }
 
-bool Expr::contains(Symbol s) const {
+size_t Expr::contains(Symbol s) const {
   switch (type()) {
     case Expr::Type::symbol:
       if (symbol() == s) {
-        return true;
+        return 1;
       }
-      return false;
+      return 0;
     case Expr::Type::function: {
-      bool contained = false;
+      size_t count = 0;
       for (const auto& arg : args()) {
-        contained |= arg.contains(s);
+        count += arg.contains(s);
       }
-      return contained;
+      return count;
     }
     default:
-      return false;
+      return 0;
   }
 }
 
@@ -151,55 +198,125 @@ Expr Expr::walk(std::function<Expr(const Expr&)> f) const {
 
 Expr Expr::size(const Expr& expr) {
   ASSERT(expr.type() == Expr::Type::symbol) << "size() only works on symbols";
-  return Expr(Op::size, {expr});
+  return Expr(Op::size, {expr}).simplify();
+}
+
+Expr Expr::max(const Expr& lhs, const Expr& rhs) {
+  return Expr(Op::max, {lhs, rhs}).simplify();
+}
+
+Expr Expr::simplify() const {
+  if (type() != Expr::Type::function) {
+    return *this;
+  }
+  auto sorted_args = args();
+  for (auto& arg : sorted_args) {
+    arg = arg.simplify();
+  }
+  std::sort(
+      sorted_args.begin(), sorted_args.end(),
+      [](const Expr& a, const Expr& b) { return a.hash(true) > b.hash(true); });
+  switch (op()) {
+    case Op::add: {
+      auto lhs = sorted_args.at(0);
+      auto rhs = sorted_args.at(1);
+      if (lhs.type() == Expr::Type::value) {
+        if (rhs.type() == Expr::Type::value) {
+          return Expr(lhs.value() + rhs.value());
+        }
+        if (lhs.value() == 0) {
+          return rhs;
+        }
+      }
+      if (rhs.type() == Expr::Type::value) {
+        if (rhs.value() == 0) {
+          return lhs;
+        }
+      }
+      return Expr(op(), sorted_args);
+    }
+    case Op::multiply: {
+      auto lhs = sorted_args.at(0);
+      auto rhs = sorted_args.at(1);
+      if (lhs.type() == Expr::Type::value) {
+        if (rhs.type() == Expr::Type::value) {
+          return Expr(lhs.value() * rhs.value());
+        }
+        if (lhs.value() == 1) {
+          return rhs;
+        }
+        if (lhs.value() == 0) {
+          return Expr(0);
+        }
+      }
+      if (rhs.type() == Expr::Type::value) {
+        if (rhs.value() == 0) {
+          return Expr(0);
+        }
+        if (rhs.value() == 1) {
+          return lhs;
+        }
+      }
+      return Expr(op(), sorted_args);
+    }
+    case Op::divide: {
+      auto lhs = sorted_args.at(0);
+      auto rhs = sorted_args.at(1);
+      if (lhs.type() == Expr::Type::value) {
+        if (rhs.type() == Expr::Type::value) {
+          if (lhs.value() % rhs.value() == 0) {
+            return Expr(lhs.value() / rhs.value());
+          }
+        }
+      }
+      if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
+        return lhs;
+      }
+      return Expr(op(), sorted_args);
+    }
+    case Op::max: {
+      auto lhs = sorted_args.at(0);
+      auto rhs = sorted_args.at(1);
+      if (lhs.type() == Expr::Type::value) {
+        if (rhs.type() == Expr::Type::value) {
+          return Expr(std::max(lhs.value(), rhs.value()));
+        }
+        if (lhs.value() == std::numeric_limits<decltype(lhs.value())>::min()) {
+          return rhs;
+        }
+      }
+      if (lhs == rhs) {
+        return lhs;
+      }
+      return Expr(op(), sorted_args);
+    }
+    case Op::negate: {
+      const auto& arg = sorted_args.at(0);
+      if (arg.type() == Expr::Type::value) {
+        return Expr(-arg.value());
+      }
+      if (arg.type() == Expr::Type::function && arg.op() == Op::negate) {
+        return arg.args().at(0).simplify();
+      }
+      return Expr(op(), sorted_args);
+    }
+    default: {
+      return Expr(op(), sorted_args);
+    }
+  };
+  ASSERT(0);
+  return *this;
 }
 
 Expr Expr::operator+(const Expr& rhs) const {
-  if (type() == Expr::Type::value) {
-    if (rhs.type() == Expr::Type::value) {
-      return Expr(value() + rhs.value());
-    }
-    if (value() == 0) {
-      return rhs;
-    }
-  }
-  if (rhs.type() == Expr::Type::value) {
-    if (rhs.value() == 0) {
-      return *this;
-    }
-  }
-  return Expr(Op::add, {*this, rhs});
+  return Expr(Op::add, {*this, rhs}).simplify();
 }
 
 Expr Expr::operator*(const Expr& rhs) const {
-  if (type() == Expr::Type::value) {
-    if (rhs.type() == Expr::Type::value) {
-      return Expr(value() * rhs.value());
-    }
-    if (value() == 1) {
-      return rhs;
-    }
-    if (value() == 0) {
-      return Expr(0);
-    }
-  }
-  if (rhs.type() == Expr::Type::value) {
-    if (rhs.value() == 0) {
-      return Expr(0);
-    }
-    if (rhs.value() == 1) {
-      return *this;
-    }
-  }
-  return Expr(Op::multiply, {*this, rhs});
+  return Expr(Op::multiply, {*this, rhs}).simplify();
 }
 
-Expr Expr::operator-() const {
-  if (type() == Expr::Type::value) {
-    return Expr(-value());
-  }
-  return Expr(Op::negate, {*this});
-}
+Expr Expr::operator-() const { return Expr(Op::negate, {*this}).simplify(); }
 
 Expr Expr::operator-(const Expr& rhs) const { return *this + (-rhs); }
 
@@ -211,12 +328,7 @@ Expr Expr::reciprocal() const {
 }
 
 Expr Expr::operator/(const Expr& rhs) const {
-  if (type() == Expr::Type::value) {
-    if (rhs.type() == Expr::Type::value) {
-      return Expr(value() / rhs.value());
-    }
-  }
-  return Expr(Op::divide, {*this, rhs});
+  return Expr(Op::divide, {*this, rhs}).simplify();
 }
 
 bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
@@ -258,6 +370,9 @@ std::string Expr::dump() const {
   } else if (op_ == Op::size) {
     ASSERT(args().size() == 1);
     ss << "|" << args().at(0).dump() << "|";
+  } else if (op_ == Op::max) {
+    ASSERT(args().size() == 2);
+    ss << "max(" << args().at(0).dump() << ", " << args().at(1).dump() << ")";
   } else if (op_ == Op::negate) {
     ASSERT(args().size() == 1);
     ss << "-" << args().at(0).dump();
@@ -281,7 +396,7 @@ std::string Expr::dump() const {
     } else if (op_ == Op::divide) {
       ss << "/";
     } else {
-      ASSERT(0) << "can't print this op";
+      ASSERT(0) << "can't print this op id " << (int)op_;
     }
 
     if (rhs.op() == Op::constant || rhs.args().size() == 1) {
@@ -302,13 +417,44 @@ size_t Expr::size() const {
   return s;
 }
 
-// isolate(x)
-// y = A * x
-// -> A * x = y
-// -> x = y / A
-//
-// C + x = y
-// -> x = y - C
+bool can_isolate(const Expr& e, const Symbol& sym) {
+  if (e.type() != Expr::Type::function) {
+    return true;
+  }
+  if (!e.contains(sym)) {
+    return true;
+  }
+  switch (e.op()) {
+    case Op::add:
+    case Op::multiply:
+    case Op::negate:
+    case Op::reciprocal:
+    case Op::divide: {
+      bool res = true;
+      for (const auto& arg : e.args()) {
+        res &= can_isolate(arg, sym);
+      }
+      return res;
+    }
+    default:
+      break;
+  }
+  return false;
+}
+
+bool can_isolate(const Constraint& c, const Symbol& sym) {
+  const auto& lhs = c.first;
+  const auto& rhs = c.second;
+  if (lhs.contains(sym) + rhs.contains(sym) > 1) {
+    return false;
+  }
+  return can_isolate(lhs, sym) && can_isolate(rhs, sym);
+}
+
+// take a constraint and move everything besides the sym
+// to the rhs
+// TODO This is extremely primitive right now!
+// Any contribution of testing/impl would be highly appreciated :)
 Constraint isolate(const Constraint& c, const Symbol& sym) {
   const auto& lhs = c.first;
   const auto& rhs = c.second;
@@ -317,12 +463,15 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
   }
   ASSERT(lhs.contains(sym) && !rhs.contains(sym))
       << "cannot isolate with variable on both rhs and lhs of constraint yet: "
-      << lhs.dump() << " = " << rhs.dump();
+      << lhs.dump() << " = " << rhs.dump() << " for sym " << Expr(sym).dump();
   if (lhs == Expr(sym)) {
     return std::make_pair(lhs, rhs);
   }
 
   if (lhs.type() == Expr::Type::function) {
+    ASSERT(can_isolate(lhs, sym))
+        << "cannot isolate through " << lhs.dump()
+        << ", you may need to update the can_isolate function";
     switch (lhs.op()) {
       case Op::add: {
         auto llhs = lhs.args().at(0);
@@ -340,6 +489,14 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
         }
         return isolate(std::make_pair(lrhs, rhs / llhs), sym);
       }
+      case Op::divide: {
+        auto llhs = lhs.args().at(0);
+        auto lrhs = lhs.args().at(1);
+        if (llhs.contains(sym)) {
+          return isolate(std::make_pair(llhs, rhs * lrhs), sym);
+        }
+        return isolate(std::make_pair(lrhs, rhs * llhs), sym);
+      }
       case Op::negate:
         return isolate(std::make_pair(lhs.args().at(0), -rhs), sym);
       case Op::reciprocal:
@@ -353,204 +510,224 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
   return std::make_pair(Expr(0), Expr(0));
 }
 
-// TODO: AC unification algorithm i.e. Expr = Expr constraints with
-// associativity/commutativity
+// Hand crafted "constraint solver" that attempts to maximally
+// derive knowledge of |symbol| expressions (Expr::size).
+// size(sym) = max(all index constraints) || user provided value
+// TODO improve robustness
+// Any contribution of testing/impl would be highly appreciated :)
 std::vector<Constraint> unify(std::vector<Constraint> constraints) {
-  std::unordered_map<int, Symbol> all_symbols;
+  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
+      index_constraints;
+  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
+      size_constraints;
+  // replace size with symbolic placeholder
+  std::unordered_map<Symbol, Symbol, Hash<Symbol>> size_sym_map;
 
-  auto is_simple_size_expr = [&](const Expr& expr) {
-    return (expr.op() == Op::size) && (expr.args().size() == 1) &&
-           (expr.args().at(0).type() == Expr::Type::symbol);
-  };
-
-  // purely a sanity check
-  for (const auto& constraint : constraints) {
-    const auto& expr = constraint.first;
-    ASSERT(expr.type() == Expr::Type::symbol || is_simple_size_expr(expr))
-        << "cannot unify constraint " << expr.dump() << " = "
-        << constraint.second.dump();
-    auto symbol = [&]() {
-      if (is_simple_size_expr(expr)) {
-        return expr.args().at(0).symbol();
-      }
-      return expr.symbol();
-    }();
-    all_symbols.emplace(symbol.id(), symbol);
-  }
-
-  std::function<Expr(Expr)> eval_expr;
-  // Symbol.id() -> value
-  std::unordered_map<int, Expr> replacements;
-  std::unordered_map<int, Expr> size_replacements;
-
-  auto pass = [&]() -> bool {
-    bool updated = false;
-    for (auto& p : constraints) {
-      auto old = p.second;
-      p.second = eval_expr(old);
-      if (p.first.type() == Expr::Type::symbol &&
-          p.second.contains(p.first.symbol())) {
-        p.second = old;
-      }
-      // we've proven an identity, no need to process it
-      if (p.first == p.second) {
-        continue;
-      }
-      // same logic for either updating Symbol or size(Symbol)
-      auto update_replacements = [&](const Symbol& sym,
-                                     std::unordered_map<int, Expr>& reps) {
-        int id = sym.id();
-        if (!reps.count(id)) {
-          reps.emplace(id, p.second);
-          updated = true;
-        } else if (reps.at(id) != p.second &&
-                   (reps.at(id).size() > p.second.size()) &&
-                   !p.second.contains(sym)) {
-          auto old = reps.at(id);
-          ASSERT(old != p.second);
-          ASSERT(old.type() != Expr::Type::value)
-              << "mismatched values for " << p.first.dump() << ": "
-              << old.dump() << " vs " << p.second.dump();
-          reps.at(id) = p.second;
-          updated = true;
-        }
-      };
-
-      if (p.first.type() == Expr::Type::symbol) {
-        if (p.second.contains(p.first.symbol())) {
-          continue;
-        }
-        update_replacements(p.first.symbol(), replacements);
-      } else {
-        ASSERT(is_simple_size_expr(p.first));
-        update_replacements(p.first.args().at(0).symbol(), size_replacements);
-      }
-    }
-    return updated;
-  };
-
-  eval_expr = [&](Expr e) -> Expr {
-    if (e.type() == Expr::Type::value) {
-      return e;
-    } else if (e.type() == Expr::Type::symbol) {
-      auto id = e.symbol().id();
-      if (replacements.count(id)) {
-        return replacements.at(id);
-      }
-      return e;
-    } else if (is_simple_size_expr(e)) {
-      auto id = e.args().at(0).symbol().id();
-      if (size_replacements.count(id)) {
-        return size_replacements.at(id);
-      }
-      return e;
-    }
-    ASSERT(e.type() == Expr::Type::function);
-    if (e.args().size() == 2) {
-      auto lhs = eval_expr(e.args().at(0));
-      auto rhs = eval_expr(e.args().at(1));
-      if (e.op() == Op::add) {
-        return lhs + rhs;
-      } else if (e.op() == Op::multiply) {
-        return lhs * rhs;
-      } else if (e.op() == Op::divide) {
-        return lhs / rhs;
-      }
-      ASSERT(0) << "unknown expression op";
-    } else if (e.args().size() == 1) {
-      if (e.op() == Op::negate) {
-        return -eval_expr(e.args().at(0));
-      } else if (e.op() == Op::reciprocal) {
-        return eval_expr(e.args().at(0)).reciprocal();
-      }
-    }
-    ASSERT(0) << "unknown expression op";
-    return e;
-  };
-
-  while (pass())
-    ;
-
-  // For unsized symbols (i.e. size(Symbol) = ?),
-  // we can use the indexing equations to resolve them.
-  // Solve for the last element in the iteration:
-  //  |X| - 1 = expr() // all symbols replace with size(Symbol) - 1
-  // and then we have the size
-  //  |X| = expr() + 1
-  //
-  // e.g. convolving
-  //  X = Y + K
-  //  |K| = 3
-  //  |Y| = 12
-  //  |X| - 1 = 11 + 2
-  //  |X| = 13
-  // e.g. flattening
-  //  X = A * |B| + B
-  //  |B| = 8
-  //  |A| = 8
-  //  |X| - 1 = 7 * 8 + 7
-  //  |X| = 64
-  auto derive_size_function = [&](const Symbol& s) {
-    ASSERT(replacements.count(s.id()))
-        << "couldn't derive size function for symbol " << s.name();
-    auto expr = replacements.at(s.id());
-
-    // Find symbol make up
-    std::vector<Symbol> composed_symbols;
+  auto get_all_syms = [](const Expr& expr) {
+    std::vector<Symbol> syms;
     expr.walk([&](const Expr& e) {
       if (e.type() == Expr::Type::symbol) {
-        composed_symbols.emplace_back(e.symbol());
-        ASSERT(s != e.symbol()) << "impossible constraint found: " << e.dump()
-                                << " = " << expr.dump();
+        syms.emplace_back(e.symbol());
       }
       return e;
     });
-
-    for (const auto& cs : composed_symbols) {
-      if (!size_replacements.count(cs.id())) {
-        return false;
-      }
-
-      auto size_expr = size_replacements.at(cs.id());
-      if (size_expr.type() != Expr::Type::value) {
-        return false;
-      }
-      expr = expr.replace(cs, size_expr.value() - 1);
-    }
-
-    auto size_expr = eval_expr(expr + Expr(1));
-    size_replacements.emplace(s.id(), size_expr);
-    return true;
+    return syms;
   };
 
-  auto size_pass = [&]() {
-    auto updated = false;
-    for (const auto& p : constraints) {
-      if (p.first.type() == Expr::Type::symbol) {
-        auto symbol = p.first.symbol();
-        if (!size_replacements.count(symbol.id())) {
-          updated |= derive_size_function(symbol);
-        }
+  // collect all indexing and size constraints and create a size(sym)->sym map
+  for (const auto& c : constraints) {
+    auto lhs_syms = get_all_syms(c.first);
+    auto rhs_syms = get_all_syms(c.second);
+    std::unordered_set<Symbol, Hash<Symbol>> syms;
+    for (auto& sym : lhs_syms) {
+      syms.insert(sym);
+    }
+    for (auto& sym : rhs_syms) {
+      syms.insert(sym);
+    }
+
+    for (const auto& sym : syms) {
+      if (can_isolate(c, sym)) {
+        const auto& expr = isolate(c, sym).second;
+        index_constraints[sym].insert(expr);
       }
     }
-    return updated;
-  };
 
-  while (size_pass())
-    ;
-
-  std::vector<Constraint> out;
-  for (const auto& p : all_symbols) {
-    auto symbol = p.second;
-    auto symbolic_expr = eval_expr(symbol);
-    // no need to include identities
-    if (Expr(symbol) != symbolic_expr) {
-      out.emplace_back(std::make_pair(symbol, symbolic_expr));
+    for (const auto& sym : syms) {
+      if (!size_sym_map.count(sym)) {
+        size_sym_map[sym] = Symbol(sym.name() + "_size");
+      }
     }
-    out.emplace_back(
-        std::make_pair(Expr::size(symbol), eval_expr(Expr::size(symbol))));
+    if (c.first.type() == Expr::Type::function && c.first.op() == Op::size) {
+      size_constraints[c.first.args().at(0).symbol()].insert(c.second);
+    }
   }
-  return out;
+
+  auto update_size_to_sym = [&](const Expr& expr) {
+    auto new_expr = expr;
+    for (auto& s : size_sym_map) {
+      new_expr = new_expr.replace(Expr::size(s.first), s.second);
+    }
+    return new_expr;
+  };
+
+  for (auto& p : index_constraints) {
+    auto orig_exprs = p.second;
+    p.second.clear();
+    for (auto& expr : orig_exprs) {
+      index_constraints[p.first].insert(update_size_to_sym(expr));
+    }
+  }
+  for (auto& p : size_constraints) {
+    auto orig_exprs = p.second;
+    p.second.clear();
+    for (auto& expr : orig_exprs) {
+      size_constraints[p.first].insert(update_size_to_sym(expr));
+    }
+  }
+
+  // constraints with swapped exprs for size(sym) -> sym_size
+  std::vector<Constraint> size_sym_constraints;
+
+  for (auto& c : constraints) {
+    auto lhs = c.first;
+    auto rhs = c.second;
+    for (auto& p : size_sym_map) {
+      auto size_expr = Expr::size(p.first);
+      lhs = lhs.replace(size_expr, p.second);
+      rhs = rhs.replace(size_expr, p.second);
+    }
+    size_sym_constraints.emplace_back(lhs, rhs);
+  }
+
+  for (const auto& sym_iter : index_constraints) {
+    const auto& sym = sym_iter.first;
+    auto size_sym = size_sym_map.at(sym);
+    for (const auto& c : size_sym_constraints) {
+      auto lhs = c.first;
+      auto rhs = c.second;
+      // check if this constraint has a size expr
+      if (!lhs.contains(size_sym) && !rhs.contains(size_sym)) {
+        continue;
+      }
+      // can't isolate this constraint
+      if (lhs.contains(size_sym) && rhs.contains(size_sym)) {
+        continue;
+      }
+      auto new_c = isolate(Constraint(lhs, rhs), size_sym);
+      size_constraints[sym].insert(new_c.second);
+    }
+    // derived sized functions
+    // x = y + k -->
+    //  |x| - 1 = |y| - 1 + |k| - 1
+    //  |x| = |y| - 1 + |k| - 1 + 1
+    for (const auto& expr : index_constraints.at(sym)) {
+      auto size_expr = expr.walk([&](const Expr& e) {
+        if (e.type() == Expr::Type::symbol) {
+          if (size_sym_map.count(e.symbol())) {
+            return Expr(size_sym_map.at(e.symbol())) - Expr(1);
+          } else {
+            // we've got an already swapped out sym_size
+          }
+        }
+        return e;
+      });
+      size_constraints[sym].insert(size_expr + Expr(1));
+    }
+  }
+
+  // now find any "value" constraints, these are user specified
+  for (auto& p : size_constraints) {
+    bool value_set = false;
+    auto sym = p.first;
+    auto size_exprs = p.second;
+    for (auto& e : size_exprs) {
+      if (e.type() == Expr::Type::value) {
+        size_constraints[sym].clear();
+        size_constraints[sym].insert(e);
+        ASSERT(!value_set) << "size of " << sym.name()
+                           << " set multiple times to different values";
+        value_set = true;
+      }
+    }
+  }
+
+  auto sized = [&](Symbol sym) {
+    const auto& exprs = size_constraints.at(sym);
+    if (exprs.size() != 1) {
+      return false;
+    }
+    const auto& expr = *exprs.begin();
+    if (expr.type() == Expr::Type::value) {
+      return true;
+    }
+    return false;
+  };
+
+  auto sized_syms = [&]() {
+    std::vector<std::pair<Symbol, Expr>> sizes;
+    for (auto& s : size_constraints) {
+      auto sym = s.first;
+      if (sized(sym)) {
+        auto expr = *size_constraints.at(sym).begin();
+        sizes.emplace_back(sym, expr.simplify());
+      }
+    }
+    return sizes;
+  };
+
+  auto simply_all_sizes = [&]() {
+    for (auto& p : size_constraints) {
+      auto exprs = p.second;
+      p.second.clear();
+      for (const auto& expr_ : exprs) {
+        auto expr = expr_;
+        for (auto& s : sized_syms()) {
+          expr = expr.replace(size_sym_map.at(s.first), s.second);
+        }
+        p.second.insert(expr.simplify());
+      }
+    }
+  };
+
+  for (auto i = 0; i < 3; ++i) {
+    simply_all_sizes();
+  }
+
+  std::vector<std::pair<Expr, Expr>> output_constraints;
+  for (auto& p : size_constraints) {
+    if (p.second.size() == 1) {
+      output_constraints.emplace_back(Expr::size(p.first),
+                                      p.second.begin()->simplify());
+      continue;
+    }
+    auto max_expr = *p.second.begin();
+    for (auto& expr : p.second) {
+      max_expr = Expr::max(max_expr, expr);
+    }
+    output_constraints.emplace_back(Expr::size(p.first), max_expr.simplify());
+  }
+  for (auto& p : index_constraints) {
+    auto sym = p.first;
+    for (auto expr : p.second) {
+      output_constraints.emplace_back(sym, expr.simplify());
+    }
+  }
+
+  // finally remap sym_size back into size(sym)
+  for (auto& p : size_constraints) {
+    auto exprs = p.second;
+    p.second.clear();
+    for (const auto& expr_ : exprs) {
+      auto expr = expr_;
+      for (auto& s : size_sym_map) {
+        expr = expr.replace(s.second, Expr::size(s.first));
+      }
+      p.second.insert(expr);
+    }
+  }
+
+  return output_constraints;
 }
 
 Expr differentiate(Expr e, Symbol sym) {

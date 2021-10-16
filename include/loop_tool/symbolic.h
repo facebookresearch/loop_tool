@@ -21,6 +21,11 @@ inline uint64_t hash(uint64_t x) {
   return x;
 }
 
+template <typename T>
+struct Hash {
+  std::size_t operator()(const T& k) const { return k.hash(); }
+};
+
 enum struct Op {
   // no inputs
   constant = 0,
@@ -28,20 +33,12 @@ enum struct Op {
   negate,
   reciprocal,
   size,
+  max,
   // binary
   add,
   multiply,
   divide
 };
-
-inline int numInputs(const Op& op) {
-  if (op < Op::negate) {
-    return 0;
-  } else if (op < Op::add) {
-    return 1;
-  }
-  return 2;
-}
 
 struct Expr;
 
@@ -77,7 +74,7 @@ struct Expr {
   explicit Expr(Op op, std::vector<Expr> exprs)
       : type_(Type::function), op_(op), exprs_(exprs){};
   Expr() = delete;
-  size_t hash() const;
+  size_t hash(bool symbol_sensitive = false) const;
   int64_t value() const;
   Symbol symbol() const;
   Op op() const;
@@ -86,10 +83,15 @@ struct Expr {
   // returns a new expr
   Expr walk(std::function<Expr(const Expr&)> f) const;
   Expr replace(Symbol A, Symbol B) const;
+  Expr replace(Symbol A, Expr e) const;
+  Expr replace(const Expr& e, Symbol B) const;
   Expr replace(Symbol A, int64_t c) const;
-  bool contains(Symbol s) const;
+  // actually returns count
+  size_t contains(Symbol s) const;
 
   static Expr size(const Expr& expr);
+  static Expr max(const Expr& lhs, const Expr& rhs);
+  Expr simplify() const;
   Expr operator+(const Expr& rhs) const;
   Expr operator*(const Expr& rhs) const;
   Expr operator-(const Expr& rhs) const;
