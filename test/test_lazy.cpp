@@ -314,54 +314,53 @@ TEST(LazyConvStride) {
   ASSERT(Y.data<float>()[3] == 3);
 }
 
-// TEST(LazyConcat1D) {
-//  namespace lz = ::loop_tool::lazy;
-//	lz::Symbol N, M, NM;
-//	lz::Tensor A(N);
-//	lz::Tensor B(M);
-//	auto C = lz::Tensor::from(
-//      {NM}, // output size
-//			NM < size(N), // condition
-//			A, // true tensor
-//			{NM}, // indexing into true
-//			B, // false tensor
-//			{NM - size(N)} // indexing into false
-//			);
-//}
-//
-// TEST(LazyConcat2D) {
-//  namespace lz = ::loop_tool::lazy;
-//	lz::Symbol N, M0, M1, M;
-//	lz::Tensor A(N, M0);
-//	lz::Tensor B(N, M1);
-//	auto C = lz::Tensor::from(
-//      {N, M}, // output size
-//			M < size(M0), // condition
-//			A, // true tensor
-//			{N, M}, // indexing into true
-//			B, // false tensor
-//			{N, M - size(M0)} // indexing into false
-//			);
-//}
-//
-// TEST(LazyPaddedConv) {
-//  namespace lz = ::loop_tool::lazy;
-//	lz::Symbol N, Np, K;
-//	lz::Tensor X(N);
-//	lz::Tensor W(K);
-//  auto paddedX = lz::Tensor::from(
-//	 		{Np},
-//      (Np < (lz::size(K) / 2)) || (Np > lz::size(N) + (lz::size(K) / 2)),
-//      lz::Zero, // special zero
-//      {0},
-//      X,
-//      {Np}
-//			);
-//
-//  // implicit constraint -> Np = size(N) + size(K) - 1
-//  auto expandedX = paddedX.to(N + K);
-//  ASSERT(expandedX.shape().size() == 2);
-//  ASSERT(expandedX.shape().at(0) == N);
-//  ASSERT(expandedX.shape().at(1) == K);
-//  auto Y = (expandedX * W).sum(K);
-//}
+TEST(LazyConcat1D) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N("N"), M("M"), NM("NM");
+  lz::Tensor A(N);
+  lz::Tensor B(M);
+  A.bind(nullptr, {8});
+  B.bind(nullptr, {5});
+  A = A.to({NM}, lz::Constraint(NM, N));
+  B = B.to({NM}, lz::Constraint(NM, M + lz::Expr::size(N)));
+  auto C = A + B;
+  std::cerr << "shape:\n";
+  for (auto s : C.shape()) {
+    std::cerr << s.name() << "\n";
+  }
+  ASSERT(C.size(0) == 13) << "size is " << C.size(0);
+}
+
+TEST(LazyConcat2D) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N, M0, M1, M;
+  lz::Tensor A(N, M0);
+  lz::Tensor B(N, M1);
+  auto A_ = A.to({N, M}, lz::Constraint(M, M0));
+  auto B_ = B.to({N, M}, lz::Constraint(M, M1 + lz::Expr::size(M0)));
+  auto C = A_ + B_;
+  A.bind(nullptr, {10, 5});
+  B.bind(nullptr, {10, 10});
+  ASSERT(C.shape()[0] == N);
+  ASSERT(C.size(1) == 15);
+}
+
+TEST(LazyPaddedConv) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N("N"), Np("Np"), K("K"), No("No");
+  lz::Tensor X(N);
+  lz::Tensor W(K);
+  auto paddedX =
+      X.to({Np}, lz::Constraint(Np, N + lz::Expr(1)),
+           lz::Constraint(lz::Expr::size(Np), lz::Expr::size(N) + lz::Expr(2)));
+
+  // implicit constraint -> Np = size(N) + size(K) - 1
+  auto expandedX = paddedX.to({No, K}, lz::Constraint(Np, No + K));
+  ASSERT(expandedX.shape().size() == 2);
+  // ASSERT(expandedX.shape().at(0) == N);
+  ASSERT(expandedX.shape().at(1) == K);
+  auto Y = (expandedX * W).sum(K);
+  X.bind(nullptr, {10});
+  W.bind(nullptr, {3});
+  ASSERT(Y.size(0) == 10);
+}

@@ -215,7 +215,12 @@ Expr Expr::simplify() const {
   }
   std::sort(
       sorted_args.begin(), sorted_args.end(),
-      [](const Expr& a, const Expr& b) { return a.hash(true) > b.hash(true); });
+      [](const Expr& a, const Expr& b) { 
+      if (a.op() != b.op()) {
+      return (int)a.op() < (int)b.op();
+      }
+      return a.hash(true) > b.hash(true);
+      });
   switch (op()) {
     case Op::add: {
       auto lhs = sorted_args.at(0);
@@ -298,6 +303,9 @@ Expr Expr::simplify() const {
       if (arg.type() == Expr::Type::function && arg.op() == Op::negate) {
         return arg.args().at(0).simplify();
       }
+      if (arg.type() == Expr::Type::function && arg.op() == Op::add) {
+        return (-arg.args().at(0) - arg.args().at(1)).simplify();
+      }
       return Expr(op(), sorted_args);
     }
     default: {
@@ -375,7 +383,13 @@ std::string Expr::dump() const {
     ss << "max(" << args().at(0).dump() << ", " << args().at(1).dump() << ")";
   } else if (op_ == Op::negate) {
     ASSERT(args().size() == 1);
-    ss << "-" << args().at(0).dump();
+    auto arg = args().at(0);
+    ss << "-";
+    if (arg.type() == Expr::Type::function) {
+      ss<< "(" << args().at(0).dump() << ")";
+    } else {
+      ss<< args().at(0).dump();
+    }
   } else if (op_ == Op::reciprocal) {
     ASSERT(args().size() == 1);
     ss << args().at(0).dump() << "^-1";
@@ -445,7 +459,7 @@ bool can_isolate(const Expr& e, const Symbol& sym) {
 bool can_isolate(const Constraint& c, const Symbol& sym) {
   const auto& lhs = c.first;
   const auto& rhs = c.second;
-  if (lhs.contains(sym) + rhs.contains(sym) > 1) {
+  if (lhs.contains(sym) + rhs.contains(sym) != 1) {
     return false;
   }
   return can_isolate(lhs, sym) && can_isolate(rhs, sym);
@@ -515,13 +529,10 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
 // size(sym) = max(all index constraints) || user provided value
 // TODO improve robustness
 // Any contribution of testing/impl would be highly appreciated :)
-std::vector<Constraint> unify(std::vector<Constraint> constraints) {
-  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
-      index_constraints;
-  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
-      size_constraints;
-  // replace size with symbolic placeholder
-  std::unordered_map<Symbol, Symbol, Hash<Symbol>> size_sym_map;
+std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
+
+  // 1. Get all symbols
+  std::unordered_set<Symbol, Hash<Symbol>> all_symbols;
 
   auto get_all_syms = [](const Expr& expr) {
     std::vector<Symbol> syms;
@@ -534,62 +545,26 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
     return syms;
   };
 
-  // collect all indexing and size constraints and create a size(sym)->sym map
-  for (const auto& c : constraints) {
-    auto lhs_syms = get_all_syms(c.first);
-    auto rhs_syms = get_all_syms(c.second);
-    std::unordered_set<Symbol, Hash<Symbol>> syms;
-    for (auto& sym : lhs_syms) {
-      syms.insert(sym);
+  for (const auto& c : constraints_) {
+    for (auto& sym : get_all_syms(c.first)) {
+      all_symbols.insert(sym);
     }
-    for (auto& sym : rhs_syms) {
-      syms.insert(sym);
-    }
-
-    for (const auto& sym : syms) {
-      if (can_isolate(c, sym)) {
-        const auto& expr = isolate(c, sym).second;
-        index_constraints[sym].insert(expr);
-      }
-    }
-
-    for (const auto& sym : syms) {
-      if (!size_sym_map.count(sym)) {
-        size_sym_map[sym] = Symbol(sym.name() + "_size");
-      }
-    }
-    if (c.first.type() == Expr::Type::function && c.first.op() == Op::size) {
-      size_constraints[c.first.args().at(0).symbol()].insert(c.second);
+    for (auto& sym : get_all_syms(c.second)) {
+      all_symbols.insert(sym);
     }
   }
 
-  auto update_size_to_sym = [&](const Expr& expr) {
-    auto new_expr = expr;
-    for (auto& s : size_sym_map) {
-      new_expr = new_expr.replace(Expr::size(s.first), s.second);
-    }
-    return new_expr;
-  };
+  // 2. Symbolicate all size expressions (map symbol -> Size(symbol))
+  std::unordered_map<Symbol, Symbol, Hash<Symbol>> size_sym_map;
 
-  for (auto& p : index_constraints) {
-    auto orig_exprs = p.second;
-    p.second.clear();
-    for (auto& expr : orig_exprs) {
-      index_constraints[p.first].insert(update_size_to_sym(expr));
-    }
-  }
-  for (auto& p : size_constraints) {
-    auto orig_exprs = p.second;
-    p.second.clear();
-    for (auto& expr : orig_exprs) {
-      size_constraints[p.first].insert(update_size_to_sym(expr));
-    }
+  for (const auto& sym : all_symbols) {
+    size_sym_map[sym] = Symbol(sym.name() + "_size");
   }
 
-  // constraints with swapped exprs for size(sym) -> sym_size
-  std::vector<Constraint> size_sym_constraints;
+  // 3. Remap size expressions in the constraint list
+  std::vector<Constraint> constraints;
 
-  for (auto& c : constraints) {
+  for (const auto& c : constraints_) {
     auto lhs = c.first;
     auto rhs = c.second;
     for (auto& p : size_sym_map) {
@@ -597,62 +572,40 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
       lhs = lhs.replace(size_expr, p.second);
       rhs = rhs.replace(size_expr, p.second);
     }
-    size_sym_constraints.emplace_back(lhs, rhs);
+    constraints.emplace_back(lhs, rhs);
   }
 
-  for (const auto& sym_iter : index_constraints) {
-    const auto& sym = sym_iter.first;
-    auto size_sym = size_sym_map.at(sym);
-    for (const auto& c : size_sym_constraints) {
-      auto lhs = c.first;
-      auto rhs = c.second;
-      // check if this constraint has a size expr
-      if (!lhs.contains(size_sym) && !rhs.contains(size_sym)) {
+  // 4. Collect size-only constraints (no symbols)
+  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
+      size_constraints;
+
+  for (const auto& c : constraints) {
+    bool size_only = true;
+    for (const auto& sym : all_symbols) {
+      if (c.first.contains(sym) || c.second.contains(sym)) {
+        size_only = false;
+        break;
+      }
+    }
+    if (!size_only) {
+      continue;
+    }
+    for (const auto& p : size_sym_map) {
+      auto sym = p.first;
+      auto size_sym = p.second;
+      if (!can_isolate(c, size_sym)) {
         continue;
       }
-      // can't isolate this constraint
-      if (lhs.contains(size_sym) && rhs.contains(size_sym)) {
-        continue;
-      }
-      auto new_c = isolate(Constraint(lhs, rhs), size_sym);
-      size_constraints[sym].insert(new_c.second);
-    }
-    // derived sized functions
-    // x = y + k -->
-    //  |x| - 1 = |y| - 1 + |k| - 1
-    //  |x| = |y| - 1 + |k| - 1 + 1
-    for (const auto& expr : index_constraints.at(sym)) {
-      auto size_expr = expr.walk([&](const Expr& e) {
-        if (e.type() == Expr::Type::symbol) {
-          if (size_sym_map.count(e.symbol())) {
-            return Expr(size_sym_map.at(e.symbol())) - Expr(1);
-          } else {
-            // we've got an already swapped out sym_size
-          }
-        }
-        return e;
-      });
-      size_constraints[sym].insert(size_expr + Expr(1));
+      const auto& expr = isolate(c, size_sym).second;
+      size_constraints[sym].insert(expr);
     }
   }
 
-  // now find any "value" constraints, these are user specified
-  for (auto& p : size_constraints) {
-    bool value_set = false;
-    auto sym = p.first;
-    auto size_exprs = p.second;
-    for (auto& e : size_exprs) {
-      if (e.type() == Expr::Type::value) {
-        size_constraints[sym].clear();
-        size_constraints[sym].insert(e);
-        ASSERT(!value_set) << "size of " << sym.name()
-                           << " set multiple times to different values";
-        value_set = true;
-      }
-    }
-  }
-
+  // 5. Simplify the size constraints
   auto sized = [&](Symbol sym) {
+    if (!size_constraints.count(sym)) {
+      return false;
+    }
     const auto& exprs = size_constraints.at(sym);
     if (exprs.size() != 1) {
       return false;
@@ -676,7 +629,7 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
     return sizes;
   };
 
-  auto simply_all_sizes = [&]() {
+  auto simplify_all_sizes = [&]() {
     for (auto& p : size_constraints) {
       auto exprs = p.second;
       p.second.clear();
@@ -690,40 +643,104 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints) {
     }
   };
 
+  auto resolve_values = [&]() {
+    for (auto& p : size_constraints) {
+      bool value_set = false;
+      auto sym = p.first;
+      auto size_exprs = p.second;
+      for (auto& e : size_exprs) {
+        if (e.type() == Expr::Type::value) {
+          ASSERT(!value_set) << "size of " << sym.name()
+                             << " set multiple times to different values"
+                             << " (new value: " << e.dump() << " old:"
+                             << " " << size_constraints[sym].begin()->dump() << ")";
+          size_constraints[sym].clear();
+          size_constraints[sym].insert(e);
+          value_set = true;
+        }
+      }
+    }
+  };
+
+
   for (auto i = 0; i < 3; ++i) {
-    simply_all_sizes();
+    simplify_all_sizes();
+    resolve_values();
   }
 
+
+  // 6. Derive all indexing constraints
+  std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
+      index_constraints;
+
+  // collect all indexing and size constraints and create a size(sym)->sym map
+  for (const auto& c : constraints) {
+    for (const auto& sym : all_symbols) {
+      if (can_isolate(c, sym)) {
+        const auto& expr = isolate(c, sym).second;
+        index_constraints[sym].insert(expr);
+      }
+    }
+  }
+
+  // 7. Derive unknown size constraints from index constraints
+  auto derive_size_expressions = [&]() {
+    for (const auto& sym : all_symbols) {
+      if (sized(sym)) {
+        continue;
+      }
+      if (!index_constraints.count(sym)) {
+        continue;
+      }
+      // derived sized functions
+      // x = y + k -->
+      //  |x| - 1 = |y| - 1 + |k| - 1
+      //  |x| = |y| - 1 + |k| - 1 + 1
+      for (const auto& expr : index_constraints.at(sym)) {
+        auto size_expr = expr.walk([&](const Expr& e) {
+          if (e.type() == Expr::Type::symbol && size_sym_map.count(e.symbol())) {
+            return Expr(size_sym_map.at(e.symbol())) - Expr(1);
+          }
+          return e;
+        });
+        size_constraints[sym].insert(size_expr + Expr(1));
+      }
+    }
+  };
+
+  derive_size_expressions();
+  for (auto i = 0; i < 3; ++i) {
+    simplify_all_sizes();
+  }
+
+  // 8. All done, take the maximum if there are multiple size constraints
   std::vector<std::pair<Expr, Expr>> output_constraints;
+
+  auto map_to_size_expr = [&](const Expr& e) {
+    auto expr = e;
+    for (auto& s : size_sym_map) {
+      expr = expr.replace(s.second, Expr::size(s.first));
+    }
+    return expr.simplify();
+  };
+
   for (auto& p : size_constraints) {
     if (p.second.size() == 1) {
       output_constraints.emplace_back(Expr::size(p.first),
-                                      p.second.begin()->simplify());
+                                      map_to_size_expr(*p.second.begin()));
       continue;
     }
     auto max_expr = *p.second.begin();
     for (auto& expr : p.second) {
       max_expr = Expr::max(max_expr, expr);
     }
-    output_constraints.emplace_back(Expr::size(p.first), max_expr.simplify());
+    output_constraints.emplace_back(Expr::size(p.first), map_to_size_expr(max_expr));
   }
+
   for (auto& p : index_constraints) {
     auto sym = p.first;
     for (auto expr : p.second) {
-      output_constraints.emplace_back(sym, expr.simplify());
-    }
-  }
-
-  // finally remap sym_size back into size(sym)
-  for (auto& p : size_constraints) {
-    auto exprs = p.second;
-    p.second.clear();
-    for (const auto& expr_ : exprs) {
-      auto expr = expr_;
-      for (auto& s : size_sym_map) {
-        expr = expr.replace(s.second, Expr::size(s.first));
-      }
-      p.second.insert(expr);
+      output_constraints.emplace_back(sym, map_to_size_expr(expr));
     }
   }
 
