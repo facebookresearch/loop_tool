@@ -266,7 +266,7 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
           auto v = user.var(sym);
           auto stride = differentiate(c.second, sym);
           ASSERT(user_view_vars.count(v) == 0)
-              << "mapping already mapped variable " << lt.ir.var(v).name();
+              << "mapping already mapped variable " << lt.ir.var(v).name() << " (sym: "<< symbolic::Expr(sym).dump()<<")";
           user_view_vars.insert(
               std::make_pair(v, std::make_pair(stride, orig_var)));
           mapped_view_vars[orig_var].emplace_back(v);

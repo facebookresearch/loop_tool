@@ -2,6 +2,7 @@ import loop_tool_py as lt
 import numpy as np
 import time
 
+
 backend = "cpu"
 if "cuda" in lt.backends():
     backend = "cuda"
@@ -30,14 +31,8 @@ assert np.allclose(C.numpy(), C_ref, atol=0.0001, rtol=0.0001)
 
 
 def conv(X, W):
-    Ni = lt.Symbol("Ni")
-    No = lt.Symbol("No")
-    K = lt.Symbol("Kc")
-    # im2col
-    X = X.to(Ni).to(No, K, constraints=[(Ni, No + K)])
-    # just a matmul
-    Y = (X * W.to(K)).sum(K)
-    return Y
+    with lt.SymbolGenerator() as s:
+        return (X[s.No + s.K] * W.to(s.K)).sum(s.K)
 
 
 X = lt.Tensor(128).set(np.random.randn(128))

@@ -739,8 +739,12 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
 
   for (auto& p : index_constraints) {
     auto sym = p.first;
+    std::unordered_set<Expr, Hash<Expr>> mapped_exprs;
     for (auto expr : p.second) {
-      output_constraints.emplace_back(sym, map_to_size_expr(expr));
+      mapped_exprs.insert(map_to_size_expr(expr));
+    }
+    for (auto expr : mapped_exprs) {
+      output_constraints.emplace_back(sym, expr);
     }
   }
 
