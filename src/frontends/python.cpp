@@ -343,7 +343,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         std::unordered_set<lazy::Symbol, symbolic::Hash<lazy::Symbol>> output_syms;
         std::vector<lazy::Constraint> constraints;
         auto i = 0;
-        for (auto& a : args) {
+        for (const auto& a : args) {
           auto expr = py::cast<lazy::Expr>(a);
           expr.walk([&](const lazy::Expr& e) {
             if (e.type() == lazy::Expr::Type::symbol) {
