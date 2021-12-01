@@ -20,6 +20,8 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 using namespace symbolic;
 
+using IdxFn = std::function<int64_t(int indices[MAX_DEPTH])>;
+
 InnerFnType gen_fn(const LoopTree &lt, const Auxiliary &aux,
                    LoopTree::TreeRef ref, const GenFnType &callback);
 
@@ -167,13 +169,13 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
     loop_ref = lt.parent(loop_ref);
   }
 
-  size_t total = 1;
+  int64_t total = 1;
   for (auto &p : var_sizes) {
     total *= (p.second.first + p.second.second);
   }
 
   // now we traverse upward and count the number of instances of this memory
-  size_t thread_multiplier = 1;
+  int64_t thread_multiplier = 1;
   loop_ref = lt.parent(ref);
   while (loop_ref != -1) {
     if (cpu_backend(lt, loop_ref) == 2) {
@@ -205,11 +207,11 @@ void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref) {
   aux.resets[alloc.lca].emplace_back(alloc);
 }
 
-std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
-                                                   const Auxiliary &aux,
-                                                   const Allocation &alloc,
-                                                   LoopTree::TreeRef use) {
-  std::vector<std::pair<int, size_t>> idx_vec;
+std::vector<std::pair<int, int64_t>> gen_idx_vector(const LoopTree &lt,
+                                                    const Auxiliary &aux,
+                                                    const Allocation &alloc,
+                                                    LoopTree::TreeRef use) {
+  std::vector<std::pair<int, int64_t>> idx_vec;
   auto user_ref = lt.node(use);
   auto producer_ref = lt.node(alloc.producer);
 
@@ -266,7 +268,8 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
           auto v = user.var(sym);
           auto stride = differentiate(c.second, sym);
           ASSERT(user_view_vars.count(v) == 0)
-              << "mapping already mapped variable " << lt.ir.var(v).name() << " (sym: "<< symbolic::Expr(sym).dump()<<")";
+              << "mapping already mapped variable " << lt.ir.var(v).name()
+              << " (sym: " << symbolic::Expr(sym).dump() << ")";
           user_view_vars.insert(
               std::make_pair(v, std::make_pair(stride, orig_var)));
           mapped_view_vars[orig_var].emplace_back(v);
@@ -293,7 +296,7 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
   // producer has real layout {user_vars}, user (if view) has virtual layout
   auto inner_size_for_var = [&](IR::VarRef v) {
     auto inner = [&](IR::VarRef v) {
-      size_t size = 1;
+      int64_t size = 1;
       for (auto iv : producer_vars) {
         if (iv == v) {
           break;
@@ -301,7 +304,7 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
         if (!producer_var_loops.count(iv)) {
           continue;
         }
-        size_t var_size = 1;
+        int64_t var_size = 1;
         for (auto l : producer_var_loops.at(iv)) {
           auto loop = lt.loop(l);
           var_size = loop.size * var_size + loop.tail;
@@ -360,17 +363,17 @@ std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
 /*
  an index function maps a point in memory given a location in the loop tree
 */
-std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
-                                                   const Auxiliary &aux,
-                                                   const Allocation &alloc,
-                                                   LoopTree::TreeRef use) {
+std::function<int64_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
+                                                    const Auxiliary &aux,
+                                                    const Allocation &alloc,
+                                                    LoopTree::TreeRef use) {
   auto ref = alloc.producer;
   ASSERT(lt.kind(ref) == LoopTree::NODE);
   ASSERT(lt.kind(use) == LoopTree::NODE);
 
   auto idx_vec = gen_idx_vector(lt, aux, alloc, use);
   return [=](int indices[MAX_DEPTH]) {
-    size_t idx = 0;
+    int64_t idx = 0;
     for (const auto &p : idx_vec) {
       idx += indices[p.first] * p.second;
     }
@@ -453,8 +456,8 @@ InnerFnType gen_add(const LoopTree &lt, const Auxiliary &aux,
   auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
 
-  std::vector<std::pair<std::function<size_t(int[MAX_DEPTH])>, int>> inputs;
-  std::pair<std::function<size_t(int[MAX_DEPTH])>, int> output;
+  std::vector<std::pair<std::function<int64_t(int[MAX_DEPTH])>, int>> inputs;
+  std::pair<std::function<int64_t(int[MAX_DEPTH])>, int> output;
 
   auto mem_off = lt.ir.inputs().size() + lt.ir.outputs().size();
   for (auto &inp_ref : n.inputs()) {
@@ -484,8 +487,8 @@ InnerFnType gen_mul(const LoopTree &lt, const Auxiliary &aux,
   auto tree_node = lt.tree_node(ref);
   const auto &n = lt.ir.node(tree_node.node);
 
-  std::vector<std::pair<std::function<size_t(int[MAX_DEPTH])>, int>> inputs;
-  std::pair<std::function<size_t(int[MAX_DEPTH])>, int> output;
+  std::vector<std::pair<std::function<int64_t(int[MAX_DEPTH])>, int>> inputs;
+  std::pair<std::function<int64_t(int[MAX_DEPTH])>, int> output;
 
   auto mem_off = lt.ir.inputs().size() + lt.ir.outputs().size();
   for (auto &inp_ref : n.inputs()) {
@@ -701,6 +704,7 @@ InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
   auto inner_size = aux.inner_size.at(ref);
   auto memory_fn = gen_mem(lt, aux, ref);
 
+  ASSERT(depth < MAX_DEPTH);
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH],
              int tails[MAX_DEPTH]) {
     auto run = [&](int n_size, int t_size) {
@@ -736,7 +740,7 @@ InnerFnType gen_loop(const LoopTree &lt, const Auxiliary &aux,
 
 void update_inner_size(
     const LoopTree &lt,
-    std::unordered_map<LoopTree::TreeRef, size_t> &inner_size,
+    std::unordered_map<LoopTree::TreeRef, int64_t> &inner_size,
     LoopTree::TreeRef ref) {
   // can only be done with leaf nodes
   ASSERT(lt.kind(ref) == LoopTree::NODE);
@@ -806,7 +810,8 @@ Auxiliary calculate_aux(const LoopTree &lt) {
 }
 
 // function + sizes for intermediates
-std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
+std::pair<std::function<void(const std::vector<void *> &)>,
+          std::vector<int64_t>>
 compile(const LoopTree &lt,
         std::function<InnerFnType(const LoopTree &, const Auxiliary &,
                                   LoopTree::TreeRef)>
@@ -829,7 +834,7 @@ compile(const LoopTree &lt,
     }
   };
 
-  std::vector<size_t> sizes;
+  std::vector<int64_t> sizes;
   sizes.resize(aux.allocs.size());
   for (const auto &p : aux.allocs) {
     auto sizes_idx = p.second.idx;
@@ -857,27 +862,24 @@ void exec(const LoopTree &lt, const std::vector<void *> &memory) {
 }
 
 struct CPUCompiled : public Compiled {
-  std::vector<size_t> intermediates;
-  std::function<void(const std::vector<void *> &)> fn;
+  std::vector<int64_t> intermediates;
+  InnerFnTypeImproved fn;
+  mutable std::vector<void *> mem;
 
   CPUCompiled(const LoopTree &lt,
               const std::unordered_set<LoopTree::TreeRef> &threaded,
               LoopTree::TreeRef ref, const GenFnType &callback) {
-    std::tie(fn, intermediates) = compile(lt, callback);
+    auto compiler = Compiler(lt);
+    fn = compiler.gen();
+    mem = compiler.allocate();
   }
 
   void run(const std::vector<void *> &memory, bool sync) const override {
-    auto memory_w_intermediates = memory;
-    std::vector<void *> free_me;
-    for (auto s : intermediates) {
-      memory_w_intermediates.emplace_back(calloc(1, s));
-      free_me.emplace_back(memory_w_intermediates.back());
+    int indices[MAX_DEPTH] = {0};
+    for (auto i = 0; i < memory.size(); ++i) {
+      mem[i] = memory[i];
     }
-    fn(memory_w_intermediates);
-
-    for (auto v : free_me) {
-      free(v);
-    }
+    fn(mem, indices);
   }
 };
 
@@ -893,5 +895,722 @@ int CPUBackend::hardware_requirement() const {
 }
 
 static RegisterBackend cpu_backend_reg_(std::make_shared<CPUBackend>());
+
+Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
+  std::vector<LoopTree::TreeRef> reverse_order;
+  lt.walk([&](LoopTree::TreeRef ref, int) { reverse_order.emplace_back(ref); });
+  std::reverse(reverse_order.begin(), reverse_order.end());
+
+  std::unordered_map<IR::VarRef, int64_t> cur_sizes;
+  std::unordered_set<LoopTree::TreeRef> traversed;
+
+  auto resolve_view = [&](IR::NodeRef n) {
+    const auto &node = lt.ir.node(n);
+    if (node.outputs().size() == 1) {
+      const auto &consumer_ref = node.outputs().at(0);
+      if (!lt.scheduled.count(consumer_ref)) {
+        const auto &consumer = lt.ir.node(consumer_ref);
+        if (consumer.op() == Operation::write &&
+            consumer.inputs().size() == 1) {
+          return consumer_ref;
+        }
+      }
+    }
+    if (node.op() != Operation::view) {
+      return n;
+    }
+    while (!lt.scheduled.count(n)) {
+      const auto &node = lt.ir.node(n);
+      if (node.op() == Operation::read) {
+        return n;
+      }
+      ASSERT(node.op() == Operation::view);
+      ASSERT(node.inputs().size() == 1);
+      n = node.inputs().at(0);
+    }
+    return n;
+  };
+
+  for (const auto &node_ref : lt.ir.nodes()) {
+    resolved_views[node_ref] = resolve_view(node_ref);
+    auto node = lt.ir.node(node_ref);
+    auto add_sym = [&](symbolic::Symbol sym) {
+      if (node.has_sym(sym)) {
+        var_to_sym[node.var(sym)] = sym;
+        sym_to_var[sym] = node.var(sym);
+      }
+    };
+    for (const auto &c : node.constraints()) {
+      for (auto sym : c.first.symbols()) {
+        add_sym(sym);
+      }
+      for (auto sym : c.second.symbols()) {
+        add_sym(sym);
+      }
+      if (c.first.op() == Op::size) {
+        auto sym = c.first.args().at(0);
+        auto val = c.second;
+        if (sym.type() == Expr::Type::symbol &&
+            val.type() == Expr::Type::value) {
+          var_sizes[sym_to_var.at(sym.symbol())] = val.value();
+        }
+      }
+    }
+  }
+
+  for (auto &ref : reverse_order) {
+    if (lt.kind(ref) == LoopTree::NODE) {
+      cur_sizes.clear();
+      continue;
+    }
+    auto loop = lt.loop(ref);
+    auto inner_size = cur_sizes.count(loop.var) ? cur_sizes.at(loop.var) : 1;
+    if (inner_sizes.count(ref)) {
+      ASSERT(inner_sizes.at(ref) == inner_size);
+      continue;
+    }
+
+    inner_sizes[ref] = inner_size;
+    int64_t var_size = loop.size * inner_size + loop.tail;
+    cur_sizes[loop.var] = var_size;
+    if (var_sizes.count(loop.var)) {
+      var_size = std::max(var_sizes.at(loop.var), var_size);
+    }
+    var_sizes[loop.var] = var_size;
+  }
+
+  // gen_alloc only works after we get var_sizes
+  for (auto node_ref : lt.ir.nodes()) {
+    allocations[node_ref] = gen_alloc(node_ref);
+  }
+}
+
+// algo:
+// generate a loop with size + tail for this loop
+// if there's an override for this ref, use the specified size/tail
+// overrides are just parent loops emiting their tails.
+InnerFnTypeImproved Compiler::gen_loop(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  auto loop = lt.loop(ref);
+  ASSERT(loop.size > -1);
+  ASSERT(loop.tail > -1);
+  int size = loop.size;
+  int tail = loop.tail;
+
+  // if there's an override, take it
+  if (overrides.count(loop.var)) {
+    auto override_size = overrides.at(loop.var);
+    auto inner_size = inner_sizes.at(ref);
+    size = override_size / inner_size;
+    tail = override_size % inner_size;
+    overrides.erase(loop.var);
+  }
+
+  std::vector<InnerFnTypeImproved> body_children;
+  std::vector<InnerFnTypeImproved> tail_children;
+  for (const auto &cref : lt.children(ref)) {
+    body_children.emplace_back(gen(cref, overrides));
+  }
+  if (tail > 0) {
+    // find first loop of same var, and override
+    overrides[loop.var] = tail;
+    for (const auto &cref : lt.children(ref)) {
+      tail_children.emplace_back(gen(cref, overrides));
+    }
+  }
+
+  auto reset = gen_reset(ref);
+  auto idx = lt.depth(ref);
+  auto tail_fn = [=](const std::vector<void *> &memory,
+                     int indices[MAX_DEPTH]) {
+    reset(memory, indices);
+    indices[idx] = size;
+    for (const auto &c : tail_children) {
+      c(memory, indices);
+    }
+  };
+
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+    for (auto i = 0; i < size; ++i) {
+      reset(memory, indices);
+      indices[idx] = i;
+      for (const auto &c : body_children) {
+        c(memory, indices);
+      }
+    }
+    tail_fn(memory, indices);
+  };
+}
+
+InnerFnTypeImproved Compiler::gen_reset(LoopTree::TreeRef ref) const {
+  std::vector<std::tuple<int, int64_t, float>> resets;
+  for (const auto &p : allocations) {
+    const auto &alloc = p.second;
+    if (alloc.lca == ref) {
+      const auto &node = lt.ir.node(alloc.node_ref);
+      if (node.op() == Operation::add) {
+        resets.emplace_back(alloc.mem_idx, alloc.size(), 0.0);
+      } else if (node.op() == Operation::multiply) {
+        resets.emplace_back(alloc.mem_idx, alloc.size(), 1.0);
+      }
+    }
+  }
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+    for (const auto &reset : resets) {
+      for (int64_t i = 0; i < std::get<1>(reset); ++i) {
+        reinterpret_cast<float *>(memory[std::get<0>(reset)])[i] =
+            std::get<2>(reset);
+      }
+    }
+  };
+}
+
+InnerFnTypeImproved Compiler::gen(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  if (ref == -1) {
+    std::vector<InnerFnTypeImproved> roots;
+    for (const auto &cref : lt.roots) {
+      roots.emplace_back(gen(cref, overrides));
+    }
+    auto reset = gen_reset(ref);
+    return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+      reset(memory, indices);
+      for (const auto &fn : roots) {
+        fn(memory, indices);
+      }
+    };
+  }
+  if (lt.kind(ref) == LoopTree::NODE) {
+    return gen_node(ref, overrides);
+  }
+  ASSERT(lt.kind(ref) == LoopTree::LOOP);
+  return gen_loop(ref, overrides);
+}
+
+std::vector<void *> Compiler::allocate() const {
+  std::vector<void *> memory(allocations.size());
+  for (const auto &p : allocations) {
+    const auto &alloc = p.second;
+    // don't allocate inputs and outputs
+    if (alloc.mem_idx < lt.ir.inputs().size() + lt.ir.outputs().size()) {
+      continue;
+    }
+    size_t size = 1;
+    for (auto s : alloc.sizes) {
+      size *= s > 0 ? s : 1;
+    }
+    memory[alloc.mem_idx] = calloc(size, sizeof(float));
+  }
+  return memory;
+}
+
+std::vector<symbolic::Constraint> Compiler::gen_constraints(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref) const {
+  // Find a route to a scheduled base node
+  auto base_node_ref = resolved_views.at(node_ref);
+  const auto &node = lt.ir.node(lt.node(ref));
+  if (node.op() == Operation::view) {
+    ASSERT(node.inputs().size() == 1);
+    base_node_ref = resolved_views.at(node.inputs().at(0));
+  }
+
+  std::vector<Constraint> constraints;
+
+  // collect initial constraints
+  auto vars = to_set(node.vars());
+  for (auto c : node.constraints()) {
+    if (c.first.type() != Expr::Type::symbol) {
+      continue;
+    }
+    auto sym = c.first.symbol();
+    if (node.has_sym(sym) && vars.count(node.var(sym))) {
+      constraints.emplace_back(c);
+    }
+  }
+
+  // eager exit if we don't have to calculate anything
+  if (node_ref == base_node_ref) {
+    return constraints;
+  }
+
+  // begin to coalesce constraints
+  auto cur_node_ref = node.inputs().at(0);
+
+  while (cur_node_ref != base_node_ref) {
+    auto &cur_node = lt.ir.node(cur_node_ref);
+    for (auto c : cur_node.constraints()) {
+      if (c.first.type() != Expr::Type::symbol) {
+        continue;
+      }
+      auto sym = c.first.symbol();
+      bool valid = true;
+      for (auto cc : constraints) {
+        if (c.second.contains(cc.first.symbol())) {
+          valid = false;
+        }
+      }
+      if (valid) {
+        for (auto &cc : constraints) {
+          if (cc.second.contains(sym)) {
+            cc.second = cc.second.replace(sym, c.second);
+          }
+        }
+      }
+    }
+
+    if (!cur_node.inputs().size()) {
+      break;
+    }
+    cur_node_ref = cur_node.inputs().at(0);
+  }
+
+  // On occassion (e.g. windowed constraints), we pick up
+  // dependencies on output variables.  We can safely set these to zero
+  // for calculation of offsets and derivatives
+  // (They'd go to zero anyway for the calculations)
+  for (auto &cc : constraints) {
+    for (auto sym : cc.second.symbols()) {
+      if (node.has_sym(sym) && vars.count(node.var(sym))) {
+        cc.second = cc.second.replace(sym, Expr(0)).simplify();
+      }
+    }
+  }
+  return constraints;
+}
+
+// this includes locally threaded and scoped vars (which reduce strides)
+Compiler::Allocation Compiler::gen_alloc(IR::NodeRef node_ref) const {
+  const auto &inputs = lt.ir.inputs();
+  const auto &outputs = lt.ir.outputs();
+  int mem_idx = -1;
+  for (auto i = 0; i < inputs.size(); ++i) {
+    if (inputs.at(i) == node_ref) {
+      mem_idx = i;
+    }
+  }
+  for (auto i = 0; i < outputs.size(); ++i) {
+    if (outputs.at(i) == node_ref) {
+      mem_idx = i + inputs.size();
+    }
+  }
+  // we need to find a new spot to store this
+  if (mem_idx == -1) {
+    mem_idx = inputs.size() + outputs.size();
+    for (const auto &p : allocations) {
+      // these allocations already have a spot
+      if (p.second.mem_idx >= (inputs.size() + outputs.size())) {
+        mem_idx++;
+      }
+    }
+  }
+
+  const auto &node = lt.ir.node(node_ref);
+  if (!lt.scheduled.count(node_ref)) {
+    std::vector<int64_t> sizes;
+    if (node.op() == Operation::read || node.op() == Operation::write) {
+      for (auto v : node.vars()) {
+        sizes.emplace_back(var_sizes.at(v));
+      }
+      return Allocation(mem_idx, node_ref, sizes, -1);
+    }
+    return Allocation(mem_idx, node_ref);
+  }
+
+  std::function<std::vector<LoopTree::TreeRef>(IR::NodeRef nr, bool io_switch)>
+      get_scheduled_deps;
+  get_scheduled_deps = [&](IR::NodeRef nr,
+                           bool io_switch) -> std::vector<LoopTree::TreeRef> {
+    auto &n = lt.ir.node(nr);
+    std::vector<LoopTree::TreeRef> dep_refs;
+    for (const auto &dep_ref : (io_switch ? n.inputs() : n.outputs())) {
+      if (!lt.scheduled.count(dep_ref)) {
+        if (lt.ir.node(dep_ref).op() == Operation::write) {
+          dep_refs.emplace_back(-1);
+          continue;
+        }
+        for (auto dep : get_scheduled_deps(dep_ref, io_switch)) {
+          dep_refs.emplace_back(dep);
+        }
+      } else {
+        dep_refs.emplace_back(lt.scheduled.at(dep_ref));
+      }
+    }
+    return dep_refs;
+  };
+
+  auto ref = lt.parent(lt.scheduled.at(node_ref));
+  auto lca = ref;
+  for (auto tr : get_scheduled_deps(node_ref, false)) {
+    lca = lt.lca(lca, tr);
+  }
+  if (node.op() == Operation::write || node.op() == Operation::read) {
+    lca = -1;
+  }
+
+  std::unordered_map<IR::VarRef, int64_t> var_sizes;
+  while (ref != lca) {
+    auto loop = lt.loop(ref);
+    ref = lt.parent(ref);
+    if (!var_sizes.count(loop.var)) {
+      var_sizes[loop.var] = 1;
+    }
+    var_sizes[loop.var] *= loop.size;
+    var_sizes[loop.var] += loop.tail;
+  }
+  std::vector<int64_t> sizes;
+  for (auto v : node.vars()) {
+    if (var_sizes.count(v)) {
+      sizes.emplace_back(var_sizes.at(v));
+    } else {
+      sizes.emplace_back(0);
+    }
+  }
+  return Allocation(mem_idx, node_ref, sizes, lca);
+}
+
+/*
+ There are two types of accesses in loop_tool, reads or writes.
+ For both there is a necessary calculation of strides and offset, which is what
+ this function does. The algorithm is as follows:
+ 1. determine "real" buffer
+ 2. collect variables
+   a. collect scoped variables
+   b. collect node variables (input and output)
+   c. find intersection
+ 3. map scoped variables to "real" buffer variables
+   a. for each collected variable, find stride into buffer
+   b. for all collected = 0, find offset into buffer
+   e.g. x = x' + 1
+   if "real" is x and collected is x', then offset is 1
+   if "real" is x' and collected is x, then offset is -1 (negative indices are
+ always skipped)
+*/
+Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
+                                      LoopTree::TreeRef ref) const {
+  auto view_exprs = gen_constraints(node_ref, ref);
+
+  auto base_node_ref = resolved_views.at(node_ref);
+  const auto &base_node = lt.ir.node(base_node_ref);
+  auto alloc = allocations.at(base_node_ref);
+
+  auto use_node_ref = lt.node(ref);
+  const auto &use_node = lt.ir.node(use_node_ref);
+
+  auto node_vars = to_set(lt.ir.all_vars(use_node_ref));
+  auto scope_vars = lt.scope_vars(ref);
+  auto vars = intersection(node_vars, scope_vars);
+
+  // either output or input vars
+  std::unordered_set<symbolic::Symbol, Hash<symbolic::Symbol>> base_symbols;
+  for (auto v : base_node.vars()) {
+    if (var_to_sym.count(v)) {
+      base_symbols.insert(var_to_sym.at(v));
+    }
+  }
+
+  auto has_base_symbol = [&](const symbolic::Constraint &c) {
+    for (auto s : c.first.symbols()) {
+      if (base_symbols.count(s)) {
+        return true;
+      }
+    }
+    for (auto s : c.second.symbols()) {
+      if (base_symbols.count(s)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  auto get_base_symbol = [&](const symbolic::Constraint &c) {
+    symbolic::Symbol base_sym;
+    bool found_base = false;
+    for (auto s : c.first.symbols()) {
+      if (base_symbols.count(s)) {
+        ASSERT(!found_base) << "Found multiple base symbols in constraint "
+                            << c.first.dump() << ": " << c.second.dump();
+        base_sym = s;
+        found_base = true;
+      }
+    }
+    for (auto s : c.second.symbols()) {
+      if (base_symbols.count(s)) {
+        ASSERT(!found_base) << "Found multiple base symbols in constraint "
+                            << c.first.dump() << ": " << c.second.dump();
+        base_sym = s;
+        found_base = true;
+      }
+    }
+    ASSERT(found_base) << "Couldn't find base symbol in constraint "
+                       << c.first.dump() << ": " << c.second.dump();
+    return base_sym;
+  };
+
+  auto zero = [&](const symbolic::Expr &expr) {
+    auto sized = expr.walk([&](const symbolic::Expr &e) {
+                       if (e.op() == symbolic::Op::size) {
+                         auto arg = e.args().at(0);
+                         if (arg.type() == Expr::Type::symbol) {
+                           auto s = var_sizes.at(sym_to_var.at(arg.symbol()));
+                           return Expr(s);
+                         }
+                       }
+                       return e;
+                     })
+                     .simplify();
+    return sized
+        .walk([&](const symbolic::Expr &e) {
+          if (e.type() == Expr::Type::symbol) {
+            return Expr(0);
+          }
+          return e;
+        })
+        .simplify();
+    auto out = expr;
+    for (auto s : expr.symbols()) {
+      out = out.replace(s, 0).simplify();
+    }
+    return out;
+  };
+
+  auto stride_at = [&](int idx) {
+    int64_t stride = alloc.sizes.at(idx) > 0 ? 1 : 0;
+    for (auto i = idx + 1; i < alloc.sizes.size(); ++i) {
+      auto size = alloc.sizes.at(i);
+      stride *= size > 0 ? size : 1;
+    }
+    return stride;
+  };
+  std::unordered_map<IR::VarRef, int64_t> base_strides;
+  for (auto i = 0; i < base_node.vars().size(); ++i) {
+    auto v = base_node.vars().at(i);
+    base_strides[v] = stride_at(i);
+  }
+
+  Access access(allocations.at(base_node_ref));
+  for (auto v : vars) {
+    // NB: ok to generate a fake symbol, we only use it for lookup
+    auto sym = var_to_sym.count(v) ? var_to_sym.at(v) : Symbol();
+    bool set = false;
+    for (auto c : view_exprs) {
+      if ((c.first.contains(sym) || c.second.contains(sym)) &&
+          has_base_symbol(c)) {
+        auto expr = isolate(c, sym).second;
+        auto base_sym = get_base_symbol(c);
+        auto base_var = sym_to_var.at(base_sym);
+        auto base_expr = isolate(c, base_sym).second;
+        auto stride = (base_sym == sym)
+                          ? Expr(base_strides.at(v))
+                          : differentiate(expr, base_sym).simplify();
+        auto offset = (base_sym == sym) ? Expr(0) : zero(base_expr).simplify();
+        auto max = var_sizes.at(base_var);
+        auto v_max = var_sizes.at(v);
+        if (max >= v_max) {
+          max = -1;
+        }
+        if (stride.type() != Expr::Type::value ||
+            offset.type() != Expr::Type::value) {
+          continue;
+        }
+        access.vars[v] = std::make_tuple(
+            stride.value() * base_strides.at(base_var), offset.value(), max);
+        set = true;
+        break;
+      }
+    }
+    if (!set) {
+      // if this var is unrelated, we don't stride
+      auto stride = base_strides.count(v) ? base_strides.at(v) : 0;
+      access.vars[v] = std::make_tuple(stride, 0, -1);
+    }
+  }
+  return access;
+}
+
+IdxFn Compiler::gen_idx_fn(LoopTree::TreeRef ref,
+                           const Compiler::Access &access) const {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  ref = lt.parent(ref);
+  if (ref == -1) {
+    return [](int indices[MAX_DEPTH]) { return 0; };
+  }
+  std::vector<int64_t> strides;
+  int64_t total_offset = 0;
+  std::unordered_map<IR::VarRef, int> var_to_max_idx;
+  std::vector<int> max_idxs;  // -1 means no max
+  std::vector<int64_t> maxes;
+  std::vector<int64_t> offsets;
+
+  std::unordered_map<IR::VarRef, int64_t> last;
+
+  while (ref != -1) {
+    auto loop = lt.loop(ref);
+    auto stride = ([&]() -> int64_t {
+      if (last.count(loop.var)) {
+        return last.at(loop.var);
+      }
+      if (access.vars.count(loop.var)) {
+        auto t = access.vars.at(loop.var);
+        auto stride = std::get<0>(t);
+        auto offset = std::get<1>(t);
+        auto max = std::get<2>(t);
+        if (max != -1 || offset < 0) {
+          var_to_max_idx[loop.var] = maxes.size();
+          maxes.emplace_back(max - offset);
+          offsets.emplace_back(offset);
+        }
+        total_offset += offset * stride;
+        return stride;
+      } else {
+        return 0L;
+      }
+    })();
+    strides.emplace(strides.begin(), stride);
+    if (var_to_max_idx.count(loop.var)) {
+      max_idxs.emplace(max_idxs.begin(), var_to_max_idx.at(loop.var));
+    } else {
+      max_idxs.emplace(max_idxs.begin(), -1);
+    }
+    if (stride) {
+      last[loop.var] = stride * loop.size + loop.tail;
+    }
+    ref = lt.parent(ref);
+  }
+  if (maxes.size()) {
+    return [strides, total_offset, max_idxs, maxes,
+            offsets](int indices[MAX_DEPTH]) -> int64_t {
+      std::vector<int64_t> totals(maxes.size());
+      int64_t idx = 0;
+      for (auto i = 0; i < strides.size(); ++i) {
+        auto max_idx = max_idxs[i];
+        if (max_idx != -1) {
+          totals[max_idx] += indices[i] * strides[i];
+          if (totals[max_idx] >= maxes[max_idx]) {
+            return -1L;
+          }
+          if (totals[max_idx] + offsets[max_idx] < 0) {
+            return -1L;
+          }
+        }
+        idx += indices[i] * strides[i];
+      }
+      return idx + total_offset;
+    };
+  }
+  return [strides, total_offset](int indices[MAX_DEPTH]) -> int64_t {
+    int64_t idx = 0;
+    for (auto i = 0; i < strides.size(); ++i) {
+      idx += indices[i] * strides[i];
+    }
+    return idx + total_offset;
+  };
+}
+
+InnerFnTypeImproved Compiler::gen_mem_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  auto node_ref = lt.node(ref);
+  const auto &node = lt.ir.node(node_ref);
+
+  if (node.op() == Operation::read) {
+    return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {};
+  }
+
+  ASSERT(node.inputs().size() == 1)
+      << "Cannot call gen_mem_node on this node " << lt.ir.dump(node_ref);
+  auto inacc = gen_access(node.inputs().at(0), ref);
+  auto inidx = gen_idx_fn(ref, inacc);
+
+  auto outacc = gen_access(node_ref, ref);
+  auto outidx = gen_idx_fn(ref, outacc);
+
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+    auto outi = outidx(indices);
+    auto ini = inidx(indices);
+    if (outi >= 0 && ini >= 0) {
+      ((float *)memory[outacc.alloc.mem_idx])[outi] =
+          ((float *)memory[inacc.alloc.mem_idx])[ini];
+    } else if (outi >= 0) {
+      ((float *)memory[outacc.alloc.mem_idx])[outi] = 0;
+    }
+  };
+}
+
+InnerFnTypeImproved Compiler::gen_add_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  auto node_ref = lt.node(ref);
+  const auto &node = lt.ir.node(node_ref);
+
+  std::vector<std::pair<int, IdxFn>> inputs;
+  for (const auto &inp : node.inputs()) {
+    auto inacc = gen_access(inp, ref);
+    auto inidx = gen_idx_fn(ref, inacc);
+    inputs.emplace_back(inacc.alloc.mem_idx, inidx);
+  }
+
+  auto outacc = gen_access(node_ref, ref);
+  auto outidx = gen_idx_fn(ref, outacc);
+
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+    auto outi = outidx(indices);
+    for (const auto &p : inputs) {
+      auto ini = p.second(indices);
+      ((float *)memory[outacc.alloc.mem_idx])[outi] +=
+          ((float *)memory[p.first])[ini];
+    }
+  };
+}
+
+InnerFnTypeImproved Compiler::gen_mul_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  auto node_ref = lt.node(ref);
+  const auto &node = lt.ir.node(node_ref);
+
+  std::vector<std::pair<int, IdxFn>> inputs;
+  for (const auto &inp : node.inputs()) {
+    auto inacc = gen_access(inp, ref);
+    auto inidx = gen_idx_fn(ref, inacc);
+    inputs.emplace_back(inacc.alloc.mem_idx, inidx);
+  }
+
+  auto outacc = gen_access(node_ref, ref);
+  auto outidx = gen_idx_fn(ref, outacc);
+
+  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+    auto outi = outidx(indices);
+    ((float *)memory[outacc.alloc.mem_idx])[outi] = 1;
+    for (const auto &p : inputs) {
+      auto ini = p.second(indices);
+      ((float *)memory[outacc.alloc.mem_idx])[outi] *=
+          ((float *)memory[p.first])[ini];
+    }
+  };
+}
+
+InnerFnTypeImproved Compiler::gen_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const {
+  auto node_ref = lt.node(ref);
+  const auto &node = lt.ir.node(node_ref);
+  switch (node.op()) {
+    case Operation::read:
+    case Operation::view:
+    case Operation::write:
+      return gen_mem_node(ref, overrides);
+    case Operation::add:
+      return gen_add_node(ref, overrides);
+    case Operation::multiply:
+      return gen_mul_node(ref, overrides);
+    default:
+      ASSERT(0) << "Cannot generate node: " << lt.ir.dump(node_ref);
+      return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+        ASSERT(0);
+      };
+  }
+}
 
 }  // namespace loop_tool

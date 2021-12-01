@@ -138,6 +138,27 @@ inline std::string dump(const Operation &op) {
 #undef X
 }
 
+template <typename T, template <typename _> typename H = std::hash>
+std::unordered_set<T, H<T>> to_set(std::vector<T> v) {
+  std::unordered_set<T, H<T>> out;
+  for (const auto &e : v) {
+    out.insert(e);
+  }
+  return out;
+}
+
+template <typename T, template <typename _> typename H = std::hash>
+std::unordered_set<T, H<T>> intersection(const std::unordered_set<T, H<T>> &a,
+                                         const std::unordered_set<T, H<T>> &b) {
+  std::unordered_set<T, H<T>> c;
+  for (const auto &e : a) {
+    if (b.find(e) != b.end()) {
+      c.insert(e);
+    }
+  }
+  return c;
+}
+
 struct Node;
 struct Var;
 
@@ -226,6 +247,7 @@ class IR {
   std::string dump(NodeRef ref) const;
   std::vector<VarRef> pointwise_vars(NodeRef ref) const;
   std::vector<VarRef> loop_vars(NodeRef ref) const;
+  std::vector<VarRef> all_vars(NodeRef ref) const;
 
  private:
   std::vector<Node> nodes_;
@@ -272,13 +294,13 @@ class Node {
   inline const std::vector<symbolic::Constraint> &constraints() const {
     return constraints_;
   }
-  inline const IR::VarRef var(symbolic::Symbol sym) {
+  inline const IR::VarRef var(symbolic::Symbol sym) const {
     ASSERT(sym_var_map_.count(sym.id()))
         << "symbol " << sym.name() << "#" << sym.id()
         << " is not mapped to a variable";
     return sym_var_map_.at(sym.id());
   }
-  inline bool has_sym(symbolic::Symbol sym) {
+  inline bool has_sym(symbolic::Symbol sym) const {
     return sym_var_map_.count(sym.id());
   }
 
@@ -383,6 +405,8 @@ struct LoopTree {
     return tree_node(ref).loop;
   }
 
+  std::unordered_set<IR::VarRef> scope_vars(TreeRef ref) const;
+
   inline const TreeRef parent(TreeRef ref) const {
     ASSERT(ref < nodes.size());
     return nodes[ref].parent;
@@ -413,6 +437,8 @@ struct LoopTree {
     return "cpu";
   }
 
+  inline int depth(TreeRef ref) const { return tree_node(ref).depth; }
+
   TreeRef lca(TreeRef a, TreeRef b) const;
 
   // like IR::order but includes variable versions
@@ -429,6 +455,7 @@ struct LoopTree {
   std::vector<LoopTreeNode> nodes;
   std::vector<TreeRef> roots;
   std::vector<std::string> annotations;
+  std::unordered_map<IR::NodeRef, TreeRef> scheduled;
 };
 
 }  // namespace loop_tool

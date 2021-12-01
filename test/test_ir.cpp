@@ -140,11 +140,46 @@ TEST(NodeSplit) {
 
   auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
   std::vector<float> input(N * N);
+  float ref = 0;
   for (auto i = 0; i < N * N; ++i) {
     input[i] = i * 3;
+    ref += i * 3;
   }
   std::vector<float> output(1);
   cc->run({input.data(), output.data()}, true);
   std::cout << "sum of vals from 0 to " << (N * N - 1) << " is " << output[0]
             << "\n";
+  ASSERT( std::abs(ref - output[0]) < 0.01) << "expected " << ref << " but got " << output[0];
+}
+
+TEST(BasicInterpreter) {
+  IR ir;
+  constexpr int N = 405;
+  auto a = ir.create_var("a");
+  auto r = ir.create_node(Operation::read, {}, {a});
+  auto add = ir.create_node(Operation::add, {r}, {a});
+  auto w = ir.create_node(Operation::write, {add}, {a});
+  ir.set_inputs({r});
+  ir.set_outputs({w});
+
+  for (auto n : ir.nodes()) {
+    std::vector<std::pair<IR::VarRef, IR::LoopSize>> sched;
+    // for (auto v : ir.loop_vars(n)) {
+    sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{a, {10, 15}});
+    sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{a, {4, 3}});
+    sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{a, {4, 1}});
+    sched.emplace_back(std::pair<IR::VarRef, IR::LoopSize>{a, {2, 0}});
+    //}
+    ir.set_order(n, sched);
+  }
+
+  auto lt = LoopTree(ir);
+  std::cout << lt.dump() << "\n";
+  auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
+  std::vector<float> input(N);
+  for (auto i = 0; i < N; ++i) {
+    input[i] = i * 3;
+  }
+  std::vector<float> output(N);
+  // cc->run({input.data(), output.data()}, true);
 }
