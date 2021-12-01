@@ -38,6 +38,17 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
   if (constraints.size()) {
     ASSERT(op == Operation::view)
         << "Can only specify constraints with views\n";
+    for (const auto &c : constraints) {
+      auto in_map = [&](const Expr &e) {
+        for (const auto &s : e.symbols()) {
+          ASSERT(sym_var_map.count(s.id()))
+              << "Unmapped constraint passed in: " << c.first.dump() << ": "
+              << c.second.dump();
+        }
+      };
+      in_map(c.first);
+      in_map(c.second);
+    }
   }
   Node n_(op, inputs, vars, constraints, sym_var_map);
 
@@ -58,13 +69,13 @@ void IR::reset_aux(IR::NodeRef node_ref) {
   // TODO attempt to preserve old order
   std::vector<std::pair<IR::NodeRef, IR::LoopSize>> order;
   auto &n = node(node_ref);
-  auto vars = loop_vars(node_ref);
-  for (const auto &v : vars) {
-    order.emplace_back(v, IR::LoopSize{-1, -1});
-  }
+  // auto vars = loop_vars(node_ref);
+  // for (const auto &v : vars) {
+  //  order.emplace_back(v, IR::LoopSize{-1, -1});
+  //}
   priorities_[node_ref] = 0;
   reuse_disabled_[node_ref].clear();
-  orders_[node_ref] = order;
+  // orders_[node_ref] = order;
 }
 
 void IR::replace_all_uses(NodeRef old_node, NodeRef new_node) {
@@ -103,14 +114,54 @@ std::string IR::dump(IR::NodeRef idx) const {
       ss << ", ";
     }
   }
-  ss << "] <- " << loop_tool::dump(n.op()) << "(";
+  ss << "] <- ";
+  if (n.op() != Operation::view) {
+    ss << loop_tool::dump(n.op());
+    ss << "(";
+  }
   for (const auto &inp : n.inputs()) {
     ss << "%" << inp;
+    if (n.constraints().size()) {
+      ss << "[";
+      for (const auto &v_idx : node(inp).vars()) {
+        const auto &v = var(v_idx);
+        ss << v.name();  // << ":" << v.version();
+        if (&v_idx != &node(inp).vars().back()) {
+          ss << ", ";
+        }
+      }
+      ss << "]";
+    }
     if (&inp != &n.inputs().back()) {
       ss << ", ";
     }
   }
-  ss << ")";
+  if (n.op() != Operation::view) {
+    ss << ")";
+  }
+  if (n.constraints().size()) {
+    auto vars = to_set(node(n.inputs().at(0)).vars());
+    ss << "{";
+    bool first = true;
+    for (const auto &c : n.constraints()) {
+      if (c.first.type() != Expr::Type::symbol) {
+        continue;
+      }
+      if (!n.has_sym(c.first.symbol())) {
+        continue;
+      }
+      if (!vars.count(n.var(c.first.symbol()))) {
+        continue;
+      }
+      if (!first) {
+        ss << ", ";
+      } else {
+        first = false;
+      }
+      ss << c.first.dump(true) << "=" << c.second.dump(true);
+    }
+    ss << "}";
+  }
   return ss.str();
 }
 
@@ -134,23 +185,28 @@ std::vector<IR::VarRef> IR::pointwise_vars(IR::NodeRef idx) const {
   return pointwise_vars;
 }
 
-std::vector<IR::VarRef> IR::loop_vars(IR::NodeRef idx) const {
-  auto var_vec = node(idx).vars();
+std::vector<IR::VarRef> IR::all_vars(IR::NodeRef node_ref) const {
+  const auto &n = node(node_ref);
+  auto var_vec = n.vars();
   std::unordered_set<IR::VarRef> vars = {var_vec.begin(), var_vec.end()};
   std::vector<IR::VarRef> loop_vars = var_vec;
-  if (node(idx).op() != Operation::view) {
-    for (auto inp : node(idx).inputs()) {
-      for (auto v : node(inp).vars()) {
-        if (vars.count(v)) {
-          continue;
-        }
-        loop_vars.emplace_back(v);
-        vars.insert(v);
+  for (auto inp : n.inputs()) {
+    for (auto v : node(inp).vars()) {
+      if (vars.count(v)) {
+        continue;
       }
+      loop_vars.emplace_back(v);
+      vars.insert(v);
     }
   }
   std::sort(loop_vars.begin(), loop_vars.end());
   return loop_vars;
+}
+
+std::vector<IR::VarRef> IR::loop_vars(IR::NodeRef node_ref) const {
+  const auto &n = node(node_ref);
+  ASSERT(n.op() != Operation::view) << "loop vars are undefined with views";
+  return all_vars(node_ref);
 }
 
 std::vector<IR::VarRef> IR::vars() const {
@@ -236,8 +292,21 @@ std::vector<IR::NodeRef> toposort(const IR &ir) {
   return sorted;
 }
 
+std::unordered_set<IR::VarRef> LoopTree::scope_vars(
+    LoopTree::TreeRef ref) const {
+  std::unordered_set<IR::VarRef> out;
+  while (ref != -1) {
+    if (kind(ref) == LoopTree::LOOP) {
+      out.insert(loop(ref).var);
+    }
+    ref = parent(ref);
+  }
+  return out;
+}
+
 LoopTree::TreeRef LoopTree::add_leaf(LoopTree::TreeRef parent, IR::NodeRef n) {
-  return add_node_impl(parent, n);
+  scheduled[n] = add_node_impl(parent, n);
+  return scheduled.at(n);
 }
 
 LoopTree::TreeRef LoopTree::add_loop(LoopTree::TreeRef parent,
@@ -348,10 +417,13 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   std::vector<std::pair<LoopTree::Loop, LoopTree::TreeRef>> available;
   using Iterator = typename decltype(available)::iterator;
 
-  std::vector<IR::NodeRef> order = toposort(ir);
-  for (const auto &idx : order) {
-    auto n = ir.node(idx);
-    auto l_order = loop_order(idx);
+  std::vector<IR::NodeRef> sorted_nodes = toposort(ir);
+  for (const auto &node_ref : sorted_nodes) {
+    auto n = ir.node(node_ref);
+    auto l_order = loop_order(node_ref);
+    if (l_order.size() == 0) {
+      continue;
+    }
     // find max reuse O(n^2)
     // 1. find all reuse candidates and enumerate them with respect to
     // the proposed order:
@@ -419,7 +491,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     if (available.size()) {
       parent = available.back().second;
     }
-    add_leaf(parent, idx);
+    add_leaf(parent, node_ref);
 
     // remove reductions
     std::unordered_set<IR::VarRef> reduction_vars;
@@ -439,7 +511,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
                      });
     available.erase(iter, available.end());
 
-    for (auto no_reuse : ir.not_reusable(idx)) {
+    for (auto no_reuse : ir.not_reusable(node_ref)) {
       auto iter =
           std::find_if(available.begin(), available.end(),
                        [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {

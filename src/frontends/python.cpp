@@ -33,16 +33,16 @@ static bool cuda_available = false;
 
 class SymbolGenerator {
  public:
-  SymbolGenerator& enter() {
-    return *this;
-  }
-  void exit(const py::object& type, const py::object &value, const py::object& traceback) { }
+  SymbolGenerator &enter() { return *this; }
+  void exit(const py::object &type, const py::object &value,
+            const py::object &traceback) {}
   symbolic::Symbol getSymbol(std::string s) {
     if (!symbols_.count(s)) {
       symbols_.emplace(s, symbolic::Symbol(s));
     }
     return symbols_.at(s);
   }
+
  private:
   std::unordered_map<std::string, symbolic::Symbol> symbols_;
 };
@@ -259,9 +259,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Symbol &s, lazy::Expr &other) { return s * other; })
       .def("__add__",
            [](lazy::Symbol &s, lazy::Expr &other) { return s + other; })
-       .def("__repr__", [](lazy::Symbol& s) {
-        return lazy::Expr(s).dump();
-       });
+      .def("__repr__", [](lazy::Symbol &s) { return lazy::Expr(s).dump(); });
   py::class_<lazy::Expr>(m, "Expr")
       .def(py::init<size_t>())
       .def("__mul__",
@@ -272,17 +270,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Expr &s, lazy::Symbol &other) { return s * other; })
       .def("__add__",
            [](lazy::Expr &s, lazy::Symbol &other) { return s + other; })
-       .def("__repr__", [](lazy::Expr& e) {
-        return e.dump();
-       });
+      .def("__repr__", [](lazy::Expr &e) { return e.dump(); });
 
   py::class_<SymbolGenerator>(m, "SymbolGenerator")
-       .def(py::init<>())
-       .def("__enter__", &SymbolGenerator::enter)
-       .def("__exit__", &SymbolGenerator::exit)
-       .def("__getattr__", [](SymbolGenerator &s, std::string name) {
-           return s.getSymbol(name);
-           });
+      .def(py::init<>())
+      .def("__enter__", &SymbolGenerator::enter)
+      .def("__exit__", &SymbolGenerator::exit)
+      .def("__getattr__", [](SymbolGenerator &s, std::string name) {
+        return s.getSymbol(name);
+      });
 
   py::class_<lazy::Tensor>(m, "Tensor")
       .def(py::init([](py::args args) {
@@ -335,31 +331,34 @@ PYBIND11_MODULE(loop_tool_py, m) {
              }
              return t.as(output_shape);
            })
-      .def("__getitem__", [](lazy::Tensor& t, py::args args) {
-        if (args.size() != t.shape().size()) {
-          throw py::index_error();
-        }
-        std::vector<lazy::Symbol> output_shape;
-        std::unordered_set<lazy::Symbol, symbolic::Hash<lazy::Symbol>> output_syms;
-        std::vector<lazy::Constraint> constraints;
-        auto i = 0;
-        for (auto& a : args) {
-          auto expr = py::cast<lazy::Expr>(a);
-          expr.walk([&](const lazy::Expr& e) {
-            if (e.type() == lazy::Expr::Type::symbol) {
-              auto sym = e.symbol();;
-              if (output_syms.count(sym) == 0) {
-                output_shape.emplace_back(sym);
-                output_syms.insert(sym);
-              }
-            }
-            return e;
-          });
-          constraints.emplace_back(t.shape().at(i), expr);
-          i++;
-        }
-        return t.to(output_shape, constraints);
-      })
+      .def("__getitem__",
+           [](lazy::Tensor &t, py::args args) {
+             if (args.size() != t.shape().size()) {
+               throw py::index_error();
+             }
+             std::vector<lazy::Symbol> output_shape;
+             std::unordered_set<lazy::Symbol, symbolic::Hash<lazy::Symbol>>
+                 output_syms;
+             std::vector<lazy::Constraint> constraints;
+             auto i = 0;
+             for (auto &a : args) {
+               auto expr = py::cast<lazy::Expr>(a);
+               expr.walk([&](const lazy::Expr &e) {
+                 if (e.type() == lazy::Expr::Type::symbol) {
+                   auto sym = e.symbol();
+                   ;
+                   if (output_syms.count(sym) == 0) {
+                     output_shape.emplace_back(sym);
+                     output_syms.insert(sym);
+                   }
+                 }
+                 return e;
+               });
+               constraints.emplace_back(t.shape().at(i), expr);
+               i++;
+             }
+             return t.to(output_shape, constraints);
+           })
       .def("set",
            [](lazy::Tensor &t,
               py::array_t<float, py::array::c_style | py::array::forcecast>

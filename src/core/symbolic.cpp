@@ -185,6 +185,23 @@ size_t Expr::contains(Symbol s) const {
   }
 }
 
+std::vector<Symbol> Expr::symbols() const {
+  std::vector<Symbol> out;
+  std::unordered_set<Symbol, Hash<Symbol>> seen;
+  walk([&](const Expr& e) {
+    if (e.type() == Expr::Type::symbol) {
+      auto sym = e.symbol();
+      if (seen.count(sym)) {
+        return e;
+      }
+      seen.insert(sym);
+      out.emplace_back(sym);
+    }
+    return e;
+  });
+  return out;
+}
+
 Expr Expr::walk(std::function<Expr(const Expr&)> f) const {
   if (type() == Expr::Type::function) {
     std::vector<Expr> new_args;
@@ -213,14 +230,13 @@ Expr Expr::simplify() const {
   for (auto& arg : sorted_args) {
     arg = arg.simplify();
   }
-  std::sort(
-      sorted_args.begin(), sorted_args.end(),
-      [](const Expr& a, const Expr& b) { 
-      if (a.op() != b.op()) {
-      return (int)a.op() < (int)b.op();
-      }
-      return a.hash(true) > b.hash(true);
-      });
+  std::sort(sorted_args.begin(), sorted_args.end(),
+            [](const Expr& a, const Expr& b) {
+              if (a.op() != b.op()) {
+                return (int)a.op() < (int)b.op();
+              }
+              return a.hash(true) > b.hash(true);
+            });
   switch (op()) {
     case Op::add: {
       auto lhs = sorted_args.at(0);
@@ -308,6 +324,13 @@ Expr Expr::simplify() const {
       }
       return Expr(op(), sorted_args);
     }
+    case Op::size: {
+      const auto& arg = sorted_args.at(0);
+      if (arg.type() == Expr::Type::value) {
+        return Expr(arg.value());
+      }
+      return Expr(op(), sorted_args);
+    }
     default: {
       return Expr(op(), sorted_args);
     }
@@ -369,42 +392,54 @@ bool Expr::operator==(const Expr& rhs) const {
   return rhs.op() == op() && match;
 }
 
-std::string Expr::dump() const {
+std::string Expr::dump(bool short_form) const {
   std::stringstream ss;
   if (type_ == Expr::Type::value) {
     ss << value();
   } else if (type_ == Expr::Type::symbol) {
-    ss << symbol().name() << "[id:" << symbol().id() << "]";
+    ss << symbol().name();
+    if (!short_form) {
+      ss << "[id:" << symbol().id() << "]";
+    }
   } else if (op_ == Op::size) {
     ASSERT(args().size() == 1);
-    ss << "|" << args().at(0).dump() << "|";
+    ss << "|" << args().at(0).dump(short_form) << "|";
   } else if (op_ == Op::max) {
     ASSERT(args().size() == 2);
-    ss << "max(" << args().at(0).dump() << ", " << args().at(1).dump() << ")";
+    ss << "max(" << args().at(0).dump(short_form) << ", "
+       << args().at(1).dump(short_form) << ")";
   } else if (op_ == Op::negate) {
     ASSERT(args().size() == 1);
     auto arg = args().at(0);
     ss << "-";
     if (arg.type() == Expr::Type::function) {
-      ss<< "(" << args().at(0).dump() << ")";
+      ss << "(" << args().at(0).dump(short_form) << ")";
     } else {
-      ss<< args().at(0).dump();
+      ss << args().at(0).dump(short_form);
     }
   } else if (op_ == Op::reciprocal) {
     ASSERT(args().size() == 1);
-    ss << args().at(0).dump() << "^-1";
+    ss << args().at(0).dump(short_form) << "^-1";
   } else {
     ASSERT(args().size() == 2);
     auto lhs = args().at(0);
     auto rhs = args().at(1);
     if (lhs.op() == Op::constant || lhs.args().size() == 1) {
-      ss << lhs.dump();
+      ss << lhs.dump(short_form);
     } else {
-      ss << "(" << lhs.dump() << ")";
+      ss << "(" << lhs.dump(short_form) << ")";
     }
-
+    // we pretty print addition of negatives
     if (op_ == Op::add) {
-      ss << "+";
+      if (rhs.op() == Op::negate) {
+        ss << "-";
+        rhs = rhs.args().at(0);
+      } else if (rhs.type() == Type::value && rhs.value() < 0) {
+        ss << "-";
+        rhs = Expr(-rhs.value());
+      } else {
+        ss << "+";
+      }
     } else if (op_ == Op::multiply) {
       ss << "*";
     } else if (op_ == Op::divide) {
@@ -414,9 +449,9 @@ std::string Expr::dump() const {
     }
 
     if (rhs.op() == Op::constant || rhs.args().size() == 1) {
-      ss << rhs.dump();
+      ss << rhs.dump(short_form);
     } else {
-      ss << "(" << rhs.dump() << ")";
+      ss << "(" << rhs.dump(short_form) << ")";
     }
   }
   return ss.str();
@@ -530,7 +565,6 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
 // TODO improve robustness
 // Any contribution of testing/impl would be highly appreciated :)
 std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
-
   // 1. Get all symbols
   std::unordered_set<Symbol, Hash<Symbol>> all_symbols;
 
@@ -650,10 +684,11 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       auto size_exprs = p.second;
       for (auto& e : size_exprs) {
         if (e.type() == Expr::Type::value) {
-          ASSERT(!value_set) << "size of " << sym.name()
-                             << " set multiple times to different values"
-                             << " (new value: " << e.dump() << " old:"
-                             << " " << size_constraints[sym].begin()->dump() << ")";
+          ASSERT(!value_set)
+              << "size of " << sym.name()
+              << " set multiple times to different values"
+              << " (new value: " << e.dump() << " old:"
+              << " " << size_constraints[sym].begin()->dump() << ")";
           size_constraints[sym].clear();
           size_constraints[sym].insert(e);
           value_set = true;
@@ -662,12 +697,10 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
     }
   };
 
-
   for (auto i = 0; i < 3; ++i) {
     simplify_all_sizes();
     resolve_values();
   }
-
 
   // 6. Derive all indexing constraints
   std::unordered_map<Symbol, std::unordered_set<Expr, Hash<Expr>>, Hash<Symbol>>
@@ -698,7 +731,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       //  |x| = |y| - 1 + |k| - 1 + 1
       for (const auto& expr : index_constraints.at(sym)) {
         auto size_expr = expr.walk([&](const Expr& e) {
-          if (e.type() == Expr::Type::symbol && size_sym_map.count(e.symbol())) {
+          if (e.type() == Expr::Type::symbol &&
+              size_sym_map.count(e.symbol())) {
             return Expr(size_sym_map.at(e.symbol())) - Expr(1);
           }
           return e;
@@ -734,7 +768,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
     for (auto& expr : p.second) {
       max_expr = Expr::max(max_expr, expr);
     }
-    output_constraints.emplace_back(Expr::size(p.first), map_to_size_expr(max_expr));
+    output_constraints.emplace_back(Expr::size(p.first),
+                                    map_to_size_expr(max_expr));
   }
 
   for (auto& p : index_constraints) {

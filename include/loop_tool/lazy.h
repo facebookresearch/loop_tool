@@ -219,7 +219,8 @@ struct TensorImpl {
       auto& cc = getCompilationCache().at(h);
       return cc.ir;
     }
-    return lower().first;
+    auto ll = lower();
+    return schedule(ll.first, ll.second).ir;
   }
 
   inline LoopTree loop_tree() const {
@@ -344,6 +345,26 @@ struct Tensor {
     auto new_impl =
         std::make_shared<TensorImpl>(Operation::add, new_shape, deps);
     return Tensor(new_impl);
+  }
+
+  Tensor operator|(const Tensor& rhs) const {
+    ASSERT(impl_->shape().size() == rhs.impl()->shape().size());
+    std::vector<Symbol> out_shape;
+    std::vector<Constraint> constraints;
+    for (auto i = 0; i < impl_->shape().size(); ++i) {
+      auto lhs_sym = impl_->shape().at(i);
+      auto rhs_sym = rhs.impl()->shape().at(i);
+      if (lhs_sym == rhs_sym) {
+        out_shape.emplace_back(lhs_sym);
+      } else {
+        auto new_sym = Symbol(lhs_sym.name() + rhs_sym.name());
+        out_shape.emplace_back(new_sym);
+        constraints.emplace_back(Constraint(new_sym, lhs_sym));
+        constraints.emplace_back(Constraint(new_sym, rhs_sym + Expr::size(lhs_sym)));
+        constraints.emplace_back(Constraint(Expr::size(new_sym), Expr::size(lhs_sym) + Expr::size(rhs_sym)));
+      }
+    }
+    return this->to(out_shape, constraints) + rhs.to(out_shape, constraints);
   }
 
   inline Tensor sum(std::vector<Symbol> reduction_vars) {

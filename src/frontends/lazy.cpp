@@ -8,7 +8,7 @@ std::unordered_map<size_t, CachedCompilation>& getCompilationCache() {
 }
 
 void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
-  //if (data) {
+  // if (data) {
   //  std::cerr << "WARNING deprecated feature TensorImpl::bind\n";
   //}
   memory_.address = data;
@@ -51,11 +51,28 @@ LoopTree TensorImpl::schedule(
   }
   for (const auto& n : ir.nodes()) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
-    for (const auto& v : ir.loop_vars(n)) {
-      order.emplace_back(
-          std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
+    switch (ir.node(n).op()) {
+      case Operation::read:
+      //case Operation::write:
+        ir.set_order(n, {});
+        break;
+      case Operation::view:
+        for (const auto& v : ir.node(n).vars()) {
+          // for (const auto& v : ir.node(ir.node(n).inputs().at(0)).vars()) {
+          order.emplace_back(
+              std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
+        }
+        ir.set_order(n, order);
+        break;
+      default: {
+        for (const auto& v : ir.loop_vars(n)) {
+          order.emplace_back(
+              std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
+        }
+        ir.set_order(n, order);
+        break;
+      }
     }
-    ir.set_order(n, order);
   }
   LoopTree loop_tree(ir);
   return loop_tree;
@@ -82,6 +99,7 @@ IR::NodeRef TensorImpl::resolve(
     std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const {
   std::vector<IR::NodeRef> node_deps;
   std::vector<IR::VarRef> vars;
+  std::vector<Constraint> node_constraints;
   std::unordered_map<int, IR::VarRef> sym_var_map;
   for (const auto& d : deps_) {
     auto node_ref = d->resolve(ir, var_map);
@@ -106,8 +124,21 @@ IR::NodeRef TensorImpl::resolve(
     auto& p = var_map.at(s.id());
     vars.emplace_back(p.first);
   }
-  for (auto& p : var_map) {
+  for (const auto& p : var_map) {
     sym_var_map[p.first] = p.second.first;
+  }
+  for (const auto& c : constraints_) {
+    auto in_map = [&](const Expr& e) {
+      for (const auto& s : e.symbols()) {
+        if (!sym_var_map.count(s.id())) {
+          return false;
+        }
+      }
+      return true;
+    };
+    if (in_map(c.first) && in_map(c.second)) {
+      node_constraints.emplace_back(c);
+    }
   }
 
   switch (op_) {
@@ -116,8 +147,8 @@ IR::NodeRef TensorImpl::resolve(
       node_ref = node_deps[0];
       break;
     case Operation::view:
-      node_ref = ir.create_node(Operation::view, node_deps, vars, constraints_,
-                                sym_var_map);
+      node_ref = ir.create_node(Operation::view, node_deps, vars,
+                                node_constraints, sym_var_map);
       break;
     case Operation::constant:
       node_ref = ir.create_node(Operation::read, {}, vars);
@@ -244,6 +275,7 @@ void TensorImpl::unify() {
 
 std::unique_ptr<Compiled> TensorImpl::backend_compile(
     const LoopTree& loop_tree) {
+  // legacy
   std::unordered_set<LoopTree::TreeRef> parallel;
   loop_tree.walk([&](LoopTree::TreeRef ref, int) {
     if (loop_tree.annotation(ref).find("parallel") != std::string::npos) {

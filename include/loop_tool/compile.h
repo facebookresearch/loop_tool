@@ -17,9 +17,93 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+using InnerFnTypeImproved =
+    std::function<void(const std::vector<void *> &, int[MAX_DEPTH])>;
+
+// Generates runnable code (there's also CodeGenerator, which generates text)
+class Compiler {
+ public:
+  struct Allocation {
+    Allocation() = default;
+    Allocation(int memory_idx) : mem_idx(memory_idx) {}
+    Allocation(int memory_idx, const std::vector<int64_t> &sizes_,
+               LoopTree::TreeRef ref_, LoopTree::TreeRef lca_)
+        : mem_idx(memory_idx), sizes(sizes_), ref(ref_), lca(lca_) {}
+    int mem_idx = -1;
+    // scoped sizes
+    std::vector<int64_t> sizes;
+    std::vector<int64_t> strides;
+    inline int64_t size() const {
+      int64_t s = 1;
+      for (const auto& s_ :sizes) {
+        s *= s_;
+      }
+      return s;
+    }
+    LoopTree::TreeRef ref = -1;
+    LoopTree::TreeRef lca = -1;
+  };
+
+  struct Access {
+    Access(const Allocation& a) : alloc(a) {}
+    Allocation alloc;
+    // stride, offset, max
+    std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
+  };
+
+  //using Access =
+  //    std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>>;
+
+  LoopTree lt;
+  std::unordered_map<LoopTree::TreeRef, int64_t>
+      inner_sizes;  // total size of inner loops over same var
+  std::unordered_map<IR::NodeRef, Allocation> allocations;
+  std::unordered_map<IR::NodeRef, IR::NodeRef> resolved_views;
+  std::unordered_map<IR::VarRef, int64_t> var_sizes;
+  std::unordered_map<IR::VarRef, symbolic::Symbol> var_to_sym;
+  std::unordered_map<symbolic::Symbol, IR::VarRef,
+                     symbolic::Hash<symbolic::Symbol>>
+      sym_to_var;
+
+  Compiler(const LoopTree &lt_);
+
+  Allocation gen_alloc(IR::NodeRef node_ref) const;
+  // given a node used at point "ref", generate access information
+  Access gen_access(IR::NodeRef node, LoopTree::TreeRef ref) const;
+  std::vector<symbolic::Constraint> gen_constraints(
+      IR::NodeRef node, LoopTree::TreeRef ref) const;
+
+  InnerFnTypeImproved gen_loop(
+      LoopTree::TreeRef ref,
+      std::unordered_map<IR::VarRef, int> overrides) const;
+  // TODO remove overrides from node gen
+  InnerFnTypeImproved gen_node(
+      LoopTree::TreeRef ref,
+      std::unordered_map<IR::VarRef, int> overrides) const;
+  InnerFnTypeImproved gen_mem_node(
+      LoopTree::TreeRef ref,
+      std::unordered_map<IR::VarRef, int> overrides) const;
+InnerFnTypeImproved gen_add_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const;
+InnerFnTypeImproved gen_mul_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<IR::VarRef, int> overrides) const;
+  std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(
+      LoopTree::TreeRef ref, const Access &access) const;
+  InnerFnTypeImproved gen_node_old(
+      LoopTree::TreeRef ref,
+      std::unordered_map<IR::VarRef, int> overrides) const;
+
+  InnerFnTypeImproved gen(
+      LoopTree::TreeRef ref = -1,
+      std::unordered_map<IR::VarRef, int> overrides = {}) const;
+  std::vector<void *> allocate() const;
+};
+
 struct Allocation {
-  size_t size;
-  size_t thread_size;
+  int64_t size;
+  int64_t thread_size;
   int idx;
   bool should_init;
   float init_val;         // TODO don't hardcode float type
@@ -30,7 +114,7 @@ struct Allocation {
 // unfortunately, there is some required auxiliary information
 struct Auxiliary {
   std::unordered_map<IR::VarRef, int> var_idx;  // index into "tails" array
-  std::unordered_map<LoopTree::TreeRef, size_t>
+  std::unordered_map<LoopTree::TreeRef, int64_t>
       inner_size;  // total size of inner loops over same var
   std::unordered_map<IR::NodeRef, Allocation>
       allocs;  // intermediate allocations
@@ -50,19 +134,20 @@ using GenFnType = std::function<InnerFnType(const LoopTree &, const Auxiliary &,
 // returns pairs loop depth, inner size for the var at that depth
 //   assuming indices is a map from the loop depth to the current loop
 //   iteration, index = indices[p.first] * p.second for p in idx_vec
-std::vector<std::pair<int, size_t>> gen_idx_vector(const LoopTree &lt,
-                                                   const Auxiliary &aux,
-                                                   const Allocation &alloc,
-                                                   LoopTree::TreeRef use);
-std::function<size_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
-                                                   const Auxiliary &aux,
-                                                   const Allocation &alloc,
-                                                   LoopTree::TreeRef use);
+std::vector<std::pair<int, int64_t>> gen_idx_vector(const LoopTree &lt,
+                                                    const Auxiliary &aux,
+                                                    const Allocation &alloc,
+                                                    LoopTree::TreeRef use);
+std::function<int64_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
+                                                    const Auxiliary &aux,
+                                                    const Allocation &alloc,
+                                                    LoopTree::TreeRef use);
 void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref);
 void exec(const LoopTree &lt, const std::vector<void *> &memory);
 
 Auxiliary calculate_aux(const LoopTree &lt);
-std::pair<std::function<void(const std::vector<void *> &)>, std::vector<size_t>>
+std::pair<std::function<void(const std::vector<void *> &)>,
+          std::vector<int64_t>>
 compile(const LoopTree &lt,
         std::function<InnerFnType(const LoopTree &, const Auxiliary &,
                                   LoopTree::TreeRef)>

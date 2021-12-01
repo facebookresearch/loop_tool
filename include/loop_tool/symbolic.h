@@ -88,6 +88,7 @@ struct Expr {
   Expr replace(Symbol A, int64_t c) const;
   // actually returns count
   size_t contains(Symbol s) const;
+  std::vector<Symbol> symbols() const;
 
   static Expr size(const Expr& expr);
   static Expr max(const Expr& lhs, const Expr& rhs);
@@ -100,7 +101,7 @@ struct Expr {
   Expr reciprocal() const;
   bool operator!=(const Expr& rhs) const;
   bool operator==(const Expr& rhs) const;
-  std::string dump() const;
+  std::string dump(bool short_form = false) const;
   size_t size() const;
 };
 
