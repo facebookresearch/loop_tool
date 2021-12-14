@@ -30,6 +30,14 @@ struct DynamicLibrary {
     return symbol;
   }
 
+  template <typename F>
+  F sym(const char* sym_name) const {
+    F fn;
+    auto fnp = sym(sym_name);
+    reinterpret_cast<void*&>(fn) = fnp;
+    return fn;
+  }
+
   ~DynamicLibrary() { dlclose(lib_); }
 
  private:

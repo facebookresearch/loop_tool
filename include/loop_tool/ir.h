@@ -169,8 +169,8 @@ class IR {
   using NodeRef = int;
   using VarRef = int;
   struct LoopSize {
-    int size;
-    int tail;
+    int64_t size;
+    int64_t tail;
   };
 
   NodeRef create_node(Operation op, std::vector<NodeRef> inputs,
@@ -246,6 +246,7 @@ class IR {
 
   std::string dump(NodeRef ref) const;
   std::vector<VarRef> pointwise_vars(NodeRef ref) const;
+  std::vector<VarRef> reduction_vars(NodeRef ref) const;
   std::vector<VarRef> loop_vars(NodeRef ref) const;
   std::vector<VarRef> all_vars(NodeRef ref) const;
 
@@ -339,8 +340,8 @@ struct LoopTree {
   struct Loop {
     IR::VarRef var;
     int var_depth;
-    int size;
-    int tail;
+    int64_t size;
+    int64_t tail;
     bool operator==(const Loop &other) const {
       return var == other.var && var_depth == other.var_depth &&
              size == other.size && tail == other.tail;

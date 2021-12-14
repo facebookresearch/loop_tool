@@ -1,3 +1,9 @@
+/*
+Copyright (c) Facebook, Inc. and its affiliates.
+
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree.
+*/
 #pragma once
 
 #include <memory>
@@ -5,6 +11,7 @@
 #include <vector>
 
 #include "loop_tool/backend.h"
+#include "loop_tool/compile.h"
 #include "loop_tool/ir.h"
 #include "loop_tool/symbolic.h"
 
@@ -234,6 +241,11 @@ struct TensorImpl {
     }
   }
 
+  inline std::string code() const {
+    auto compiler = Compiler(loop_tree());
+    return compiler.gen_string();
+  }
+
   inline void set(const IR& ir) {
     auto h = hash();
     ASSERT(getCompilationCache().count(h))
@@ -432,6 +444,7 @@ struct Tensor {
   }
   inline LoopTree loop_tree() const { return impl_->loop_tree(); }
   inline IR ir() const { return impl_->ir(); }
+  inline std::string code() const { return impl_->code(); }
   inline void set(const IR& ir) { impl_->set(ir); }
   inline void set(const LoopTree& loop_tree) { impl_->set(loop_tree); }
 

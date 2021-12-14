@@ -8,6 +8,7 @@ file(GLOB CORE_SRCS
   ${SRC_DIR}/core/*.cpp
 )
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
+list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
 
 file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp

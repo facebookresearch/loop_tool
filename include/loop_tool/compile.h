@@ -52,6 +52,15 @@ class Compiler {
     std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
   };
 
+  struct IdxInformation {
+    std::vector<int64_t> strides;
+    int64_t offset = 0;
+    // optional overrides
+    std::vector<int> idxs;
+    std::vector<int64_t> maxes;
+    std::vector<int64_t> mins;
+  };
+
   LoopTree lt;
   std::unordered_map<LoopTree::TreeRef, int64_t>
       inner_sizes;  // total size of inner loops over same var
@@ -66,35 +75,51 @@ class Compiler {
   Compiler(const LoopTree &lt_);
 
   Allocation gen_alloc(IR::NodeRef node_ref) const;
+
   // given a node used at point "ref", generate access information
   Access gen_access(IR::NodeRef node, LoopTree::TreeRef ref) const;
+
   std::vector<symbolic::Constraint> gen_constraints(
       IR::NodeRef node, LoopTree::TreeRef ref) const;
+
+  InnerFnTypeImproved gen_reset(LoopTree::TreeRef ref) const;
+
+  IdxInformation gen_idx_info(LoopTree::TreeRef ref,
+                              const Compiler::Access &access) const;
+  std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(
+      LoopTree::TreeRef ref, const Access &access) const;
+
+  InnerFnTypeImproved gen_mem_node(LoopTree::TreeRef ref) const;
+  InnerFnTypeImproved gen_add_node(LoopTree::TreeRef ref) const;
+  InnerFnTypeImproved gen_mul_node(LoopTree::TreeRef ref) const;
+  InnerFnTypeImproved gen_node(LoopTree::TreeRef ref) const;
 
   InnerFnTypeImproved gen_loop(
       LoopTree::TreeRef ref,
       std::unordered_map<IR::VarRef, int> overrides) const;
-  // TODO remove overrides from node gen
-  InnerFnTypeImproved gen_node(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
-  InnerFnTypeImproved gen_mem_node(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
-  InnerFnTypeImproved gen_add_node(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
-  InnerFnTypeImproved gen_mul_node(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
-  std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(
-      LoopTree::TreeRef ref, const Access &access) const;
 
-  InnerFnTypeImproved gen(
+  InnerFnTypeImproved gen_exec(
       LoopTree::TreeRef ref = -1,
       std::unordered_map<IR::VarRef, int> overrides = {}) const;
-  InnerFnTypeImproved gen_reset(LoopTree::TreeRef ref) const;
+
+  std::string gen_access_string(IR::NodeRef node_ref,
+                                LoopTree::TreeRef ref) const;
+  std::string gen_reset_string(LoopTree::TreeRef ref) const;
+  std::string gen_mem_node_string(LoopTree::TreeRef ref) const;
+  std::string gen_compute_node_string(LoopTree::TreeRef ref) const;
+  inline std::string gen_indent(LoopTree::TreeRef ref, int extra = 0) const {
+    return std::string((lt.depth(ref) + 1 + extra) * 2, ' ');
+  }
+  std::string gen_node_string(LoopTree::TreeRef ref) const;
+  std::string gen_loop_string(
+      LoopTree::TreeRef ref,
+      std::unordered_map<IR::VarRef, int> overrides) const;
+  std::string gen_string(
+      LoopTree::TreeRef ref = -1,
+      std::unordered_map<IR::VarRef, int> overrides = {}) const;
+
   std::vector<void *> allocate() const;
+  std::vector<int64_t> memory_sizes() const;
 };
 
 struct Allocation {

@@ -451,7 +451,7 @@ TEST(LazyPaddedConv) {
     }
   }
   LoopTree loop_tree(ir);
-  auto f = Compiler(loop_tree).gen(-1);
+  auto f = Compiler(loop_tree).gen_exec(-1);
   //ASSERT(0);
 
   Y.compile();

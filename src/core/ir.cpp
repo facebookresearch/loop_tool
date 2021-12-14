@@ -185,6 +185,21 @@ std::vector<IR::VarRef> IR::pointwise_vars(IR::NodeRef idx) const {
   return pointwise_vars;
 }
 
+std::vector<IR::VarRef> IR::reduction_vars(IR::NodeRef idx) const {
+  auto var_vec = node(idx).vars();
+  std::unordered_set<IR::VarRef> vars = {var_vec.begin(), var_vec.end()};
+  std::vector<IR::VarRef> reduction_vars;
+  for (auto inp : inputs()) {
+    for (auto v : node(inp).vars()) {
+      if (!vars.count(v)) {
+        reduction_vars.emplace_back(v);
+        vars.insert(v);
+      }
+    }
+  }
+  return reduction_vars;
+}
+
 std::vector<IR::VarRef> IR::all_vars(IR::NodeRef node_ref) const {
   const auto &n = node(node_ref);
   auto var_vec = n.vars();
