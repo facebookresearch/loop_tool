@@ -214,35 +214,35 @@ def test_annot(N, M):
     #   3. disable reuse (discrete)
     #   3. thread (discrete)
 
-    ir.set_order(r, [n : Var, 8, 0, m : Var, 7, 0])
-    for n in 8:
-      for m in 7:
-        r[n * 7 + m]
-    ir.set_order(r, [n : Var, 2, 2, m : Var, 7, 0, n : Var, 3, 0])
-    for n in 2 r 2:
-      for m in 7:
-        for n_1 in 3:
-          r[(n * 3 + n_1) * 7 + m]
+    # ir.set_order(r, [n : Var, 8, 0, m : Var, 7, 0])
+    # for n in 8:
+    #  for m in 7:
+    #    r[n * 7 + m]
+    # ir.set_order(r, [n : Var, 2, 2, m : Var, 7, 0, n : Var, 3, 0])
+    # for n in 2 r 2:
+    #  for m in 7:
+    #    for n_1 in 3:
+    #      r[(n * 3 + n_1) * 7 + m]
 
-    === 
-    [1, 2, 4, 5, 6]
-    [1, 2, (4, 5, 6)]
-    [1, 2, (5, 4, 6)]
-    [1, (2, 5, 4), 6]
-    [1, (5, 2, 4), 6]
-    [(1, 5, 2), 4, 6]
+    # ===
+    # [1, 2, 4, 5, 6]
+    # [1, 2, (4, 5, 6)]
+    # [1, 2, (5, 4, 6)]
+    # [1, (2, 5, 4), 6]
+    # [1, (5, 2, 4), 6]
+    # [(1, 5, 2), 4, 6]
 
-    for n in 2:
-      for m in 7:
-        for n_1 in 3:
-          r[(n * 3 + n_1) * 7 + m]
-    n = 2
-      for m in 7:
-        for n_1 in 2:
-          r[(n * 3 + n_1) * 7 + m]
+    # for n in 2:
+    #  for m in 7:
+    #    for n_1 in 3:
+    #      r[(n * 3 + n_1) * 7 + m]
+    # n = 2
+    #  for m in 7:
+    #    for n_1 in 2:
+    #      r[(n * 3 + n_1) * 7 + m]
 
-    #ir.disable_reuse(r)
-    #ir.thread(r)
+    # ir.disable_reuse(r)
+    # ir.thread(r)
 
     ir.set_order(add0, [(n, (N, 0)), (m, (M, 0))])
     ir.disable_reuse(r, m)
