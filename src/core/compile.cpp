@@ -1065,7 +1065,7 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
     auto p = lt.parent(ref);
     auto i = 1;
     bool emitted = false;
-    while (p != -1) {
+    while (p != acc.alloc.lca) {
       // auto loop = lt.loop(p);
       auto stride = info.strides[info.strides.size() - i];
       if (stride > 0) {
@@ -1111,21 +1111,27 @@ std::string Compiler::gen_reset_string(LoopTree::TreeRef ref) const {
       return 0;
     } else if (node.op() == Operation::multiply) {
       return 1;
+    } else if (node.op() == Operation::view) {
+      return 0;  // TODO fix
     }
-    ASSERT(0);
+    ASSERT(0) << "cannot find default value for " << dump(node.op());
     return -1;
   };
   for (const auto &p : allocations) {
     const auto &alloc = p.second;
     if (alloc.lca == ref) {
       const auto &node = lt.ir.node(alloc.node_ref);
-      if (alloc.size() == 1) {
+      bool is_reduction = lt.ir.reduction_vars(alloc.node_ref).size() &&
+                          node.op() != Operation::view;
+      if (node.op() == Operation::read || node.op() == Operation::write) {
+        continue;
+      } else if (alloc.size() == 1) {
         ss << line_prefix << "float v" << alloc.mem_idx;
-        if (lt.ir.reduction_vars(alloc.node_ref).size()) {
+        if (is_reduction) {
           ss << " = " << value(node);
         }
         ss << ";\n";
-      } else if (lt.ir.reduction_vars(alloc.node_ref).size()) {
+      } else if (is_reduction) {
         ss << line_prefix << "set((float*)memory[" << alloc.mem_idx << "], ";
         ss << value(node) << ", " << alloc.size() << ");\n";
       }
@@ -1174,6 +1180,9 @@ std::string Compiler::gen_node_string(LoopTree::TreeRef ref) const {
   auto line_prefix = gen_indent(ref);
   const auto &node = lt.ir.node(lt.node(ref));
 
+  if (lt.children(lt.parent(ref)).at(0) == ref) {
+    ss << gen_reset_string(lt.parent(ref));
+  }
   ss << line_prefix;
   switch (node.op()) {
     case Operation::write:
@@ -1223,10 +1232,11 @@ std::string Compiler::gen_loop_string(
     }
   }
 
-  auto reset = gen_reset_string(ref);
+  if (lt.children(lt.parent(ref)).at(0) == ref) {
+    ss << gen_reset_string(lt.parent(ref));
+  }
   ss << line_prefix << "for (int64_t " << iter_var << " = 0L; ";
   ss << iter_var << " < " << size << "L; ++" << iter_var << ") {\n";
-  ss << gen_reset_string(ref);
   for (auto c : body_children) {
     ss << c;
   }
@@ -1262,6 +1272,7 @@ static inline void set(float* mem, float val, int64_t length) {
 })"""";
     ss << "\n\n";
     ss << "void fn(void** memory) {\n";
+    // ss << gen_reset_string(ref);
     for (auto c : lt.roots) {
       ss << gen_string(c);
     }

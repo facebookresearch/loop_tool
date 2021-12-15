@@ -248,9 +248,10 @@ struct TensorImpl {
 
   inline void set(const IR& ir) {
     auto h = hash();
-    ASSERT(getCompilationCache().count(h))
-        << "please call compile() to populate the size information before "
-           "setting a custom schedule";
+
+    if (!getCompilationCache().count(h)) {
+      compile();
+    }
     auto& cc = getCompilationCache().at(h);
     LoopTree loop_tree(ir);
     auto new_cc = backend_compile(loop_tree);
@@ -259,9 +260,9 @@ struct TensorImpl {
 
   inline void set(const LoopTree& loop_tree) {
     auto h = hash();
-    ASSERT(getCompilationCache().count(h))
-        << "please call compile() to populate the size information before "
-           "setting a custom schedule";
+    if (!getCompilationCache().count(h)) {
+      compile();
+    }
     auto& cc = getCompilationCache().at(h);
     auto new_cc = backend_compile(loop_tree);
     cc = CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,

@@ -18,10 +18,10 @@ TEST(MutateSplit) {
   };
 
   lz::Tensor A(16, 16);
-  lz::Tensor B(16, 16);
+  lz::Tensor B(16, 17);
   auto C = mm(A, B);
   auto lt = C.loop_tree();
-  std::cerr << '\n';
+  std::cerr << "presplit:\n";
   std::cerr << lt.dump();
   std::cerr << '\n';
   auto r = lt.children(lt.roots.at(0)).at(0);
@@ -39,7 +39,7 @@ TEST(MutateSwap) {
   };
 
   lz::Tensor A(16, 16);
-  lz::Tensor B(16, 16);
+  lz::Tensor B(16, 17);
   auto C = mm(A, B);
   auto lt = C.loop_tree();
   std::cerr << '\n';

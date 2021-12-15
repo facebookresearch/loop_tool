@@ -31,7 +31,8 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
   auto node_refs = collect_nodes(lt, ref);
   auto loop = lt.loop(ref);
 
-  ASSERT(loop.size / size > 0);
+  ASSERT(loop.size / size > 0)
+      << "attempting to split a loop of size " << loop.size << " by " << size;
   auto new_size = loop.size / size;
   auto new_tail = loop.size % size;
   auto split0 = std::make_pair(loop.var, IR::LoopSize{new_size, new_tail});
@@ -109,7 +110,9 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
         b_idx = i;
       }
     }
-    ASSERT(a_idx >= 0 && b_idx >= 0);
+    if (a_idx < 0 || b_idx < 0) {
+      continue;
+    }
     auto order = lt.ir.order(node_ref);
     std::iter_swap(order.begin() + a_idx, order.begin() + b_idx);
     new_ir.set_order(node_ref, order);

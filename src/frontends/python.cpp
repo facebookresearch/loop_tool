@@ -17,6 +17,7 @@ LICENSE file in the root directory of this source tree.
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
 #include "loop_tool/lazy.h"
+#include "loop_tool/mutate.h"
 #include "loop_tool/tensor.h"
 
 #ifdef ENABLE_CUDA
@@ -166,13 +167,22 @@ PYBIND11_MODULE(loop_tool_py, m) {
           py::arg("root") = -1);
     }
   }
+  py::class_<Compiler::Allocation>(m, "CompilerAllocation")
+      .def_property_readonly("size", &Compiler::Allocation::size);
+  py::class_<Compiler>(m, "Compiler")
+      .def(py::init<const LoopTree &>())
+      .def_property_readonly("allocations",
+                             [](const Compiler &c) { return c.allocations; });
+
   py::class_<LoopTree::Loop>(m, "Loop")
       .def_property_readonly("var",
                              [](LoopTree::Loop &loop) { return loop.var; })
       .def_property_readonly("size",
                              [](LoopTree::Loop &loop) { return loop.size; })
       .def_property_readonly("tail",
-                             [](LoopTree::Loop &loop) { return loop.tail; });
+                             [](LoopTree::Loop &loop) { return loop.tail; })
+      .def("__eq__", &LoopTree::Loop::operator==);
+  //[](LoopTree::Loop &loop) { return loop.tail; });
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
       .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
@@ -183,10 +193,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              return trivially_parallel(lt, ref);
            })
-      .def("children",
-           [](const LoopTree &lt, LoopTree::TreeRef ref) {
-             return lt.tree_node(ref).children;
-           })
+      .def("children", &LoopTree::children)
+      .def("parent", &LoopTree::parent)
       .def("leaves",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              std::vector<LoopTree::TreeRef> leaves;
@@ -220,6 +228,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
              ASSERT(lt.kind(ref) == LoopTree::LOOP);
              return lt.loop(ref);
            })
+      .def("is_loop",
+           [](const LoopTree &lt, LoopTree::TreeRef ref) {
+             return lt.kind(ref) == LoopTree::LOOP;
+           })
       .def("dump",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              if (lt.kind(ref) == LoopTree::LOOP) {
@@ -237,6 +249,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def(
           "dump", &LoopTree::dump,
           py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
+      .def("walk", &LoopTree::walk, py::arg("callback"), py::arg("root") = -1)
       .def(
           "__repr__", &LoopTree::dump,
           py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
@@ -248,6 +261,12 @@ PYBIND11_MODULE(loop_tool_py, m) {
         }
         return exec(lt, memory);
       });
+  m.def("swap", [](LoopTree &lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
+    return loop_tool::swap(lt, a, b);
+  });
+  m.def("split", [](LoopTree &lt, LoopTree::TreeRef ref, int64_t size) {
+    return loop_tool::split(lt, ref, size);
+  });
 
   py::class_<lazy::Symbol>(m, "Symbol")
       .def(py::init<std::string>())
@@ -332,9 +351,12 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return t.as(output_shape);
            })
       .def("__getitem__",
-           [](lazy::Tensor &t, py::args args) {
+           [](lazy::Tensor &t, py::args args_) {
+             auto args = py::cast<py::tuple>(args_[0]);
              if (args.size() != t.shape().size()) {
-               throw py::index_error();
+               throw py::index_error("Expected shape of size " +
+                                     std::to_string(t.shape().size()) +
+                                     " got " + std::to_string(args.size()));
              }
              std::vector<lazy::Symbol> output_shape;
              std::unordered_set<lazy::Symbol, symbolic::Hash<lazy::Symbol>>
@@ -342,7 +364,13 @@ PYBIND11_MODULE(loop_tool_py, m) {
              std::vector<lazy::Constraint> constraints;
              auto i = 0;
              for (auto &a : args) {
-               auto expr = py::cast<lazy::Expr>(a);
+               auto expr = [&]() {
+                 if ((std::string)py::str(a.get_type()) ==
+                     "<class 'loop_tool_py.Symbol'>") {
+                   return lazy::Expr(py::cast<lazy::Symbol>(a));
+                 }
+                 return py::cast<lazy::Expr>(a);
+               }();
                expr.walk([&](const lazy::Expr &e) {
                  if (e.type() == lazy::Expr::Type::symbol) {
                    auto sym = e.symbol();
@@ -418,6 +446,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("ir", [](lazy::Tensor &t) { return t.ir(); })
       .def_property_readonly("loop_tree",
                              [](lazy::Tensor &t) { return t.loop_tree(); })
+      .def_property_readonly("code", [](lazy::Tensor &t) { return t.code(); })
       .def_property_readonly("shape", [](lazy::Tensor &t) {
         std::vector<size_t> sizes;
         for (auto i = 0; i < t.shape().size(); ++i) {

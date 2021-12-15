@@ -108,7 +108,8 @@ class Compiler {
   std::string gen_mem_node_string(LoopTree::TreeRef ref) const;
   std::string gen_compute_node_string(LoopTree::TreeRef ref) const;
   inline std::string gen_indent(LoopTree::TreeRef ref, int extra = 0) const {
-    return std::string((lt.depth(ref) + 1 + extra) * 2, ' ');
+    auto depth = ((ref == -1) ? 0 : lt.depth(ref) + 1);
+    return std::string((depth + extra) * 2, ' ');
   }
   std::string gen_node_string(LoopTree::TreeRef ref) const;
   std::string gen_loop_string(

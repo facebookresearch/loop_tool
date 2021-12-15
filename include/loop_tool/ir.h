@@ -414,6 +414,9 @@ struct LoopTree {
   }
 
   inline const std::vector<TreeRef> &children(TreeRef ref) const {
+    if (ref == -1) {
+      return roots;
+    }
     ASSERT(ref < nodes.size());
     return nodes[ref].children;
   }
