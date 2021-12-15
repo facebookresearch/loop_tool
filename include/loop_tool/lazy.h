@@ -377,7 +377,45 @@ struct Tensor {
     return this->to(out_shape, constraints) + rhs.to(out_shape, constraints);
   }
 
-  inline Tensor sum(std::vector<Symbol> reduction_vars) {
+  Tensor pad(Symbol padded_dim, int64_t amount) {
+    ASSERT(amount >= 0) << "cannot pad by a negative number";
+    if (amount == 0) {
+      return *this;
+    }
+    auto new_sym = Symbol(padded_dim.name() + "_pad_" + std::to_string(amount));
+    std::vector<Symbol> out_shape;
+    for (const auto& sym : shape()) {
+      if (sym == padded_dim) {
+        out_shape.emplace_back(new_sym);
+      } else {
+        out_shape.emplace_back(sym);
+      }
+    }
+    return this->to(out_shape, Constraint(new_sym, padded_dim + Expr(amount)),
+                    Constraint(Expr::size(new_sym),
+                               Expr::size(padded_dim) + Expr(amount << 1)));
+  }
+
+  Tensor transpose(std::vector<int> order) {
+    ASSERT(order.size() == shape().size()) << "invalid transpose";
+    std::vector<Symbol> new_shape;
+    for (auto idx : order) {
+      ASSERT(idx < order.size()) << "invalid transpose";
+      new_shape.emplace_back(shape().at(idx));
+    }
+    auto new_impl = std::make_shared<TensorImpl>(*impl_);
+    new_impl->shape_ = new_shape;
+    return Tensor(new_impl);
+  }
+
+  Tensor transpose(std::vector<Symbol> new_shape) {
+    ASSERT(new_shape.size() == shape().size()) << "invalid transpose";
+    auto new_impl = std::make_shared<TensorImpl>(*impl_);
+    new_impl->shape_ = new_shape;
+    return Tensor(new_impl);
+  }
+
+  Tensor sum(std::vector<Symbol> reduction_vars) {
     std::unordered_set<int> reduction;
     for (auto rv : reduction_vars) {
       reduction.insert(rv.id());

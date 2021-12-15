@@ -225,7 +225,7 @@ std::vector<std::pair<int, int64_t>> gen_idx_vector(const LoopTree &lt,
 
   auto producer = lt.ir.node(producer_ref);
   auto user = lt.ir.node(user_ref);
-  auto producer_vars = producer.vars();  // lt.ir.loop_vars(producer_ref);
+  auto producer_vars = producer.vars();
   auto user_vars = lt.ir.loop_vars(user_ref);
   std::unordered_set<IR::VarRef> user_vars_set = {user_vars.begin(),
                                                   user_vars.end()};
@@ -921,6 +921,30 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
         }
       }
     }
+    // Sizes can also be defined by user specified loop orders
+    auto order = lt.ir.order(node_ref);
+    std::reverse(order.begin(), order.end());
+    std::unordered_map<IR::VarRef, int64_t> tmp_sizes;
+    for (const auto &o : order) {
+      if (!tmp_sizes.count(o.first)) {
+        tmp_sizes[o.first] = 1;
+      }
+      tmp_sizes[o.first] *= o.second.size;
+      tmp_sizes[o.first] += o.second.tail;
+    }
+    for (const auto &p : tmp_sizes) {
+      if (var_sizes.count(p.first)) {
+        ASSERT(var_sizes.at(p.first) == tmp_sizes.at(p.first))
+            << "incompatible loop sizes for " << lt.ir.var(p.first).name();
+        continue;
+      }
+      var_sizes[p.first] = tmp_sizes.at(p.first);
+    }
+  }
+
+  for (const auto &v : lt.ir.vars()) {
+    ASSERT(var_sizes.count(v))
+        << "size could not be deduced for var " << lt.ir.var(v).name();
   }
 
   for (auto &ref : reverse_order) {
@@ -1066,7 +1090,6 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
     auto i = 1;
     bool emitted = false;
     while (p != acc.alloc.lca) {
-      // auto loop = lt.loop(p);
       auto stride = info.strides[info.strides.size() - i];
       if (stride > 0) {
         if (emitted) {
@@ -1272,7 +1295,6 @@ static inline void set(float* mem, float val, int64_t length) {
 })"""";
     ss << "\n\n";
     ss << "void fn(void** memory) {\n";
-    // ss << gen_reset_string(ref);
     for (auto c : lt.roots) {
       ss << gen_string(c);
     }
@@ -1609,9 +1631,10 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
         auto base_sym = get_base_symbol(c);
         auto base_var = sym_to_var.at(base_sym);
         auto base_expr = isolate(c, base_sym).second;
-        auto stride = (base_sym == sym)
-                          ? Expr(base_strides.at(v))
-                          : differentiate(expr, base_sym).simplify();
+        auto stride = (base_sym == sym) ? Expr(base_strides.at(v))
+                                        : (differentiate(expr, base_sym) *
+                                           Expr(base_strides.at(base_var)))
+                                              .simplify();
         auto offset = (base_sym == sym) ? Expr(0) : zero(base_expr).simplify();
         auto max = var_sizes.at(base_var);
         auto v_max = var_sizes.at(v);
@@ -1622,8 +1645,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
             offset.type() != Expr::Type::value) {
           continue;
         }
-        access.vars[v] = std::make_tuple(
-            stride.value() * base_strides.at(base_var), offset.value(), max);
+        access.vars[v] = std::make_tuple(stride.value(), offset.value(), max);
         set = true;
         break;
       }
@@ -1658,7 +1680,7 @@ Compiler::IdxInformation Compiler::gen_idx_info(
         auto max = std::get<2>(t);
         if (max != -1 || offset < 0) {
           var_to_max_idx[loop.var] = info.maxes.size();
-          info.maxes.emplace_back(max - offset);
+          info.maxes.emplace_back(max * stride - offset);
           info.mins.emplace_back(-offset);
         }
         info.offset += offset * stride;
@@ -1736,13 +1758,20 @@ InnerFnTypeImproved Compiler::gen_mem_node(LoopTree::TreeRef ref) const {
   auto outacc = gen_access(node_ref, ref);
   auto outidx = gen_idx_fn(ref, outacc);
 
+  auto s = lt.ir.dump(node_ref);
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
     auto outi = outidx(indices);
     auto ini = inidx(indices);
     if (outi >= 0 && ini >= 0) {
+      ASSERT(outi < outacc.alloc.size())
+          << "accessing " << outi << " out of bounds (" << outacc.alloc.size()
+          << ")";
       ((float *)memory[outacc.alloc.mem_idx])[outi] =
           ((float *)memory[inacc.alloc.mem_idx])[ini];
     } else if (outi >= 0) {
+      ASSERT(outi < outacc.alloc.size())
+          << "accessing " << outi << " out of bounds (" << outacc.alloc.size()
+          << ")";
       ((float *)memory[outacc.alloc.mem_idx])[outi] = 0;
     }
   };

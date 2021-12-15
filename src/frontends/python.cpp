@@ -322,6 +322,18 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Tensor &t, lazy::Tensor &other) { return t * other; })
       .def("__add__",
            [](lazy::Tensor &t, lazy::Tensor &other) { return t + other; })
+      .def("__or__",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t | other; })
+      .def("pad", [](lazy::Tensor &t, lazy::Symbol s,
+                     int64_t amt) { return t.pad(s, amt); })
+      .def("transpose",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<lazy::Symbol> vars;
+             for (const auto &arg : args) {
+               vars.emplace_back(py::cast<lazy::Symbol>(arg));
+             }
+             return t.transpose(vars);
+           })
       .def("sum",
            [](lazy::Tensor &t, py::args args) {
              std::vector<lazy::Symbol> vars;
@@ -447,6 +459,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("loop_tree",
                              [](lazy::Tensor &t) { return t.loop_tree(); })
       .def_property_readonly("code", [](lazy::Tensor &t) { return t.code(); })
+      .def_property_readonly("symbolic_shape",
+                             [](lazy::Tensor &t) { return t.shape(); })
       .def_property_readonly("shape", [](lazy::Tensor &t) {
         std::vector<size_t> sizes;
         for (auto i = 0; i < t.shape().size(); ++i) {

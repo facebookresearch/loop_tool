@@ -653,10 +653,10 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
 
   auto sized_syms = [&]() {
     std::vector<std::pair<Symbol, Expr>> sizes;
-    for (auto& s : size_constraints) {
+    for (const auto& s : size_constraints) {
       auto sym = s.first;
       if (sized(sym)) {
-        auto expr = *size_constraints.at(sym).begin();
+        auto expr = *s.second.begin();
         sizes.emplace_back(sym, expr.simplify());
       }
     }
