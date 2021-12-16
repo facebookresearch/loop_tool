@@ -100,11 +100,9 @@ class CMakeBuild(build_ext):
         )
 
 
-# The information here can also be placed in setup.cfg - better separation of
-# logic and declaration, and simpler if you include description/version in a file.
 setup(
     name="loop_tool_py",
-    version="0.0.8",
+    version="0.0.9",
     author="Bram Wasti",
     author_email="bwasti@fb.com",
     description="A lightweight IR for dense linear algebra",

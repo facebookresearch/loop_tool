@@ -182,7 +182,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("tail",
                              [](LoopTree::Loop &loop) { return loop.tail; })
       .def("__eq__", &LoopTree::Loop::operator==);
-  //[](LoopTree::Loop &loop) { return loop.tail; });
+
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
       .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
