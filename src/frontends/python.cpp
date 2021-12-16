@@ -62,7 +62,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
   });
   m.def("set_default_hardware", [](std::string hardware) {
     bool set = false;
-    for (auto &hw : getHardware()) {
+    for (const auto &hw : getHardware()) {
       if (hw->name() == hardware) {
         default_hardware_id = hw->id();
         setDefaultHardwareId(hw->id());
@@ -131,7 +131,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
           [](Compiled *cc, std::vector<std::shared_ptr<Tensor>> tensors,
              bool sync) {
             std::vector<void *> memory;
-            for (auto &t : tensors) {
+            for (const auto &t : tensors) {
               ASSERT((t->data.compatible & cc->hardware_requirement) ==
                      cc->hardware_requirement)
                   << "Tensor on wrong hardware, perhaps use "
@@ -152,7 +152,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                   << " Compiled object";
         return py::cast(0);
       });
-  for (auto &backend_pair : getBackends()) {
+  for (const auto &backend_pair : getBackends()) {
     auto &backend = backend_pair.second;
     if (backend->hardware_requirement() & getAvailableHardware()) {
       m.def(
@@ -256,7 +256,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__call__", [](const LoopTree &lt,
                           std::vector<std::shared_ptr<Tensor>> tensors) {
         std::vector<void *> memory;
-        for (auto &t : tensors) {
+        for (const auto &t : tensors) {
           memory.emplace_back(t->data.address);
         }
         return exec(lt, memory);
@@ -375,7 +375,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                  output_syms;
              std::vector<lazy::Constraint> constraints;
              auto i = 0;
-             for (auto &a : args) {
+             for (const auto &a : args) {
                auto expr = [&]() {
                  if ((std::string)py::str(a.get_type()) ==
                      "<class 'loop_tool_py.Symbol'>") {
@@ -475,7 +475,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
              if (hardware == "default") {
                hardware_id = default_hardware_id;
              } else {
-               for (auto &hw : getHardware()) {
+               for (const auto &hw : getHardware()) {
                  if (hw->name() == hardware) {
                    hardware_id = hw->id();
                  }
