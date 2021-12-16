@@ -3,6 +3,7 @@ import numpy as np
 import curses
 from curses import wrapper
 
+# use with vim file -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
 
 def mm(A, B):
     s = lt.SymbolGenerator()
@@ -17,10 +18,10 @@ B = lt.Tensor(k, n).set(np.random.randn(k, n))
 s = lt.SymbolGenerator()
 C = mm(A, B).to(s.m, s.n).sum(s.m)  # * A.to(s.m, s.k)
 
-
 def conv(X, W):
-    with lt.SymbolGenerator() as s:
-        return (X[s.B, s.No + s.K] * W.to(s.B, s.K)).sum(s.K)
+    s = lt.SymbolGenerator()
+    X = X.pad(X.symbolic_shape[1], 1)
+    return (X[s.B, s.No + s.K] * W.to(s.B, s.K)).sum(s.K)
 
 
 X = lt.Tensor(256, 128).set(np.random.randn(256 * 128))

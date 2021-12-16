@@ -1084,6 +1084,38 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   auto acc = gen_access(node_ref, ref);
   auto info = gen_idx_info(ref, acc);
   if (acc.alloc.size() > 1) {
+    if (info.maxes.size()) {
+      std::unordered_map<int, std::string> bound_strings;
+      std::vector<LoopTree::TreeRef> ref_idxs;
+      auto p = lt.parent(ref);
+      while (p != -1) {
+        ref_idxs.emplace_back(p);
+        p = lt.parent(p);
+      }
+      std::reverse(ref_idxs.begin(), ref_idxs.end());
+      for (auto i = 0; i < info.strides.size(); ++i) {
+        auto bound_idx = info.idxs[i];
+        if (bound_idx == -1) {
+          continue;
+        }
+        auto stride = info.strides[i];
+        if (stride < 1) {
+          continue;
+        }
+        if (bound_strings[bound_idx].size()) {
+          bound_strings[bound_idx] += " + ";
+        }
+        bound_strings[bound_idx] += "i_" + std::to_string(ref_idxs.at(i));
+        if (stride > 1) {
+          bound_strings[bound_idx] += " * " + std::to_string(stride);
+        }
+      }
+      for (const auto &p : bound_strings) {
+        ss << "(" << p.second << " < " << info.maxes.at(p.first) << ") && ";
+        ss << "(" << p.second << " >= " << info.mins.at(p.first) << ") ? ";
+      }
+    }
+
     ss << "((float*)memory[" << acc.alloc.mem_idx << "])";
     ss << "[";
     auto p = lt.parent(ref);
@@ -1105,7 +1137,13 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
       p = lt.parent(p);
       i++;
     };
+    if (info.offset) {
+      ss << " + " << info.offset;
+    }
     ss << "]";
+    if (info.maxes.size()) {
+      ss << " : " << 0;
+    }
   } else {
     ss << "v" << acc.alloc.mem_idx;
   }

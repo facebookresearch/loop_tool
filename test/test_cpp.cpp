@@ -29,64 +29,64 @@ TEST(CppFromLazy) {
   auto C = mm(A, B);
   auto code = C.code();
 
-	std::ofstream("fn_impl.cpp") << code;
-	std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
+  std::ofstream("fn_impl.cpp") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
   loop_tool::DynamicLibrary dll("fn_impl.so");
-	auto fn = dll.sym<void(*)(void**)>("fn");
-	{
-		float* A = (float*)calloc(sizeof(float), 16 * 16);
-		float* B = (float*)calloc(sizeof(float), 16 * 16);
-		float* C = (float*)calloc(sizeof(float), 16 * 16);
-		float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
-		for (int64_t i = 0; i < 16*16; ++i) {
-			A[i] = i * 3;
-			B[i] = 100 - (i * 2);
-		}
-		for (int64_t i = 0; i < 16; ++i) {
-			for (int64_t j = 0; j < 16; ++j) {
-				for (int64_t k = 0; k < 16; ++k) {
-					C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
-				}
-			}
-		}
-		void* tmp = malloc(sizeof(float) * 16);
-		void *mem[5] = { A, B, C, 0, tmp };
-		fn(mem);
-		for (int64_t i = 0; i < 16 * 16; ++i) {
+  auto fn = dll.sym<void(*)(void**)>("fn");
+  {
+    float* A = (float*)calloc(sizeof(float), 16 * 16);
+    float* B = (float*)calloc(sizeof(float), 16 * 16);
+    float* C = (float*)calloc(sizeof(float), 16 * 16);
+    float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
+    for (int64_t i = 0; i < 16*16; ++i) {
+      A[i] = i * 3;
+      B[i] = 100 - (i * 2);
+    }
+    for (int64_t i = 0; i < 16; ++i) {
+      for (int64_t j = 0; j < 16; ++j) {
+        for (int64_t k = 0; k < 16; ++k) {
+          C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
+        }
+      }
+    }
+    void* tmp = malloc(sizeof(float) * 16);
+    void *mem[5] = { A, B, C, 0, tmp };
+    fn(mem);
+    for (int64_t i = 0; i < 16 * 16; ++i) {
       auto diff = std::abs(C[i] - C_ref[i]);
-			ASSERT(diff < 0.01) << "difference of " << diff;
-		}
-	}
+      ASSERT(diff < 0.01) << "difference of " << diff;
+    }
+  }
 
   // ensure the symbols are local
-	std::ofstream("fn_impl2.cpp") << code;
-	std::system("cc -O2 -Wall -Werror -fpic -shared -o fn_impl.so fn_impl2.cpp"); // compile
+  std::ofstream("fn_impl2.cpp") << code;
+  std::system("cc -O2 -Wall -Werror -fpic -shared -o fn_impl.so fn_impl2.cpp"); // compile
   loop_tool::DynamicLibrary dll2("fn_impl.so");
-	auto fn2 = dll.sym<void(*)(void**)>("fn");
-	{
-		float* A = (float*)calloc(sizeof(float), 16 * 16);
-		float* B = (float*)calloc(sizeof(float), 16 * 16);
-		float* C = (float*)calloc(sizeof(float), 16 * 16);
-		float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
-		for (int64_t i = 0; i < 16*16; ++i) {
-			A[i] = i * 3;
-			B[i] = 100 - (i * 2);
-		}
-		for (int64_t i = 0; i < 16; ++i) {
-			for (int64_t j = 0; j < 16; ++j) {
-				for (int64_t k = 0; k < 16; ++k) {
-					C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
-				}
-			}
-		}
-		void* tmp = malloc(sizeof(float) * 16);
-		void *mem[5] = { A, B, C, 0, tmp };
-		fn2(mem);
-		for (int64_t i = 0; i < 16 * 16; ++i) {
+  auto fn2 = dll.sym<void(*)(void**)>("fn");
+  {
+    float* A = (float*)calloc(sizeof(float), 16 * 16);
+    float* B = (float*)calloc(sizeof(float), 16 * 16);
+    float* C = (float*)calloc(sizeof(float), 16 * 16);
+    float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
+    for (int64_t i = 0; i < 16*16; ++i) {
+      A[i] = i * 3;
+      B[i] = 100 - (i * 2);
+    }
+    for (int64_t i = 0; i < 16; ++i) {
+      for (int64_t j = 0; j < 16; ++j) {
+        for (int64_t k = 0; k < 16; ++k) {
+          C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
+        }
+      }
+    }
+    void* tmp = malloc(sizeof(float) * 16);
+    void *mem[5] = { A, B, C, 0, tmp };
+    fn2(mem);
+    for (int64_t i = 0; i < 16 * 16; ++i) {
       auto diff = std::abs(C[i] - C_ref[i]);
-			ASSERT(diff < 0.01) << "difference of " << diff;
-		}
-	}
+      ASSERT(diff < 0.01) << "difference of " << diff;
+    }
+  }
 }
 
 TEST(CppWithTail) {
@@ -117,33 +117,84 @@ TEST(CppWithTail) {
   C.compile();
   C.set(lt);
   auto code = C.code();
-	std::cerr << code << "\n";
-	std::ofstream("fn_impl.cpp") << code;
-	std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
+  std::cerr << code << "\n";
+  std::ofstream("fn_impl.cpp") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
   loop_tool::DynamicLibrary dll("fn_impl.so");
-	auto fn = dll.sym<void(*)(void**)>("fn");
-	{
-		float* A = (float*)calloc(sizeof(float), 16 * 16);
-		float* B = (float*)calloc(sizeof(float), 16 * 16);
-		float* C = (float*)calloc(sizeof(float), 16 * 16);
-		float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
-		for (int64_t i = 0; i < 16*16; ++i) {
-			A[i] = i * 3;
-			B[i] = 100 - (i * 2);
-		}
-		for (int64_t i = 0; i < 16; ++i) {
-			for (int64_t j = 0; j < 16; ++j) {
-				for (int64_t k = 0; k < 16; ++k) {
-					C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
-				}
-			}
-		}
-		void* tmp = malloc(sizeof(float) * 16);
-		void *mem[5] = { A, B, C, 0, tmp };
-		fn(mem);
-		for (int64_t i = 0; i < 16 * 16; ++i) {
+  auto fn = dll.sym<void(*)(void**)>("fn");
+  {
+    float* A = (float*)calloc(sizeof(float), 16 * 16);
+    float* B = (float*)calloc(sizeof(float), 16 * 16);
+    float* C = (float*)calloc(sizeof(float), 16 * 16);
+    float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
+    for (int64_t i = 0; i < 16*16; ++i) {
+      A[i] = i * 3;
+      B[i] = 100 - (i * 2);
+    }
+    for (int64_t i = 0; i < 16; ++i) {
+      for (int64_t j = 0; j < 16; ++j) {
+        for (int64_t k = 0; k < 16; ++k) {
+          C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
+        }
+      }
+    }
+    void* tmp = malloc(sizeof(float) * 16);
+    void *mem[5] = { A, B, C, 0, tmp };
+    fn(mem);
+    for (int64_t i = 0; i < 16 * 16; ++i) {
       auto diff = std::abs(C[i] - C_ref[i]);
-			ASSERT(diff < 0.01) << "difference of " << diff;
-		}
-	}
+      ASSERT(diff < 0.01) << "difference of " << diff;
+    }
+  }
+}
+
+TEST(CppView) {
+  namespace lz = ::loop_tool::lazy;
+  auto padded_conv = [](lz::Tensor X, lz::Tensor W) {
+    auto N = lz::Symbol("n"), Np = lz::Symbol("np");
+    auto X_pad = X.as(N).pad(N, 1).as(Np);
+    auto No = lz::Symbol("no"), K = lz::Symbol("k");
+    return (X_pad.to({No, K}, {{Np, No + K}}) * W.as(K)).sum(K);
+  };
+  lz::Tensor A(16);
+  lz::Tensor B(3);
+  auto C = padded_conv(A,B);
+  auto lt = C.loop_tree();
+  std::cerr << '\n';
+  std::cerr << lt.dump();
+  std::cerr << '\n';
+  auto code = C.code();
+
+  std::cerr << code << "\n";
+  std::ofstream("fn_impl.cpp") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
+  loop_tool::DynamicLibrary dll("fn_impl.so");
+  auto fn = dll.sym<void(*)(void**)>("fn");
+  {
+    float* A = (float*)calloc(sizeof(float), 16);
+    float* B = (float*)calloc(sizeof(float), 3);
+    float* C = (float*)calloc(sizeof(float), 16);
+    float* C_ref = (float*)calloc(sizeof(float), 16);
+    for (int64_t i = 0; i < 16; ++i) {
+      A[i] = i * 3 + 1;
+    }
+    for (int64_t i = 0; i < 3; ++i) {
+      B[i] = 1 - (i * 2);
+    }
+    for (int64_t i = 0; i < 16; ++i) {
+      for (int64_t k = 0; k < 3; ++k) {
+        if ((i + k - 1 >= 0) && (i + k - 1 < 16)) {
+          C_ref[i] += A[i + k - 1] * B[k];
+        }
+      }
+    }
+    void* tmp = malloc(sizeof(float) * 18);
+    void *mem[5] = { A, B, C, tmp };
+    fn(mem);
+    for (int64_t i = 0; i < 16; ++i) {
+      auto diff = std::abs(C[i] - C_ref[i]);
+      std::cerr << C[i] << " vs " << C_ref[i] << "\n";
+      ASSERT(diff < 0.01) << "difference of " << diff;
+    }
+  }
 }
