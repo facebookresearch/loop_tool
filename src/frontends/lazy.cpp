@@ -31,13 +31,18 @@ void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
   }
 }
 
-std::vector<void*> TensorImpl::getBuffers() const {
+std::vector<void*> TensorImpl::getBuffers(
+    std::unordered_set<const TensorImpl*>& seen) const {
+  if (seen.count(this)) {
+    return {};
+  }
+  seen.insert(this);
   if (op_ == Operation::constant) {
     return {data<void>()};
   }
   std::vector<void*> all_buffers;
   for (const auto& dep : deps_) {
-    for (const auto& b : dep->getBuffers()) {
+    for (const auto& b : dep->getBuffers(seen)) {
       all_buffers.emplace_back(b);
     }
   }
@@ -98,16 +103,26 @@ size_t TensorImpl::size(int dim) const {
   return expr.value();
 }
 
+// std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
+// TensorImpl::resolve( IR::NodeRef TensorImpl::resolve(
 IR::NodeRef TensorImpl::resolve(
-    IR& ir,
-    std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const {
+    IR& ir, std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map,
+    std::unordered_map<const TensorImpl*, IR::NodeRef>& impl_map) const {
   std::vector<IR::NodeRef> node_deps;
   std::vector<IR::VarRef> vars;
   std::vector<Constraint> node_constraints;
   std::unordered_map<int, IR::VarRef> sym_var_map;
+
   for (const auto& d : deps_) {
-    auto node_ref = d->resolve(ir, var_map);
+    if (impl_map.count(d.get())) {
+      node_deps.emplace_back(impl_map.at(d.get()));
+      continue;
+    }
+    auto node_ref = d->resolve(ir, var_map, impl_map);
     node_deps.emplace_back(node_ref);
+  }
+  if (impl_map.count(this)) {
+    return impl_map.at(this);
   }
   IR::NodeRef node_ref = -1;
 
@@ -123,6 +138,7 @@ IR::NodeRef TensorImpl::resolve(
       s_name << "_";
       s_name << s.id();
       auto var = ir.create_var(s_name.str());
+      ASSERT(var_map.count(s.id()) == 0);
       var_map[s.id()] = std::make_pair(var, size);
     }
     auto& p = var_map.at(s.id());
@@ -183,6 +199,7 @@ IR::NodeRef TensorImpl::resolve(
       break;
   }
   ASSERT(node_ref > -1) << "couldn't resolve node op: " << (int)op_;
+  impl_map.insert(std::make_pair(this, node_ref));
   return node_ref;
 }
 

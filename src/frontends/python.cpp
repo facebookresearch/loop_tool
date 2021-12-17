@@ -291,6 +291,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Expr &s, lazy::Symbol &other) { return s + other; })
       .def("__repr__", [](lazy::Expr &e) { return e.dump(); });
 
+  m.def("Size", [](lazy::Symbol &s) { return lazy::Expr::size(s); });
+
   py::class_<SymbolGenerator>(m, "SymbolGenerator")
       .def(py::init<>())
       .def("__enter__", &SymbolGenerator::enter)
@@ -363,9 +365,19 @@ PYBIND11_MODULE(loop_tool_py, m) {
                ASSERT(std::string(py::str(kw.first)) == "constraints");
                std::vector<lazy::Constraint> constraints;
                for (auto t : py::cast<py::list>(kw.second)) {
-                 auto sym = py::cast<lazy::Symbol>(py::cast<py::tuple>(t)[0]);
-                 auto expr = py::cast<lazy::Expr>(py::cast<py::tuple>(t)[1]);
-                 constraints.emplace_back(std::make_pair(sym, expr));
+                 auto rhs = py::cast<lazy::Expr>(py::cast<py::tuple>(t)[1]);
+                 auto constraint = [&]() -> lazy::Constraint {
+                   auto arg = py::cast<py::tuple>(t)[0];
+                   if ((std::string)py::str(arg.get_type()) ==
+                       "<class 'loop_tool_py.Symbol'>") {
+                     return std::make_pair(py::cast<lazy::Symbol>(arg), rhs);
+                   }
+                   return std::make_pair(py::cast<lazy::Expr>(arg), rhs);
+                 }();
+                 // auto sym =
+                 // py::cast<lazy::Symbol>(py::cast<py::tuple>(t)[0]);
+                 constraints.emplace_back(
+                     constraint);  // std::make_pair(sym, expr));
                }
                return t.to(output_shape, constraints);
              }

@@ -166,7 +166,8 @@ struct TensorImpl {
   void populateCompilationCache();
   std::unique_ptr<Compiled> backend_compile(const LoopTree& lt);
 
-  std::vector<void*> getBuffers() const;
+  std::vector<void*> getBuffers(
+      std::unordered_set<const TensorImpl*>& seen) const;
 
   template <typename T>
   T* data() const {
@@ -193,7 +194,8 @@ struct TensorImpl {
     auto& cc = getCompilationCache().at(hash());
     memory_ = alloc(sizeof(float) * cc.output_size);
     owning_ = true;
-    auto buffers = getBuffers();
+    std::unordered_set<const TensorImpl*> seen;
+    auto buffers = getBuffers(seen);
     buffers.emplace_back(memory_.address);
     cc.compilation->run(buffers, true);
     return static_cast<T*>(memory_.address);
@@ -204,7 +206,8 @@ struct TensorImpl {
     const_cast<TensorImpl*>(this)->unify();
     IR ir;
     std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
-    auto node_ref = resolve(ir, var_map);
+    std::unordered_map<const TensorImpl*, IR::NodeRef> impl_map;
+    auto node_ref = resolve(ir, var_map, impl_map);
 
     std::vector<IR::VarRef> vars;
     for (const auto& s : shape()) {
@@ -282,9 +285,16 @@ struct TensorImpl {
       IR& ir,
       const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
       const;
+  // IR::NodeRef resolve(
+  //    IR& ir,
+  //    std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const;
   IR::NodeRef resolve(
-      IR& ir,
-      std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const;
+      IR& ir, std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map,
+      std::unordered_map<const TensorImpl*, IR::NodeRef>& impl_map) const;
+  // std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
+  // resolve(
+  //    IR& ir,
+  //    std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const;
 };
 
 struct Tensor {

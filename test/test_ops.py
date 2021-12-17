@@ -89,8 +89,9 @@ def test_sigmoid():
 
 
 def test_swish():
-    N = 128
+    N = 4
     A_np = np.random.randn(N)
+    A_np = np.ones((N,))
     A_lt = lt.Tensor(N).set(A_np)
     A_tg = tg.Tensor(A_np)
 

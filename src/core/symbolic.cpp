@@ -519,7 +519,7 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
 
   if (lhs.type() == Expr::Type::function) {
     ASSERT(can_isolate(lhs, sym))
-        << "cannot isolate through " << lhs.dump()
+        << "cannot isolate " << sym.name() << " through " << lhs.dump()
         << ", you may need to update the can_isolate function";
     switch (lhs.op()) {
       case Op::add: {

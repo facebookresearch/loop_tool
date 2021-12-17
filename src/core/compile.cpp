@@ -1113,7 +1113,20 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   std::stringstream ss;
   auto acc = gen_access(node_ref, ref);
   auto info = gen_idx_info(ref, acc);
-  if (acc.alloc.size() > 1) {
+  auto is_io = [&](IR::NodeRef nr) {
+    for (auto i : lt.ir.inputs()) {
+      if (nr == i) {
+        return true;
+      }
+    }
+    for (auto o : lt.ir.outputs()) {
+      if (nr == o) {
+        return true;
+      }
+    }
+    return false;
+  };
+  if (acc.alloc.size() > 1 || is_io(acc.alloc.node_ref)) {
     if (info.maxes.size()) {
       ss << "(";
       std::unordered_map<int, std::string> bound_strings;
@@ -1185,6 +1198,10 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
     if (acc.total_offset) {
       ss << " + " << acc.total_offset;
     }
+    // input/output could be a single integer (should be rare)
+    if (acc.alloc.size() == 1) {
+      ss << 0;
+    }
     ss << "]";
     if (info.maxes.size()) {
       ss << " : " << 0 << ")";
@@ -1251,12 +1268,47 @@ std::string Compiler::gen_compute_node_string(LoopTree::TreeRef ref) const {
   const auto &node_ref = lt.node(ref);
   const auto &node = lt.ir.node(node_ref);
 
-  auto infix = [&]() {
+  bool is_infix = [&]() {
+    switch (node.op()) {
+      case Operation::add:
+      case Operation::multiply:
+      case Operation::subtract:
+      case Operation::divide:
+        return true;
+      default:
+        return false;
+    }
+  }();
+  bool is_binary = [&]() {
+    switch (node.op()) {
+      case Operation::add:
+      case Operation::multiply:
+      case Operation::subtract:
+      case Operation::divide:
+      case Operation::max:
+        return true;
+      default:
+        return false;
+    }
+  }();
+  auto op = [&]() {
     switch (node.op()) {
       case Operation::add:
         return "+";
       case Operation::multiply:
         return "*";
+      case Operation::subtract:
+        return "-";
+      case Operation::divide:
+        return "/";
+      case Operation::max:
+        return "max";
+      case Operation::exp:
+        return "exp";
+      case Operation::negate:
+        return "-";
+      case Operation::reciprocal:
+        return "1 / ";
       default:
         ASSERT(0);
         return "";
@@ -1264,18 +1316,39 @@ std::string Compiler::gen_compute_node_string(LoopTree::TreeRef ref) const {
   }();
 
   ss << gen_access_string(node_ref, ref);
-  ss << " ";
-  if (lt.ir.reduction_vars(node_ref).size()) {
-    ss << infix;
-  }
-  ss << "= ";
+  ss << " = ";
 
-  auto inputs = node.inputs();
-  for (const auto &inp : inputs) {
-    ss << gen_access_string(inp, ref);
-    if (&inp != &inputs.back()) {
-      ss << " " << infix << " ";
+  bool is_reduction = lt.ir.reduction_vars(node_ref).size();
+  std::vector<std::string> access_strings;
+  if (is_reduction) {
+    access_strings.emplace_back(gen_access_string(node.outputs().at(0), ref));
+  }
+  for (const auto &inp : node.inputs()) {
+    access_strings.emplace_back(gen_access_string(inp, ref));
+  }
+
+  if (is_infix) {
+    for (const auto &access_string : access_strings) {
+      ss << access_string;
+      if (&access_string != &access_strings.back()) {
+        ss << " " << op << " ";
+      }
     }
+  } else if (is_binary) {
+    std::function<void(int)> nest;
+    nest = [&](int i) {
+      if (i == access_strings.size() - 1) {
+        ss << access_strings.at(i);
+        return;
+      }
+      ss << op << "(" << access_strings.at(i) << ", ";
+      nest(i + 1);
+      ss << ")";
+    };
+    nest(0);
+  } else {
+    ASSERT(access_strings.size() == 1);
+    ss << op << "(" << access_strings.at(0) << ")";
   }
   ss << ";";
   return ss.str();
@@ -1364,25 +1437,41 @@ std::string Compiler::gen_string(
     std::unordered_map<IR::VarRef, int> overrides) const {
   if (ref == -1) {
     std::stringstream ss;
-    ss << R""""(
+    bool define_max = false;
+    for (auto n : lt.ir.nodes()) {
+      if (lt.ir.node(n).op() == Operation::max) {
+        define_max = true;
+      }
+    }
+
+    ss << R"""(#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-extern "C" {
+)""";
+    if (define_max) {
+      ss << R"""(
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+)""";
+    }
 
+    ss << R"""(
 static inline void set(float* mem, float val, int64_t length) {
   for (int64_t i = 0; i < length; ++i) {
     mem[i] = val;
   }
-})"""";
+})""";
+
     ss << "\n\n";
     ss << "void fn(void** memory) {\n";
     for (auto c : lt.roots) {
       ss << gen_string(c);
     }
     ss << "}\n";
-    ss << "\n}\n";
     return ss.str();
   }
   if (lt.kind(ref) == LoopTree::NODE) {
