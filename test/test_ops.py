@@ -5,45 +5,45 @@ import tinygrad.tensor as tg
 
 
 def fill(constant, symbolic_shape):
-    s = lt.SymbolGenerator()
     const = lt.Tensor(1).set(constant)
     k = const.symbolic_shape[0]
     return const.to(*symbolic_shape, constraints=[(k, lt.Expr(0))])
 
 
 def sigmoid(T):
-    N = T.symbolic_shape[0]
-    one = fill(1, [N])
+    shape = T.symbolic_shape
+    one = fill(1, shape)
     return (one + (-T).exp()).reciprocal()
 
 
 def swish(T):
-    N = T.symbolic_shape[0]
+    shape = T.symbolic_shape
     return T * sigmoid(T)
 
 
 def relu(T):
-    zero = fill(0, T.symbolic_shape)
+    shape = T.symbolic_shape
+    zero = fill(0, shape)
     return T.max(zero)
 
 
 def relu6(T):
-    N = T.symbolic_shape[0]
-    six = fill(6, [N])
+    shape = T.symbolic_shape
+    six = fill(6, shape)
     return relu(T) - relu(T - six)
 
 
 def hardswish(T):
-    N = T.symbolic_shape[0]
-    three = fill(3, [N])
-    sixth = fill(1 / 6, [N])
+    shape = T.symbolic_shape
+    three = fill(3, shape)
+    sixth = fill(1 / 6, shape)
     return T * relu6(T + three) * sixth
 
 
 def tanh(T):
-    N = T.symbolic_shape[0]
-    two = fill(2, [N])
-    one = fill(1, [N])
+    shape = T.symbolic_shape
+    two = fill(2, shape)
+    one = fill(1, shape)
     return two * sigmoid(two * T) - one
 
 
