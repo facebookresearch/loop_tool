@@ -144,7 +144,7 @@ inline std::string dump(const Operation &op) {
 #undef X
 }
 
-template <typename T, template <typename _> typename H = std::hash>
+template <typename T, template <typename _> class H = std::hash>
 std::unordered_set<T, H<T>> to_set(std::vector<T> v) {
   std::unordered_set<T, H<T>> out;
   for (const auto &e : v) {
@@ -153,7 +153,7 @@ std::unordered_set<T, H<T>> to_set(std::vector<T> v) {
   return out;
 }
 
-template <typename T, template <typename _> typename H = std::hash>
+template <typename T, template <typename _> class H = std::hash>
 std::unordered_set<T, H<T>> intersection(const std::unordered_set<T, H<T>> &a,
                                          const std::unordered_set<T, H<T>> &b) {
   std::unordered_set<T, H<T>> c;
