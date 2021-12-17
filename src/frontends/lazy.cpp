@@ -56,6 +56,7 @@ LoopTree TensorImpl::schedule(
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
     switch (ir.node(n).op()) {
       case Operation::read:
+        // case Operation::view:
         // case Operation::write:
         ir.set_order(n, {});
         break;
@@ -160,8 +161,23 @@ IR::NodeRef TensorImpl::resolve(
     case Operation::add:
       node_ref = ir.create_node(Operation::add, node_deps, vars);
       break;
+    case Operation::subtract:
+      node_ref = ir.create_node(Operation::subtract, node_deps, vars);
+      break;
     case Operation::multiply:
       node_ref = ir.create_node(Operation::multiply, node_deps, vars);
+      break;
+    case Operation::max:
+      node_ref = ir.create_node(Operation::max, node_deps, vars);
+      break;
+    case Operation::exp:
+      node_ref = ir.create_node(Operation::exp, node_deps, vars);
+      break;
+    case Operation::reciprocal:
+      node_ref = ir.create_node(Operation::reciprocal, node_deps, vars);
+      break;
+    case Operation::negate:
+      node_ref = ir.create_node(Operation::negate, node_deps, vars);
       break;
     default:
       break;

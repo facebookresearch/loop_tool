@@ -50,6 +50,7 @@ class Compiler {
     Allocation alloc;
     // stride, offset, max
     std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
+    int64_t total_offset;
   };
 
   struct IdxInformation {
@@ -92,6 +93,8 @@ class Compiler {
   InnerFnTypeImproved gen_mem_node(LoopTree::TreeRef ref) const;
   InnerFnTypeImproved gen_add_node(LoopTree::TreeRef ref) const;
   InnerFnTypeImproved gen_mul_node(LoopTree::TreeRef ref) const;
+  InnerFnTypeImproved gen_binary_node(LoopTree::TreeRef ref) const;
+  InnerFnTypeImproved gen_unary_node(LoopTree::TreeRef ref) const;
   InnerFnTypeImproved gen_node(LoopTree::TreeRef ref) const;
 
   InnerFnTypeImproved gen_loop(

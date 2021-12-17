@@ -320,10 +320,19 @@ PYBIND11_MODULE(loop_tool_py, m) {
       }))
       .def("__mul__",
            [](lazy::Tensor &t, lazy::Tensor &other) { return t * other; })
+      .def("__div__",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t / other; })
       .def("__add__",
            [](lazy::Tensor &t, lazy::Tensor &other) { return t + other; })
+      .def("__sub__",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t - other; })
       .def("__or__",
            [](lazy::Tensor &t, lazy::Tensor &other) { return t | other; })
+      .def("max",
+           [](lazy::Tensor &t, lazy::Tensor &other) { return t.max(other); })
+      .def("__neg__", [](lazy::Tensor &t) { return -t; })
+      .def("reciprocal", [](lazy::Tensor &t) { return t.reciprocal(); })
+      .def("exp", [](lazy::Tensor &t) { return t.exp(); })
       .def("pad", [](lazy::Tensor &t, lazy::Symbol s,
                      int64_t amt) { return t.pad(s, amt); })
       .def("transpose",

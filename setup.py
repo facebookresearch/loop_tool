@@ -108,7 +108,7 @@ setup(
     description="A lightweight IR for dense linear algebra",
     long_description="",
     ext_modules=[CMakeExtension("cmake_example")],
-    install_requires=['pybind11'],
+    install_requires=[],
     setup_requires=['pybind11', 'ninja'],
     include_package_data=True,
     cmdclass={"build_ext": CMakeBuild},

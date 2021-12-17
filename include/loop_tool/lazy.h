@@ -317,7 +317,8 @@ struct Tensor {
   void bind(void* data, std::vector<size_t> sizes) {
     impl()->bind(data, sizes);
   }
-  Tensor operator*(const Tensor& rhs) const {
+
+  inline std::vector<Symbol> broadcast_shape(const Tensor& rhs) const {
     std::unordered_set<int> ids;
     std::vector<Symbol> new_shape;
     for (auto& symbol : impl_->shape()) {
@@ -330,28 +331,41 @@ struct Tensor {
       }
       new_shape.emplace_back(symbol);
     }
+    return new_shape;
+  }
+
+  Tensor operator*(const Tensor& rhs) const {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
-    auto new_impl =
-        std::make_shared<TensorImpl>(Operation::multiply, new_shape, deps);
+    auto new_impl = std::make_shared<TensorImpl>(Operation::multiply,
+                                                 broadcast_shape(rhs), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor operator/(const Tensor& rhs) const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
+    auto new_impl = std::make_shared<TensorImpl>(Operation::divide,
+                                                 broadcast_shape(rhs), deps);
     return Tensor(new_impl);
   }
 
   Tensor operator+(const Tensor& rhs) const {
-    std::unordered_set<int> ids;
-    std::vector<Symbol> new_shape;
-    for (auto& symbol : impl_->shape()) {
-      ids.insert(symbol.id());
-      new_shape.emplace_back(symbol);
-    }
-    for (auto& symbol : rhs.shape()) {
-      if (ids.count(symbol.id())) {
-        continue;
-      }
-      new_shape.emplace_back(symbol);
-    }
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
-    auto new_impl =
-        std::make_shared<TensorImpl>(Operation::add, new_shape, deps);
+    auto new_impl = std::make_shared<TensorImpl>(Operation::add,
+                                                 broadcast_shape(rhs), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor operator-(const Tensor& rhs) const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
+    auto new_impl = std::make_shared<TensorImpl>(Operation::subtract,
+                                                 broadcast_shape(rhs), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor max(const Tensor& rhs) const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
+    auto new_impl = std::make_shared<TensorImpl>(Operation::max,
+                                                 broadcast_shape(rhs), deps);
     return Tensor(new_impl);
   }
 
@@ -415,7 +429,7 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  Tensor sum(std::vector<Symbol> reduction_vars) {
+  Tensor sum(std::vector<Symbol> reduction_vars) const {
     std::unordered_set<int> reduction;
     for (auto rv : reduction_vars) {
       reduction.insert(rv.id());
@@ -433,9 +447,30 @@ struct Tensor {
   }
 
   template <typename... Args>
-  Tensor sum(const Args&... args) {
+  Tensor sum(const Args&... args) const {
     std::vector<Symbol> reduction_vars = {args...};
     return sum(reduction_vars);
+  }
+
+  Tensor exp() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl =
+        std::make_shared<TensorImpl>(Operation::exp, impl_->shape(), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor operator-() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl =
+        std::make_shared<TensorImpl>(Operation::negate, impl_->shape(), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor reciprocal() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl = std::make_shared<TensorImpl>(Operation::reciprocal,
+                                                 impl_->shape(), deps);
+    return Tensor(new_impl);
   }
 
   inline Tensor as(std::vector<Symbol> shape) {

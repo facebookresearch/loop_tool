@@ -79,6 +79,7 @@ def test_padded_2d_conv():
     X_lt = lt.Tensor(ci, x, x).set(X_np)
     W_lt = lt.Tensor(co, ci, k, k).set(W_np)
     Y_lt = conv2d(X_lt, W_lt)
+    print(Y_lt.loop_tree)
 
     assert np.allclose(Y_lt.numpy(), Y_np, rtol=0.001, atol=0.001)
 

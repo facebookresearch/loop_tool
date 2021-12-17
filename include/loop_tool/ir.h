@@ -108,13 +108,19 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
-#define OPS(_) \
-  _(constant)  \
-  _(write)     \
-  _(read)      \
-  _(view)      \
-  _(add)       \
-  _(multiply)  \
+#define OPS(_)  \
+  _(constant)   \
+  _(write)      \
+  _(read)       \
+  _(view)       \
+  _(add)        \
+  _(subtract)   \
+  _(multiply)   \
+  _(divide)     \
+  _(max)        \
+  _(exp)        \
+  _(negate)     \
+  _(reciprocal) \
   _(name)
 
 // Operations on arrays
