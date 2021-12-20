@@ -1321,7 +1321,7 @@ std::string Compiler::gen_compute_node_string(LoopTree::TreeRef ref) const {
   bool is_reduction = lt.ir.reduction_vars(node_ref).size();
   std::vector<std::string> access_strings;
   if (is_reduction) {
-    access_strings.emplace_back(gen_access_string(node.outputs().at(0), ref));
+    access_strings.emplace_back(gen_access_string(node_ref, ref));
   }
   for (const auto &inp : node.inputs()) {
     access_strings.emplace_back(gen_access_string(inp, ref));
