@@ -62,6 +62,7 @@ class Compiler {
     std::vector<int64_t> mins;
   };
 
+  size_t count;
   LoopTree lt;
   std::unordered_map<LoopTree::TreeRef, int64_t>
       inner_sizes;  // total size of inner loops over same var

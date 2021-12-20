@@ -10,12 +10,14 @@ LICENSE file in the root directory of this source tree.
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <thread>
 #include <unordered_set>
 
 #include "loop_tool/backend.h"
+#include "loop_tool/dynlib.h"
 #include "loop_tool/error.h"
 #include "loop_tool/symbolic.h"
 
@@ -863,7 +865,13 @@ void exec(const LoopTree &lt, const std::vector<void *> &memory) {
   }
 }
 
+size_t getCount() {
+  static size_t count = 0;
+  return count++;
+}
+
 Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
+  count = getCount();
   std::vector<LoopTree::TreeRef> reverse_order;
   lt.walk([&](LoopTree::TreeRef ref, int) { reverse_order.emplace_back(ref); });
   std::reverse(reverse_order.begin(), reverse_order.end());
@@ -1199,7 +1207,7 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
       ss << " + " << acc.total_offset;
     }
     // input/output could be a single integer (should be rare)
-    if (acc.alloc.size() == 1) {
+    if (acc.alloc.size() == 1 && emitted == false) {
       ss << 0;
     }
     ss << "]";
@@ -1467,7 +1475,7 @@ static inline void set(float* mem, float val, int64_t length) {
 })""";
 
     ss << "\n\n";
-    ss << "void fn(void** memory) {\n";
+    ss << "void fn_" << count << "(void** memory) {\n";
     for (auto c : lt.roots) {
       ss << gen_string(c);
     }
@@ -2280,12 +2288,37 @@ struct CPUCompiled : public Compiled {
   std::vector<int64_t> intermediates;
   InnerFnTypeImproved fn;
   mutable std::vector<void *> mem;
+  std::shared_ptr<loop_tool::DynamicLibrary> dll;
 
   CPUCompiled(const LoopTree &lt,
               const std::unordered_set<LoopTree::TreeRef> &threaded,
               LoopTree::TreeRef ref, const GenFnType &callback) {
     auto compiler = Compiler(lt);
-    fn = compiler.gen_exec();
+    auto code = compiler.gen_string();
+    try {
+      std::stringstream fn_name;
+      fn_name << "fn_" << compiler.count;
+      std::string source_name = "/tmp/" + fn_name.str() + ".c";
+      std::string lib_name = "/tmp/" + fn_name.str() + ".so";
+      std::ofstream(source_name, std::ios::trunc) << code;
+      std::string compile_call =
+          "cc -Wall -Wno-unused-function -Werror -O3 -fpic -shared -o " +
+          lib_name + " " + source_name;
+      std::system(compile_call.c_str());
+      dll = std::make_shared<loop_tool::DynamicLibrary>(lib_name.c_str());
+      // std::cerr << "code:\n" << code;
+      // std::cerr << "looking for : " << fn_name.str() << "\n";
+      // std::system("nm /tmp/fn_impl.so");
+      auto fn_impl = dll->sym<void (*)(void **)>(fn_name.str().c_str());
+      fn = [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
+        fn_impl(const_cast<void **>(memory.data()));
+      };
+    } catch (const std::exception &e) {
+      std::cerr << e.what() << "\n";
+      std::cerr << "Falling back to interpreted execution on CPU\n";
+      fn = compiler.gen_exec();
+    }
+
     mem = compiler.allocate();
   }
 
