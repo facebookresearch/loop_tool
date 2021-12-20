@@ -270,6 +270,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
 
   py::class_<lazy::Symbol>(m, "Symbol")
       .def(py::init<std::string>())
+      .def("__eq__",
+           [](lazy::Symbol &s, lazy::Symbol &other) { return s == other; })
+      .def("__hash__", [](lazy::Symbol &s) { return s.hash(); })
       .def("__mul__",
            [](lazy::Symbol &s, lazy::Symbol &other) { return s * other; })
       .def("__add__",
@@ -278,7 +281,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](lazy::Symbol &s, lazy::Expr &other) { return s * other; })
       .def("__add__",
            [](lazy::Symbol &s, lazy::Expr &other) { return s + other; })
-      .def("__repr__", [](lazy::Symbol &s) { return lazy::Expr(s).dump(); });
+      .def("__repr__", [](lazy::Symbol &s) { return lazy::Expr(s).dump(); })
+      .def_property_readonly("name", [](lazy::Symbol &s) { return s.name(); });
   py::class_<lazy::Expr>(m, "Expr")
       .def(py::init<size_t>())
       .def("__mul__",
