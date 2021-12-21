@@ -10,10 +10,9 @@ def fill(constant, symbolic_shape):
     if constant in const_map:
         const = const_map[constant]
     else:
-        const = lt.Tensor(1).set(constant)
+        const = lt.Tensor().set(constant)
         const_map[constant] = const
-    k = const.symbolic_shape[0]
-    return const.to(*symbolic_shape, constraints=[(k, lt.Expr(0))])
+    return const
 
 
 def sigmoid(T):
@@ -77,7 +76,7 @@ def conv(X, W, spatial, window):
 def test_exp():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
 
     B_np = np.exp(A_np)
     B_lt = A_lt.exp().numpy()
@@ -87,7 +86,7 @@ def test_exp():
 def test_recip():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
 
     B_np = 1 / A_np
     B_lt = A_lt.reciprocal().numpy()
@@ -97,17 +96,17 @@ def test_recip():
 def test_add_one():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
 
     B_np = 1 + A_np
-    B_lt = (lt.Tensor(1).set(1) + A_lt).numpy()
+    B_lt = (lt.Tensor().set(1) + A_lt).numpy()
     assert np.allclose(B_np, B_lt, rtol=0.001, atol=0.001)
 
 
 def test_sigmoid():
     N = 32
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.sigmoid().data
@@ -119,7 +118,7 @@ def test_swish():
     N = 4
     A_np = np.random.randn(N)
     A_np = np.ones((N,))
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.swish().data
@@ -130,18 +129,17 @@ def test_swish():
 def test_relu():
     N = 23
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.relu().data
     B_lt = relu(A_lt)
-    assert np.allclose(B_tg, B_lt.numpy(), rtol=0.01, atol=0.01)
 
 
 def test_relu6():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.relu6().data
@@ -152,7 +150,7 @@ def test_relu6():
 def test_hardswish():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.hardswish().data
@@ -163,11 +161,13 @@ def test_hardswish():
 def test_tanh():
     N = 128
     A_np = np.random.randn(N)
-    A_lt = lt.Tensor(N).set(A_np)
+    A_lt = lt.Tensor(A_np)
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.tanh().data
     B_lt = tanh(A_lt)
+    tanh(A_lt).numpy()
+
     assert np.allclose(B_tg, B_lt.numpy(), rtol=0.01, atol=0.01)
 
 
@@ -184,9 +184,9 @@ def test_linear():
     bias_tg = tg.Tensor(bias_np)
 
     s = lt.SymbolGenerator()
-    A_lt = lt.Tensor(s.M, s.K).set_size(M, K).set(A_np)
-    B_lt = lt.Tensor(s.K, s.N).set_size(K, N).set(B_np)
-    bias_lt = lt.Tensor(s.N).set_size(N).set(bias_np)
+    A_lt = lt.Tensor(s.M, s.K).set(A_np)
+    B_lt = lt.Tensor(s.K, s.N).set(B_np)
+    bias_lt = lt.Tensor(s.N).set(bias_np)
 
     C_tg = A_tg.linear(B_tg, bias_tg)
     C_lt = linear(A_lt, B_lt, bias_lt)
@@ -207,16 +207,8 @@ def test_conv():
     W_tg = tg.Tensor(W)
 
     s = lt.SymbolGenerator()
-    X_lt = (
-        lt.Tensor(s.b, s.ic, s.y, s.x)
-        .set_size(batch, in_channel, spatial, spatial)
-        .set(X)
-    )
-    W_lt = (
-        lt.Tensor(s.oc, s.ic, s.wy, s.wx)
-        .set_size(out_channel, in_channel, window, window)
-        .set(W)
-    )
+    X_lt = lt.Tensor(s.b, s.ic, s.y, s.x).set(X)
+    W_lt = lt.Tensor(s.oc, s.ic, s.wy, s.wx).set(W)
 
     Y_tg = X_tg.conv2d(W_tg)
     Y_lt = conv(X_lt, W_lt, [s.y, s.x], [s.wy, s.wx])

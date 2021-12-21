@@ -106,6 +106,7 @@ class Compiler {
       LoopTree::TreeRef ref = -1,
       std::unordered_map<IR::VarRef, int> overrides = {}) const;
 
+  bool is_input_output(IR::NodeRef nr) const;
   std::string gen_access_string(IR::NodeRef node_ref,
                                 LoopTree::TreeRef ref) const;
   std::string gen_reset_string(LoopTree::TreeRef ref) const;

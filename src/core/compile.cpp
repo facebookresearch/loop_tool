@@ -1116,25 +1116,26 @@ InnerFnTypeImproved Compiler::gen_exec(
   return gen_loop(ref, overrides);
 }
 
+bool Compiler::is_input_output(IR::NodeRef nr) const {
+  for (auto i : lt.ir.inputs()) {
+    if (nr == i) {
+      return true;
+    }
+  }
+  for (auto o : lt.ir.outputs()) {
+    if (nr == o) {
+      return true;
+    }
+  }
+  return false;
+};
+
 std::string Compiler::gen_access_string(IR::NodeRef node_ref,
                                         LoopTree::TreeRef ref) const {
   std::stringstream ss;
   auto acc = gen_access(node_ref, ref);
   auto info = gen_idx_info(ref, acc);
-  auto is_io = [&](IR::NodeRef nr) {
-    for (auto i : lt.ir.inputs()) {
-      if (nr == i) {
-        return true;
-      }
-    }
-    for (auto o : lt.ir.outputs()) {
-      if (nr == o) {
-        return true;
-      }
-    }
-    return false;
-  };
-  if (acc.alloc.size() > 1 || is_io(acc.alloc.node_ref)) {
+  if (acc.alloc.size() > 1 || is_input_output(acc.alloc.node_ref)) {
     if (info.maxes.size()) {
       ss << "(";
       std::unordered_map<int, std::string> bound_strings;
@@ -1256,7 +1257,7 @@ std::string Compiler::gen_reset_string(LoopTree::TreeRef ref) const {
                           node.op() != Operation::view;
       if (!lt.scheduled.count(alloc.node_ref)) {
         continue;
-      } else if (alloc.size() == 1) {
+      } else if (alloc.size() == 1 && !(is_input_output(alloc.node_ref))) {
         ss << line_prefix << "float v" << alloc.mem_idx;
         if (is_reduction) {
           ss << " = " << value(node);
@@ -2302,13 +2303,11 @@ struct CPUCompiled : public Compiled {
       std::string lib_name = "/tmp/" + fn_name.str() + ".so";
       std::ofstream(source_name, std::ios::trunc) << code;
       std::string compile_call =
-          "cc -Wall -Wno-unused-function -Werror -O3 -fpic -shared -o " +
+          "cc -Wall -Wno-unused-function -Wno-unused-variable -Werror -O3 "
+          "-fpic -shared -o " +
           lib_name + " " + source_name;
-      std::system(compile_call.c_str());
+      ASSERT(!std::system(compile_call.c_str()));
       dll = std::make_shared<loop_tool::DynamicLibrary>(lib_name.c_str());
-      // std::cerr << "code:\n" << code;
-      // std::cerr << "looking for : " << fn_name.str() << "\n";
-      // std::system("nm /tmp/fn_impl.so");
       auto fn_impl = dll->sym<void (*)(void **)>(fn_name.str().c_str());
       fn = [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
         fn_impl(const_cast<void **>(memory.data()));

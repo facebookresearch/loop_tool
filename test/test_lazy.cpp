@@ -29,9 +29,9 @@ TEST(LazyBind) {
   ASSERT(D.shape()[0] == M);
   ASSERT(D.shape()[1] == N);
   std::cout << "pass!\n";
-  size_t M_size = 16;
-  size_t N_size = 16;
-  size_t K_size = 16;
+  int64_t M_size = 16;
+  int64_t N_size = 16;
+  int64_t K_size = 16;
   std::vector<float> A_(M_size * K_size);
   std::vector<float> B_(K_size * N_size);
   for (auto m = 0; m < M_size; ++m) {
@@ -142,7 +142,7 @@ TEST(LazyAdd) {
     return C;
   };
 
-  size_t size = 4;
+  int64_t size = 4;
 
   {
     lz::Tensor A(size);
@@ -197,7 +197,7 @@ TEST(LazyLoopTree) {
     return C;
   };
 
-  size_t size = 4;
+  int64_t size = 4;
 
   lz::Tensor A(size);
   lz::Tensor B(size);
@@ -359,7 +359,7 @@ TEST(LazyConcat1D) {
 
 TEST(LazyConcat2D) {
   namespace lz = ::loop_tool::lazy;
-  size_t batch = 2;
+  int64_t batch = 2;
   lz::Symbol N, M0, M1, M;
   lz::Tensor A(N, M0);
   lz::Tensor B(N, M1);

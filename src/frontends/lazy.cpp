@@ -13,17 +13,39 @@ std::unordered_map<size_t, CachedCompilation>& getCompilationCache() {
   return compilation_cache_;
 }
 
-void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
+void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
   memory_.address = data;
+  if (data) {
+    owning_ = false;
+    // we need to consider the case where we're an output
+    if (deps_.size()) {
+      force_recompute_ = true;
+    }
+  }
+
   // if no data is specified, we need to allocate
   if (memory_.address == nullptr) {
     owning_ = true;
   }
+
   if (shape_.size() == 0) {
     shape_.resize(sizes.size());
   }
-  ASSERT(sizes.size() == shape_.size()) << "Invalid binding";
-  ASSERT(constraints_.size() == 0) << "Already bound";
+  ASSERT(sizes.size() == shape_.size())
+      << "Invalid binding, expected " << shape_.size() << " dims got "
+      << sizes.size() << " dims";
+  if (constraints_.size() > 0) {
+    for (auto i = 0; i < sizes.size(); ++i) {
+      for (const auto& c : constraints_) {
+        if (c.first == Expr::size(shape_.at(i)) &&
+            c.second.type() == Expr::Type::value) {
+          ASSERT(c.second.value() == sizes.at(i))
+              << "Already bound " << c.first.dump() << " to " << c.second.dump()
+              << ", can't change that to " << sizes.at(i);
+        }
+      }
+    }
+  }
   for (auto i = 0; i < sizes.size(); ++i) {
     const auto& s = sizes.at(i);
     constraints_.emplace_back(
@@ -31,7 +53,7 @@ void TensorImpl::bind(void* data, std::vector<size_t> sizes) {
   }
 }
 
-std::vector<void*> TensorImpl::getBuffers(
+std::vector<void*> TensorImpl::getInputBuffers(
     std::unordered_set<const TensorImpl*>& seen) const {
   if (seen.count(this)) {
     return {};
@@ -42,7 +64,7 @@ std::vector<void*> TensorImpl::getBuffers(
   }
   std::vector<void*> all_buffers;
   for (const auto& dep : deps_) {
-    for (const auto& b : dep->getBuffers(seen)) {
+    for (const auto& b : dep->getInputBuffers(seen)) {
       all_buffers.emplace_back(b);
     }
   }
@@ -51,9 +73,9 @@ std::vector<void*> TensorImpl::getBuffers(
 
 LoopTree TensorImpl::schedule(
     IR& ir,
-    const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
+    const std::unordered_map<int, std::pair<IR::VarRef, int64_t>>& var_map)
     const {
-  std::unordered_map<IR::VarRef, size_t> var_sizes;
+  std::unordered_map<IR::VarRef, int64_t> var_sizes;
   for (const auto& p : var_map) {
     var_sizes[p.second.first] = p.second.second;
   }
@@ -87,7 +109,19 @@ LoopTree TensorImpl::schedule(
   return loop_tree;
 }
 
-size_t TensorImpl::size(int dim) const {
+std::vector<int64_t> TensorImpl::sizes() const {
+  if (getCompilationCache().count(hash())) {
+    const auto& cc = getCompilationCache().at(hash());
+    return cc.sizes;
+  }
+  std::vector<int64_t> sizes_;
+  for (auto i = 0; i < shape().size(); ++i) {
+    sizes_.emplace_back(size(i));
+  }
+  return sizes_;
+}
+
+int64_t TensorImpl::size(int dim) const {
   const_cast<TensorImpl*>(this)->unify();
   ASSERT(dim < shape().size());
   auto id = shape().at(dim).id();
@@ -106,23 +140,19 @@ size_t TensorImpl::size(int dim) const {
 // std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
 // TensorImpl::resolve( IR::NodeRef TensorImpl::resolve(
 IR::NodeRef TensorImpl::resolve(
-    IR& ir, std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map,
+    IR& ir, std::unordered_map<int, std::pair<IR::VarRef, int64_t>>& var_map,
     std::unordered_map<const TensorImpl*, IR::NodeRef>& impl_map) const {
+  if (impl_map.count(this)) {
+    return impl_map.at(this);
+  }
   std::vector<IR::NodeRef> node_deps;
   std::vector<IR::VarRef> vars;
   std::vector<Constraint> node_constraints;
   std::unordered_map<int, IR::VarRef> sym_var_map;
 
   for (const auto& d : deps_) {
-    if (impl_map.count(d.get())) {
-      node_deps.emplace_back(impl_map.at(d.get()));
-      continue;
-    }
     auto node_ref = d->resolve(ir, var_map, impl_map);
     node_deps.emplace_back(node_ref);
-  }
-  if (impl_map.count(this)) {
-    return impl_map.at(this);
   }
   IR::NodeRef node_ref = -1;
 
@@ -257,7 +287,9 @@ void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
   if (op_ == Operation::name) {
     ASSERT(deps_.size() == 1);
     const auto& dep_shape = deps_.at(0)->shape();
-    ASSERT(dep_shape.size() == shape_.size());
+    ASSERT(dep_shape.size() == shape_.size())
+        << "found shape size of " << dep_shape.size() << " dims expected "
+        << shape_.size();
     for (auto i = 0; i < shape_.size(); ++i) {
       // check there's no cycle before adding to the map
       auto s = shape_[i];
@@ -323,16 +355,19 @@ std::unique_ptr<Compiled> TensorImpl::backend_compile(
 
 void TensorImpl::populateCompilationCache() {
   IR ir;
-  std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
+  std::unordered_map<int, std::pair<IR::VarRef, int64_t>> var_map;
   std::tie(ir, var_map) = lower();
   auto loop_tree = schedule(ir, var_map);
-  size_t size = 1;
+  int64_t size = 1;
+  std::vector<int64_t> sizes;
   for (const auto& s : shape()) {
-    size *= var_map.at(s.id()).second;
+    auto size_ = var_map.at(s.id()).second;
+    size *= size_;
+    sizes.emplace_back(size_);
   }
   auto cc = backend_compile(loop_tree);
   getCompilationCache().emplace(
-      hash(), CachedCompilation{std::move(cc), ir, loop_tree, size});
+      hash(), CachedCompilation{std::move(cc), ir, loop_tree, size, sizes});
 }
 
 }  // namespace lazy

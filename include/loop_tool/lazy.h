@@ -44,7 +44,8 @@ struct CachedCompilation {
   std::shared_ptr<Compiled> compilation;
   IR ir;
   LoopTree loop_tree;
-  size_t output_size;
+  int64_t output_size;
+  std::vector<int64_t> sizes;
 };
 
 std::unordered_map<size_t, CachedCompilation>& getCompilationCache();
@@ -55,7 +56,8 @@ struct TensorImpl {
   bool unified_ = false;
   Operation op_ = Operation::constant;
   mutable Memory memory_;
-  mutable bool owning_ = false;
+  mutable bool owning_ = true;
+  mutable bool force_recompute_ = false;
   std::vector<Symbol> shape_;
   std::vector<Constraint> constraints_;
   std::vector<std::shared_ptr<TensorImpl>> deps_;
@@ -90,7 +92,8 @@ struct TensorImpl {
     hash_ = h;
   }
 
-  size_t hash() const { return hash_; }
+  inline size_t hash() const { return hash_; }
+  inline bool owning() const { return owning_; }
 
   ~TensorImpl() {
     if (owning_) {
@@ -98,11 +101,12 @@ struct TensorImpl {
     }
   }
 
-  TensorImpl(void* data, std::vector<size_t> sizes) : op_(Operation::constant) {
+  TensorImpl(void* data, std::vector<int64_t> sizes)
+      : op_(Operation::constant) {
     bind(data, sizes);
     updateHash();
   }
-  void bind(void* data, std::vector<size_t> sizes);
+  void bind(void* data, std::vector<int64_t> sizes);
 
   TensorImpl(std::vector<Symbol> shape)
       : op_(Operation::constant), shape_(shape) {
@@ -153,7 +157,8 @@ struct TensorImpl {
   }
 
   inline const std::vector<Symbol>& shape() const { return shape_; }
-  size_t size(int dim) const;
+  int64_t size(int dim) const;
+  std::vector<int64_t> sizes() const;
 
   // for these methods, int is Symbol::id
   void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map);
@@ -166,16 +171,21 @@ struct TensorImpl {
   void populateCompilationCache();
   std::unique_ptr<Compiled> backend_compile(const LoopTree& lt);
 
-  std::vector<void*> getBuffers(
+  std::vector<void*> getInputBuffers(
       std::unordered_set<const TensorImpl*>& seen) const;
 
   template <typename T>
   T* data() const {
-    auto alloc = [&](size_t size) { return getDefaultHardware()->alloc(size); };
-    if (memory_.address) {
+    // data cache was hit
+    if (memory_.address && !force_recompute_) {
       return static_cast<T*>(memory_.address);
     }
-    if (owning_ && !memory_.address) {
+    force_recompute_ = false;
+
+    auto alloc = [&](size_t size) { return getDefaultHardware()->alloc(size); };
+
+    // we're just a buffer
+    if (owning_ && !memory_.address && deps_.size() == 0) {
       size_t size = 1;
       for (auto i = 0; i < shape().size(); ++i) {
         ASSERT(size_constraints().count(shape()[i].id()))
@@ -184,28 +194,33 @@ struct TensorImpl {
         size *= size_constraints().at(shape()[i].id()).value();
       }
       memory_ = alloc(sizeof(float) * size);
-      if (deps_.size() == 0) {
-        return static_cast<T*>(memory_.address);
-      }
+      return static_cast<T*>(memory_.address);
     }
+
+    // compile
     if (!getCompilationCache().count(hash())) {
       const_cast<TensorImpl*>(this)->populateCompilationCache();
     }
     auto& cc = getCompilationCache().at(hash());
-    memory_ = alloc(sizeof(float) * cc.output_size);
-    owning_ = true;
+
+    if (owning_) {
+      memory_ = alloc(sizeof(float) * cc.output_size);
+    } else {
+      ASSERT(memory_.address);
+    }
+
     std::unordered_set<const TensorImpl*> seen;
-    auto buffers = getBuffers(seen);
+    auto buffers = getInputBuffers(seen);
     buffers.emplace_back(memory_.address);
     cc.compilation->run(buffers, true);
     return static_cast<T*>(memory_.address);
   };
 
-  std::pair<IR, std::unordered_map<int, std::pair<IR::VarRef, size_t>>> lower()
+  std::pair<IR, std::unordered_map<int, std::pair<IR::VarRef, int64_t>>> lower()
       const {
     const_cast<TensorImpl*>(this)->unify();
     IR ir;
-    std::unordered_map<int, std::pair<IR::VarRef, size_t>> var_map;
+    std::unordered_map<int, std::pair<IR::VarRef, int64_t>> var_map;
     std::unordered_map<const TensorImpl*, IR::NodeRef> impl_map;
     auto node_ref = resolve(ir, var_map, impl_map);
 
@@ -258,7 +273,8 @@ struct TensorImpl {
     auto& cc = getCompilationCache().at(h);
     LoopTree loop_tree(ir);
     auto new_cc = backend_compile(loop_tree);
-    cc = CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size};
+    cc = CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size,
+                           cc.sizes};
   }
 
   inline void set(const LoopTree& loop_tree) {
@@ -269,7 +285,7 @@ struct TensorImpl {
     auto& cc = getCompilationCache().at(h);
     auto new_cc = backend_compile(loop_tree);
     cc = CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,
-                           cc.output_size};
+                           cc.output_size, cc.sizes};
   }
 
   inline std::shared_ptr<Compiled> compiled() {
@@ -283,18 +299,11 @@ struct TensorImpl {
 
   LoopTree schedule(
       IR& ir,
-      const std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map)
+      const std::unordered_map<int, std::pair<IR::VarRef, int64_t>>& var_map)
       const;
-  // IR::NodeRef resolve(
-  //    IR& ir,
-  //    std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const;
   IR::NodeRef resolve(
-      IR& ir, std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map,
+      IR& ir, std::unordered_map<int, std::pair<IR::VarRef, int64_t>>& var_map,
       std::unordered_map<const TensorImpl*, IR::NodeRef>& impl_map) const;
-  // std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
-  // resolve(
-  //    IR& ir,
-  //    std::unordered_map<int, std::pair<IR::VarRef, size_t>>& var_map) const;
 };
 
 struct Tensor {
@@ -312,19 +321,19 @@ struct Tensor {
             std::enable_if_t<detail::areT<int, Sizes...>::value, int> = 0>
   Tensor(Sizes... sizes)
       : impl_(std::make_shared<TensorImpl>(
-            nullptr, std::vector<size_t>{static_cast<size_t>(sizes)...})) {}
+            nullptr, std::vector<int64_t>{static_cast<int64_t>(sizes)...})) {}
 
   template <typename... Sizes,
-            std::enable_if_t<detail::areT<size_t, Sizes...>::value, int> = 0>
+            std::enable_if_t<detail::areT<int64_t, Sizes...>::value, int> = 0>
   Tensor(Sizes... sizes)
       : impl_(std::make_shared<TensorImpl>(nullptr,
-                                           std::vector<size_t>{sizes...})) {}
+                                           std::vector<int64_t>{sizes...})) {}
 
-  Tensor(void* data, std::vector<size_t> sizes)
+  Tensor(void* data, std::vector<int64_t> sizes)
       : impl_(std::make_shared<TensorImpl>(data, sizes)) {}
-  Tensor(std::vector<size_t> sizes)
+  Tensor(std::vector<int64_t> sizes)
       : impl_(std::make_shared<TensorImpl>(nullptr, sizes)) {}
-  void bind(void* data, std::vector<size_t> sizes) {
+  void bind(void* data, std::vector<int64_t> sizes) {
     impl()->bind(data, sizes);
   }
 
@@ -509,16 +518,10 @@ struct Tensor {
   }
 
   inline std::shared_ptr<TensorImpl> impl() const { return impl_; }
+  inline bool owning() const { return impl_->owning(); }
   inline std::vector<Symbol> shape() const { return impl_->shape(); }
   inline size_t size(int dim) const { return impl_->size(dim); }
-  inline std::vector<size_t> sizes() const {
-    std::vector<size_t> sizes_;
-    for (auto i = 0; i < shape().size(); ++i) {
-      sizes_.emplace_back(size(i));
-    }
-
-    return sizes_;
-  }
+  inline std::vector<int64_t> sizes() const { return impl_->sizes(); }
   inline size_t numel() const {
     size_t total = 1;
     for (auto i = 0; i < shape().size(); ++i) {

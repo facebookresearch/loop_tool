@@ -48,6 +48,41 @@ class SymbolGenerator {
   std::unordered_map<std::string, symbolic::Symbol> symbols_;
 };
 
+lazy::Tensor &tensorFromNumpy(
+    lazy::Tensor &t, const std::vector<int64_t> &sizes,
+    const py::array_t<float, py::array::c_style | py::array::forcecast> &array,
+    bool copy) {
+  py::buffer_info buf = array.request();
+  if (copy) {
+    // might need to bind new sizes
+    t.bind(nullptr, sizes);
+    float *numpy_data = static_cast<float *>(buf.ptr);
+    int64_t numel = t.numel();
+    ASSERT(buf.size == numel);
+    float *tensor_data = t.data<float>();
+    memcpy(tensor_data, numpy_data, numel * sizeof(float));
+  } else {
+    void *data = buf.ptr;
+    t.bind(data, sizes);
+  }
+  return t;
+}
+
+std::vector<int64_t> getNumpySizes(
+    const py::array_t<float, py::array::c_style | py::array::forcecast>
+        &array) {
+  py::buffer_info buf = array.request();
+  std::vector<int64_t> sizes;
+  for (auto i = 0; i < buf.ndim; ++i) {
+    sizes.emplace_back(buf.shape[i]);
+  }
+  // compatability
+  // if (sizes.size() == 0) {
+  //  sizes.emplace_back(1);
+  //}
+  return sizes;
+}
+
 PYBIND11_MODULE(loop_tool_py, m) {
   m.def("load_lib", [](std::string lib_name) { loadLibrary(lib_name); });
   m.def("backends", []() {
@@ -306,23 +341,29 @@ PYBIND11_MODULE(loop_tool_py, m) {
       });
 
   py::class_<lazy::Tensor>(m, "Tensor")
-      .def(py::init([](py::args args) {
-        std::vector<size_t> sizes;
-        std::vector<lazy::Symbol> shape;
+      .def(py::init(
+               [](py::array_t<float, py::array::c_style | py::array::forcecast>
+                      array,
+                  bool copy) {
+                 auto sizes = getNumpySizes(array);
+                 lazy::Tensor t(sizes);
+                 return tensorFromNumpy(t, sizes, array, copy);
+               }),
+           py::arg("array"), py::arg("copy") = true)
+      .def(py::init([]() { return lazy::Tensor(std::vector<int64_t>{}); }))
+      .def(py::init([](int64_t size, py::args args) {
+        std::vector<int64_t> sizes = {size};
         for (const auto &arg : args) {
-          if ((std::string)py::str(arg.get_type()) ==
-              "<class 'loop_tool_py.Symbol'>") {
-            shape.emplace_back(py::cast<lazy::Symbol>(arg));
-          } else {
-            sizes.emplace_back(py::cast<size_t>(arg));
-          }
+          sizes.emplace_back(py::cast<int64_t>(arg));
         }
-        ASSERT(!!sizes.size() ^ !!shape.size())
-            << "cannot mix numeric and symbolic instantiation yet";
-        if (sizes.size()) {
-          return lazy::Tensor(sizes);
+        return lazy::Tensor(sizes);
+      }))
+      .def(py::init([](lazy::Symbol symbol, py::args args) {
+        std::vector<lazy::Symbol> symbolic_shape = {symbol};
+        for (const auto &arg : args) {
+          symbolic_shape.emplace_back(py::cast<lazy::Symbol>(arg));
         }
-        return lazy::Tensor(shape);
+        return lazy::Tensor(symbolic_shape);
       }))
       .def("__mul__",
            [](lazy::Tensor &t, lazy::Tensor &other) { return t * other; })
@@ -424,30 +465,26 @@ PYBIND11_MODULE(loop_tool_py, m) {
              }
              return t.to(output_shape, constraints);
            })
-      .def("set",
-           [](lazy::Tensor &t,
-              py::array_t<float, py::array::c_style | py::array::forcecast>
-                  array) -> lazy::Tensor & {
-             py::buffer_info buf = array.request();
-             ASSERT(!t.has_deps()) << "cannot set data to a computed tensor";
-             size_t numel = t.numel();
-             ASSERT(buf.size == numel);
-             float *data = static_cast<float *>(buf.ptr);
-             float *tensor_data = t.data<float>();
-             for (auto i = 0; i < numel; ++i) {
-               tensor_data[i] = data[i];
-             }
-             return t;
-           })
       .def("set_size",
            [](lazy::Tensor &t, py::args args) {
-             std::vector<size_t> sizes;
+             std::vector<int64_t> sizes;
              for (const auto &arg : args) {
-               sizes.emplace_back(py::cast<size_t>(arg));
+               sizes.emplace_back(py::cast<int64_t>(arg));
              }
              t.bind(nullptr, sizes);
              return t;
            })
+      .def(
+          "set",
+          [](lazy::Tensor &t,
+             py::array_t<float, py::array::c_style | py::array::forcecast>
+                 array,
+             bool copy) -> lazy::Tensor & {
+            ASSERT(!t.has_deps()) << "cannot set data to a computed tensor";
+            auto sizes = getNumpySizes(array);
+            return tensorFromNumpy(t, sizes, array, copy || t.owning());
+          },
+          py::arg("array"), py::arg("copy") = true)
       .def("set",
            [](lazy::Tensor &t, const IR ir) -> lazy::Tensor & {
              t.set(ir);
@@ -460,19 +497,16 @@ PYBIND11_MODULE(loop_tool_py, m) {
            })
       .def("numpy",
            [](lazy::Tensor &t) {
-             size_t numel = t.numel();
              auto result = py::array_t<float>(t.sizes());
              py::buffer_info buf = result.request();
              float *data = static_cast<float *>(buf.ptr);
+             t.bind(data, t.sizes());
 #ifdef ENABLE_CUDA
              if (cuda_available) {
                CULIB(cuCtxSynchronize)();
              }
 #endif
-             float *tensor_data = t.data<float>();
-             for (auto i = 0; i < numel; ++i) {
-               data[i] = tensor_data[i];
-             }
+             (void)t.data<float>();
              return result;
            })
       .def("unify", [](lazy::Tensor &t) { t.unify(); })

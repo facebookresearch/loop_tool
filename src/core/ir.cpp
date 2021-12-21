@@ -295,7 +295,7 @@ std::vector<IR::NodeRef> toposort(const IR &ir) {
     seen.insert(cur_idx);
     frontier.erase(frontier.begin());
     // check if we've visited all the inputs to any dependent nodes
-    for (const auto &dep : ir.node(cur_idx).outputs()) {
+    for (const auto &dep : to_set(ir.node(cur_idx).outputs())) {
       const auto &in = ir.node(dep).inputs();
       bool traversed = std::all_of(
           in.begin(), in.end(), [&](IR::NodeRef i) { return seen.count(i); });
@@ -436,7 +436,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   for (const auto &node_ref : sorted_nodes) {
     auto n = ir.node(node_ref);
     auto l_order = loop_order(node_ref);
-    if (l_order.size() == 0) {
+    if (n.vars().size() != 0 && l_order.size() == 0) {
       continue;
     }
     // find max reuse O(n^2)
