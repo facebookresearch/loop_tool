@@ -119,6 +119,7 @@ namespace loop_tool {
   _(divide)     \
   _(max)        \
   _(exp)        \
+  _(sqrt)        \
   _(negate)     \
   _(reciprocal) \
   _(name)

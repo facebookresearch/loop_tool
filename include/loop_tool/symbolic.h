@@ -93,6 +93,9 @@ struct Expr {
   static Expr size(const Expr& expr);
   static Expr max(const Expr& lhs, const Expr& rhs);
   Expr simplify() const;
+  bool associative() const;
+  bool can_evaluate() const;
+  float evaluate() const;
   Expr operator+(const Expr& rhs) const;
   Expr operator*(const Expr& rhs) const;
   Expr operator-(const Expr& rhs) const;

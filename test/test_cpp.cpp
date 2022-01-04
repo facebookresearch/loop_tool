@@ -27,12 +27,14 @@ TEST(CppFromLazy) {
   lz::Tensor A(M, K);
   lz::Tensor B(K, N);
   auto C = mm(A, B);
-  auto code = C.code();
+  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto code = compiler.gen_string();
+  std::string fn_name = "fn_" + std::to_string(compiler.count);
 
-  std::ofstream("fn_impl.cpp") << code;
-  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
-  loop_tool::DynamicLibrary dll("fn_impl.so");
-  auto fn = dll.sym<void(*)(void**)>("fn");
+  std::ofstream("/tmp/fn_impl.c") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o /tmp/fn_impl.so /tmp/fn_impl.c"); // compile
+  loop_tool::DynamicLibrary dll("/tmp/fn_impl.so");
+  auto fn = dll.sym<void(*)(void**)>(fn_name.c_str());
   {
     float* A = (float*)calloc(sizeof(float), 16 * 16);
     float* B = (float*)calloc(sizeof(float), 16 * 16);
@@ -52,36 +54,6 @@ TEST(CppFromLazy) {
     void* tmp = malloc(sizeof(float) * 16);
     void *mem[5] = { A, B, C, 0, tmp };
     fn(mem);
-    for (int64_t i = 0; i < 16 * 16; ++i) {
-      auto diff = std::abs(C[i] - C_ref[i]);
-      ASSERT(diff < 0.01) << "difference of " << diff;
-    }
-  }
-
-  // ensure the symbols are local
-  std::ofstream("fn_impl2.cpp") << code;
-  std::system("cc -O2 -Wall -Werror -fpic -shared -o fn_impl.so fn_impl2.cpp"); // compile
-  loop_tool::DynamicLibrary dll2("fn_impl.so");
-  auto fn2 = dll.sym<void(*)(void**)>("fn");
-  {
-    float* A = (float*)calloc(sizeof(float), 16 * 16);
-    float* B = (float*)calloc(sizeof(float), 16 * 16);
-    float* C = (float*)calloc(sizeof(float), 16 * 16);
-    float* C_ref = (float*)calloc(sizeof(float), 16 * 16);
-    for (int64_t i = 0; i < 16*16; ++i) {
-      A[i] = i * 3;
-      B[i] = 100 - (i * 2);
-    }
-    for (int64_t i = 0; i < 16; ++i) {
-      for (int64_t j = 0; j < 16; ++j) {
-        for (int64_t k = 0; k < 16; ++k) {
-          C_ref[i * 16 + j] += A[i * 16 + k] * B[k * 16 + j];
-        }
-      }
-    }
-    void* tmp = malloc(sizeof(float) * 16);
-    void *mem[5] = { A, B, C, 0, tmp };
-    fn2(mem);
     for (int64_t i = 0; i < 16 * 16; ++i) {
       auto diff = std::abs(C[i] - C_ref[i]);
       ASSERT(diff < 0.01) << "difference of " << diff;
@@ -116,12 +88,14 @@ TEST(CppWithTail) {
 
   C.compile();
   C.set(lt);
-  auto code = C.code();
+  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto code = compiler.gen_string();
+  std::string fn_name = "fn_" + std::to_string(compiler.count);
   std::cerr << code << "\n";
-  std::ofstream("fn_impl.cpp") << code;
-  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
-  loop_tool::DynamicLibrary dll("fn_impl.so");
-  auto fn = dll.sym<void(*)(void**)>("fn");
+  std::ofstream("/tmp/fn_impl.c") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o /tmp/fn_impl.so /tmp/fn_impl.c"); // compile
+  loop_tool::DynamicLibrary dll("/tmp/fn_impl.so");
+  auto fn = dll.sym<void(*)(void**)>(fn_name.c_str());
   {
     float* A = (float*)calloc(sizeof(float), 16 * 16);
     float* B = (float*)calloc(sizeof(float), 16 * 16);
@@ -163,13 +137,15 @@ TEST(CppView) {
   std::cerr << '\n';
   std::cerr << lt.dump();
   std::cerr << '\n';
-  auto code = C.code();
+  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto code = compiler.gen_string();
+  std::string fn_name = "fn_" + std::to_string(compiler.count);
 
   std::cerr << code << "\n";
-  std::ofstream("fn_impl.cpp") << code;
-  std::system("cc -Wall -Werror -fpic -shared -o fn_impl.so fn_impl.cpp"); // compile
-  loop_tool::DynamicLibrary dll("fn_impl.so");
-  auto fn = dll.sym<void(*)(void**)>("fn");
+  std::ofstream("/tmp/fn_impl.c") << code;
+  std::system("cc -Wall -Werror -fpic -shared -o /tmp/fn_impl.so /tmp/fn_impl.c"); // compile
+  loop_tool::DynamicLibrary dll("/tmp/fn_impl.so");
+  auto fn = dll.sym<void(*)(void**)>(fn_name.c_str());
   {
     float* A = (float*)calloc(sizeof(float), 16);
     float* B = (float*)calloc(sizeof(float), 3);
