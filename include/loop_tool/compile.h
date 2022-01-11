@@ -62,6 +62,8 @@ class Compiler {
     std::vector<int64_t> mins;
   };
 
+  // optionally always true, this is for cleanup
+  mutable bool set_called = false;
   size_t count;
   LoopTree lt;
   std::unordered_map<LoopTree::TreeRef, int64_t>
@@ -78,9 +80,13 @@ class Compiler {
 
   Allocation gen_alloc(IR::NodeRef node_ref) const;
 
+  std::pair<std::vector<symbolic::Expr>, std::vector<symbolic::Expr>>
+  gen_index_equations(IR::NodeRef read_node_ref, IR::NodeRef write_node_ref,
+                      LoopTree::TreeRef ref) const;
   // given a node used at point "ref", generate access information
   Access gen_access(IR::NodeRef node, LoopTree::TreeRef ref) const;
 
+  // DEPRECATED, see gen_index_equations
   std::vector<symbolic::Constraint> gen_constraints(
       IR::NodeRef node, LoopTree::TreeRef ref) const;
 

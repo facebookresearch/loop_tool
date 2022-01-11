@@ -83,18 +83,18 @@ LoopTree TensorImpl::schedule(
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
     switch (ir.node(n).op()) {
       case Operation::read:
-        // case Operation::view:
+      case Operation::view:
         // case Operation::write:
         ir.set_order(n, {});
         break;
-      case Operation::view:
-        for (const auto& v : ir.node(n).vars()) {
-          // for (const auto& v : ir.node(ir.node(n).inputs().at(0)).vars()) {
-          order.emplace_back(
-              std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
-        }
-        ir.set_order(n, order);
-        break;
+      // case Operation::view:
+      //  for (const auto& v : ir.node(n).vars()) {
+      //    // for (const auto& v : ir.node(ir.node(n).inputs().at(0)).vars()) {
+      //    order.emplace_back(
+      //        std::make_pair(v, IR::LoopSize{(int)var_sizes.at(v), 0}));
+      //  }
+      //  ir.set_order(n, order);
+      //  break;
       default: {
         for (const auto& v : ir.loop_vars(n)) {
           order.emplace_back(
@@ -132,9 +132,10 @@ int64_t TensorImpl::size(int dim) const {
     const_cast<TensorImpl*>(this)->unify();
     expr = size_constraints().at(id);
   }
-  ASSERT(expr.type() == Expr::Type::value)
-      << "cannot resolve symbol " << shape().at(dim).name();
-  return expr.value();
+  ASSERT(expr.can_evaluate())
+      << "cannot resolve symbol " << shape().at(dim).name() << " got expr "
+      << expr.dump();
+  return expr.evaluate();
 }
 
 // std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
@@ -162,7 +163,8 @@ IR::NodeRef TensorImpl::resolve(
           << "unbound variable in compute " << s.name() << " (id: " << s.id()
           << ")";
       auto expr = size_constraints().at(s.id());
-      auto size = expr.value();
+      ASSERT(expr.can_evaluate()) << "can't resolve size";
+      auto size = static_cast<int64_t>(expr.evaluate());
       std::stringstream s_name;
       s_name << s.name();
       s_name << "_";
@@ -213,11 +215,17 @@ IR::NodeRef TensorImpl::resolve(
     case Operation::multiply:
       node_ref = ir.create_node(Operation::multiply, node_deps, vars);
       break;
+    case Operation::divide:
+      node_ref = ir.create_node(Operation::divide, node_deps, vars);
+      break;
     case Operation::max:
       node_ref = ir.create_node(Operation::max, node_deps, vars);
       break;
     case Operation::exp:
       node_ref = ir.create_node(Operation::exp, node_deps, vars);
+      break;
+    case Operation::sqrt:
+      node_ref = ir.create_node(Operation::sqrt, node_deps, vars);
       break;
     case Operation::reciprocal:
       node_ref = ir.create_node(Operation::reciprocal, node_deps, vars);
@@ -228,7 +236,7 @@ IR::NodeRef TensorImpl::resolve(
     default:
       break;
   }
-  ASSERT(node_ref > -1) << "couldn't resolve node op: " << (int)op_;
+  ASSERT(node_ref > -1) << "couldn't resolve node op: " << dump(op_);
   impl_map.insert(std::make_pair(this, node_ref));
   return node_ref;
 }

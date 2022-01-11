@@ -410,12 +410,13 @@ struct Tensor {
     return this->to(out_shape, constraints) + rhs.to(out_shape, constraints);
   }
 
-  Tensor pad(Symbol padded_dim, int64_t amount) {
-    ASSERT(amount >= 0) << "cannot pad by a negative number";
-    if (amount == 0) {
+  Tensor pad(Symbol padded_dim, int64_t pre, int64_t post) {
+    ASSERT(pre >= 0) << "cannot pad by a negative number";
+    ASSERT(post >= 0) << "cannot pad by a negative number";
+    if (pre == 0 && post == 0) {
       return *this;
     }
-    auto new_sym = Symbol(padded_dim.name() + "_pad_" + std::to_string(amount));
+    auto new_sym = Symbol(padded_dim.name() + "_p_" + std::to_string(pre) + "_" + std::to_string(post));
     std::vector<Symbol> out_shape;
     for (const auto& sym : shape()) {
       if (sym == padded_dim) {
@@ -424,9 +425,13 @@ struct Tensor {
         out_shape.emplace_back(sym);
       }
     }
-    return this->to(out_shape, Constraint(new_sym, padded_dim + Expr(amount)),
+    return this->to(out_shape, Constraint(new_sym, padded_dim + Expr(pre)),
                     Constraint(Expr::size(new_sym),
-                               Expr::size(padded_dim) + Expr(amount << 1)));
+                               Expr::size(padded_dim) + Expr(post + pre)));
+  }
+
+  Tensor pad(Symbol padded_dim, int64_t amount) {
+    return pad(padded_dim, amount, amount);
   }
 
   Tensor transpose(std::vector<int> order) {
@@ -475,6 +480,13 @@ struct Tensor {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
     auto new_impl =
         std::make_shared<TensorImpl>(Operation::exp, impl_->shape(), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor sqrt() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl =
+        std::make_shared<TensorImpl>(Operation::sqrt, impl_->shape(), deps);
     return Tensor(new_impl);
   }
 

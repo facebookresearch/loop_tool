@@ -84,7 +84,63 @@ def test_padded_2d_conv():
     assert np.allclose(Y_lt.numpy(), Y_np, rtol=0.001, atol=0.001)
 
 
-test_pad()
-test_concat()
-test_2d_conv()
-test_padded_2d_conv()
+def test_many_pad():
+    import string
+
+    N = 5
+    a = lt.Tensor(lt.Symbol("A")).set(np.random.randn(N))
+    X = a.symbolic_shape[0]
+    Y = lt.Symbol("B")
+    b = a.to(
+        Y, constraints=[(Y, X + lt.Expr(1)), (lt.Size(Y), lt.Size(X) + lt.Expr(2))]
+    )
+    for i in range(10):
+        X = b.symbolic_shape[0]
+        Y = lt.Symbol(string.ascii_uppercase[i + 2])
+        b = b.to(
+            Y, constraints=[(Y, X + lt.Expr(1)), (lt.Size(Y), lt.Size(X) + lt.Expr(2))]
+        )
+    ir = b.ir
+    vs = ir.vars
+    print(vs)
+    for n in ir.nodes:
+        if "write" in ir.dump(n):
+            print(ir.dump(n))
+            ir.set_order(n, [(vs[0], (N, 0))])
+    # b.set(ir)
+    print(b.loop_tree)
+    print(b.code)
+    print(b.numpy())
+
+
+def test_many_conv():
+    import string
+
+    N = 11
+    # a = lt.Tensor(lt.Symbol("A")).set(np.arange(N))
+    a = lt.Tensor(lt.Symbol("A")).set(np.ones(N))
+    X = a.symbolic_shape[0]
+    Y = lt.Symbol("B")
+    Z = lt.Symbol("C")
+    cur_syms = [Y, Z]
+    b = a.to(*cur_syms, constraints=[(X, Y + Z), (lt.Size(Z), lt.Expr(3))])
+    for i in range(2):
+        X = b.symbolic_shape[0]
+        Y = lt.Symbol(string.ascii_uppercase[i * 2 + 3])
+        Z = lt.Symbol(string.ascii_uppercase[i * 2 + 4])
+        cur_syms = [Y, Z] + cur_syms[1:]
+        # print("setting size of ", Y, Z, b.shape)
+        b = b.to(*cur_syms, constraints=[(X, Y + Z), (lt.Size(Z), lt.Expr(3))])
+    print(b.ir)
+    print(b.loop_tree)
+    print(b.shape)
+    print(b.numpy())
+    print(b.code)
+
+
+# test_pad()
+# test_concat()
+# test_2d_conv()
+# test_padded_2d_conv()
+test_many_pad()
+# test_many_conv()

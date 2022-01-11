@@ -97,7 +97,8 @@ Expr Expr::replace(Symbol A, Expr e) const {
       return Expr(op(), new_args);
     }
     default:
-      ASSERT(0) << "couldn't process replacement!";
+      ASSERT(0) << "couldn't process replacement! from " << dump() << " "
+                << Expr(A).dump() << " with " << e.dump();
       return e;
   }
 }
@@ -222,6 +223,68 @@ Expr Expr::max(const Expr& lhs, const Expr& rhs) {
   return Expr(Op::max, {lhs, rhs}).simplify();
 }
 
+bool Expr::associative() const {
+  if (type() != Expr::Type::function) {
+    return false;
+  }
+  switch (op()) {
+    case Op::add:
+    case Op::multiply:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
+bool Expr::can_evaluate() const {
+  bool can = true;
+  walk([&](const Expr& e) {
+    if (e.type() == Expr::Type::symbol) {
+      can = false;
+    }
+    return e;
+  });
+  return can;
+}
+
+float Expr::evaluate() const {
+  ASSERT(can_evaluate());
+  if (type() != Expr::Type::function) {
+    ASSERT(type() == Expr::Type::value) << "can't evaluate " << dump();
+    return (float)value();
+  }
+  switch (op()) {
+    case Op::add: {
+      auto lhs = args().at(0).evaluate();
+      auto rhs = args().at(1).evaluate();
+      return lhs + rhs;
+    }
+    case Op::multiply: {
+      auto lhs = args().at(0).evaluate();
+      auto rhs = args().at(1).evaluate();
+      return lhs * rhs;
+    }
+    case Op::divide: {
+      auto lhs = args().at(0).evaluate();
+      auto rhs = args().at(1).evaluate();
+      return lhs / rhs;
+    }
+    case Op::max: {
+      auto lhs = args().at(0).evaluate();
+      auto rhs = args().at(1).evaluate();
+      return std::max(lhs, rhs);
+    }
+    case Op::negate: {
+      return -args().at(0).evaluate();
+    }
+    default:
+      ASSERT(0) << "couldn't evaluate expression " << dump();
+      return 0;
+  }
+  return 0;
+}
+
 Expr Expr::simplify() const {
   if (type() != Expr::Type::function) {
     return *this;
@@ -230,13 +293,18 @@ Expr Expr::simplify() const {
   for (auto& arg : sorted_args) {
     arg = arg.simplify();
   }
-  std::sort(sorted_args.begin(), sorted_args.end(),
-            [](const Expr& a, const Expr& b) {
-              if (a.op() != b.op()) {
-                return (int)a.op() < (int)b.op();
-              }
-              return a.hash(true) > b.hash(true);
-            });
+  if (associative()) {
+    std::sort(sorted_args.begin(), sorted_args.end(),
+              [](const Expr& a, const Expr& b) {
+                if (a.type() != b.type()) {
+                  return (int)a.type() < (int)b.type();
+                }
+                if (a.op() != b.op()) {
+                  return (int)a.op() < (int)b.op();
+                }
+                return a.hash(true) > b.hash(true);
+              });
+  }
   switch (op()) {
     case Op::add: {
       auto lhs = sorted_args.at(0);
@@ -247,6 +315,13 @@ Expr Expr::simplify() const {
         }
         if (lhs.value() == 0) {
           return rhs;
+        }
+        if (rhs.op() == Op::add) {
+          auto rlhs = rhs.args().at(0);
+          auto rrhs = rhs.args().at(1);
+          if (rlhs.type() == Expr::Type::value) {
+            return (Expr(rlhs.value() + lhs.value()) + rrhs).simplify();
+          }
         }
       }
       if (rhs.type() == Expr::Type::value) {
@@ -536,6 +611,7 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
         if (llhs.contains(sym)) {
           return isolate(std::make_pair(llhs, rhs / lrhs), sym);
         }
+        ASSERT(lrhs.contains(sym));
         return isolate(std::make_pair(lrhs, rhs / llhs), sym);
       }
       case Op::divide: {
@@ -635,6 +711,18 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
     }
   }
 
+  for (auto& p : size_constraints) {
+    if (p.second.size() > 1) {
+      const auto& exprs = p.second;
+      for (const auto& expr : exprs) {
+        if (expr.type() == Expr::Type::value) {
+          size_constraints[p.first] = {expr};
+          break;
+        }
+      }
+    }
+  }
+
   // 5. Simplify the size constraints
   auto sized = [&](Symbol sym) {
     if (!size_constraints.count(sym)) {
@@ -663,7 +751,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
     return sizes;
   };
 
-  auto simplify_all_sizes = [&]() {
+  auto simplify_all_sizes = [&]() -> bool {
+    bool changed = false;
     for (auto& p : size_constraints) {
       auto exprs = p.second;
       p.second.clear();
@@ -674,7 +763,17 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
         }
         p.second.insert(expr.simplify());
       }
+      if (exprs.size() == p.second.size()) {
+        for (const auto& expr : exprs) {
+          if (!p.second.count(expr)) {
+            changed = true;
+          }
+        }
+      } else {
+        changed = true;
+      }
     }
+    return changed;
   };
 
   auto resolve_values = [&]() {
@@ -697,9 +796,11 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
     }
   };
 
-  for (auto i = 0; i < 3; ++i) {
-    simplify_all_sizes();
-    resolve_values();
+  {
+    int limit = 1000;
+    while (simplify_all_sizes() && (limit--) > 0) {
+      resolve_values();
+    }
   }
 
   // 6. Derive all indexing constraints
@@ -737,14 +838,21 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
           }
           return e;
         });
+        // if we've already had our sizes bound by previous iterations
+        // of unification, we can skip this step entirely
+        if (size_constraints.count(sym)) {
+          continue;
+        }
         size_constraints[sym].insert(size_expr + Expr(1));
       }
     }
   };
 
   derive_size_expressions();
-  for (auto i = 0; i < 3; ++i) {
-    simplify_all_sizes();
+  {
+    int limit = 1000;
+    while (simplify_all_sizes() && (limit--) > 0) {
+    }
   }
 
   // 8. All done, take the maximum if there are multiple size constraints

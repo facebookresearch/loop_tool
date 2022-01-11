@@ -51,7 +51,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Symbol>("Symbol").constructor<std::string>();
 
   js::class_<lazy::Tensor>("Tensor")
-      .constructor<std::vector<size_t>>()
+      .constructor<std::vector<int64_t>>()
       .function("to", &to_impl)
       .function("mul", &lazy::Tensor::operator*)
       .function("add", &lazy::Tensor::operator+);
