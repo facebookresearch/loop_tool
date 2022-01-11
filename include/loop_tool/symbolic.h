@@ -69,10 +69,17 @@ struct Expr {
   int64_t val_;
   Symbol symbol_;
   std::vector<Expr> exprs_;
-  explicit Expr(int64_t val) : type_(Type::value), val_(val){};
-  explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol){};
+  mutable size_t hash_ = 0;
+  mutable size_t symbol_hash_ = 0;
+  void init();
+  explicit Expr(int64_t val) : type_(Type::value), val_(val) { init(); };
+  explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol) {
+    init();
+  };
   explicit Expr(Op op, std::vector<Expr> exprs)
-      : type_(Type::function), op_(op), exprs_(exprs){};
+      : type_(Type::function), op_(op), exprs_(exprs) {
+    init();
+  };
   Expr() = delete;
   size_t hash(bool symbol_sensitive = false) const;
   int64_t value() const;

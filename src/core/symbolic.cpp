@@ -38,7 +38,26 @@ Expr Symbol::operator*(const Symbol& rhs) const {
 Expr Symbol::operator+(const Expr& rhs) const { return Expr(*this) + rhs; }
 Expr Symbol::operator*(const Expr& rhs) const { return Expr(*this) * rhs; }
 
+void Expr::init() {
+  if (associative()) {
+    std::sort(exprs_.begin(), exprs_.end(), [](const Expr& a, const Expr& b) {
+      if (a.type() != b.type()) {
+        return (int)a.type() < (int)b.type();
+      }
+      if (a.op() != b.op()) {
+        return (int)a.op() < (int)b.op();
+      }
+      return a.hash(true) > b.hash(true);
+    });
+  }
+}
+
 size_t Expr::hash(bool symbol_sensitive) const {
+  if (!symbol_sensitive && hash_) {
+    return hash_;
+  } else if (symbol_sensitive && symbol_hash_) {
+    return symbol_hash_;
+  }
   size_t h = symbolic::hash((int)op_);
   if (type_ == Type::value) {
     h = symbolic::hash(h ^ symbolic::hash(val_));
@@ -52,6 +71,11 @@ size_t Expr::hash(bool symbol_sensitive) const {
   }
   for (const auto& expr : exprs_) {
     h = symbolic::hash(h ^ expr.hash());
+  }
+  if (symbol_sensitive) {
+    symbol_hash_ = h;
+  } else {
+    hash_ = h;
   }
   return h;
 }
@@ -293,18 +317,6 @@ Expr Expr::simplify() const {
   for (auto& arg : sorted_args) {
     arg = arg.simplify();
   }
-  if (associative()) {
-    std::sort(sorted_args.begin(), sorted_args.end(),
-              [](const Expr& a, const Expr& b) {
-                if (a.type() != b.type()) {
-                  return (int)a.type() < (int)b.type();
-                }
-                if (a.op() != b.op()) {
-                  return (int)a.op() < (int)b.op();
-                }
-                return a.hash(true) > b.hash(true);
-              });
-  }
   switch (op()) {
     case Op::add: {
       auto lhs = sorted_args.at(0);
@@ -440,6 +452,9 @@ Expr Expr::operator/(const Expr& rhs) const {
 bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
 
 bool Expr::operator==(const Expr& rhs) const {
+  if (hash(true) != rhs.hash(true)) {
+    return false;
+  }
   if (type_ == Expr::Type::value) {
     return rhs.type() == Expr::Type::value && rhs.value() == value();
   } else if (type_ == Expr::Type::symbol) {
@@ -451,15 +466,10 @@ bool Expr::operator==(const Expr& rhs) const {
   }
   bool match = true;
   if (args().size() == rhs.args().size()) {
-    auto sorted_args = args();
-    auto sorted_rhs_args = rhs.args();
-    auto sort_fn = [](const Expr& a, const Expr& b) {
-      return a.hash() < b.hash();
-    };
-    std::sort(sorted_args.begin(), sorted_args.end(), sort_fn);
-    std::sort(sorted_rhs_args.begin(), sorted_rhs_args.end(), sort_fn);
-    for (auto i = 0; i < sorted_args.size(); ++i) {
-      match &= sorted_args.at(i) == sorted_rhs_args.at(i);
+    auto lhs_args = args();
+    auto rhs_args = rhs.args();
+    for (auto i = 0; i < lhs_args.size(); ++i) {
+      match &= lhs_args.at(i) == rhs_args.at(i);
     }
   } else {
     match = false;

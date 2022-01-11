@@ -241,17 +241,23 @@ IR::NodeRef TensorImpl::resolve(
   return node_ref;
 }
 
-void TensorImpl::collectConstraints(std::vector<Constraint>& constraints) {
+void TensorImpl::collectConstraints(std::vector<Constraint>& constraints,
+                                    std::unordered_set<TensorImpl*>& seen) {
   for (const auto& c : constraints_) {
     constraints.emplace_back(c);
   }
+  seen.insert(this);
   for (const auto& d : deps_) {
-    d->collectConstraints(constraints);
+    if (seen.count(d.get())) {
+      continue;
+    }
+    d->collectConstraints(constraints, seen);
   }
 }
 
 void TensorImpl::propagateConstraints(
-    const std::vector<Constraint>& constraints) {
+    const std::vector<Constraint>& constraints,
+    std::unordered_set<TensorImpl*>& seen) {
   // collect sym deps for current constraints
   // TODO: change to set
   std::vector<Symbol> symbols;
@@ -278,19 +284,26 @@ void TensorImpl::propagateConstraints(
       constraints_.emplace_back(c);
     }
   }
+  seen.insert(this);
   for (const auto& d : deps_) {
-    d->propagateConstraints(constraints);
+    if (seen.count(d.get())) {
+      continue;
+    }
+    d->propagateConstraints(constraints, seen);
   }
 }
 
 void TensorImpl::unifyConstraints() {
   std::vector<Constraint> constraints;
-  collectConstraints(constraints);
+  std::unordered_set<TensorImpl*> seen;
+  collectConstraints(constraints, seen);
   auto new_constraints = symbolic::unify(constraints);
-  propagateConstraints(new_constraints);
+  seen.clear();
+  propagateConstraints(new_constraints, seen);
 }
 
-void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
+void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map,
+                                  std::unordered_set<TensorImpl*>& seen) {
   // propagates all Tensor::as calls to assign symbols
   if (op_ == Operation::name) {
     ASSERT(deps_.size() == 1);
@@ -312,13 +325,18 @@ void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map) {
       }
     }
   }
+  seen.insert(this);
   for (auto d : deps_) {
-    d->collectSymbolMap(symbol_map);
+    if (seen.count(d.get())) {
+      continue;
+    }
+    d->collectSymbolMap(symbol_map, seen);
   }
 }
 
 void TensorImpl::propagateSymbolMap(
-    const std::unordered_map<int, Symbol>& symbol_map) {
+    const std::unordered_map<int, Symbol>& symbol_map,
+    std::unordered_set<TensorImpl*>& seen) {
   for (auto& s : shape_) {
     while (symbol_map.count(s.id())) {
       auto old_s = s;
@@ -329,15 +347,21 @@ void TensorImpl::propagateSymbolMap(
       }
     }
   }
+  seen.insert(this);
   for (auto d : deps_) {
-    d->propagateSymbolMap(symbol_map);
+    if (seen.count(d.get())) {
+      continue;
+    }
+    d->propagateSymbolMap(symbol_map, seen);
   }
 }
 
 void TensorImpl::unifySymbols() {
   std::unordered_map<int, Symbol> symbol_map;
-  collectSymbolMap(symbol_map);
-  propagateSymbolMap(symbol_map);
+  std::unordered_set<TensorImpl*> seen;
+  collectSymbolMap(symbol_map, seen);
+  seen.clear();
+  propagateSymbolMap(symbol_map, seen);
 }
 
 void TensorImpl::unify() {

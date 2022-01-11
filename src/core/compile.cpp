@@ -2431,7 +2431,10 @@ struct CPUCompiled : public Compiled {
           "cc -Wall -Wno-unused-function -Wno-unused-variable -Werror -O3 "
           "-std=c99 -fpic -shared -o " +
           lib_name + " " + source_name;
+      auto start = std::chrono::steady_clock::now();
       ASSERT(!std::system(compile_call.c_str()));
+      auto end = std::chrono::steady_clock::now();
+      std::chrono::duration<double> diff = end - start;
       dll = std::make_shared<loop_tool::DynamicLibrary>(lib_name.c_str());
       auto fn_impl = dll->sym<void (*)(void **)>(fn_name.str().c_str());
       fn = [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {

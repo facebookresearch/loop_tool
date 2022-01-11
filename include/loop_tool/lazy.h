@@ -161,11 +161,15 @@ struct TensorImpl {
   std::vector<int64_t> sizes() const;
 
   // for these methods, int is Symbol::id
-  void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map);
-  void propagateSymbolMap(const std::unordered_map<int, Symbol>& symbol_map);
+  void collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map,
+                        std::unordered_set<TensorImpl*>& seen);
+  void propagateSymbolMap(const std::unordered_map<int, Symbol>& symbol_map,
+                          std::unordered_set<TensorImpl*>& seen);
   void unifySymbols();
-  void collectConstraints(std::vector<Constraint>& constraints);
-  void propagateConstraints(const std::vector<Constraint>& constraints);
+  void collectConstraints(std::vector<Constraint>& constraints,
+                          std::unordered_set<TensorImpl*>& seen);
+  void propagateConstraints(const std::vector<Constraint>& constraints,
+                            std::unordered_set<TensorImpl*>& seen);
   void unifyConstraints();
   void unify();
   void populateCompilationCache();
@@ -416,7 +420,8 @@ struct Tensor {
     if (pre == 0 && post == 0) {
       return *this;
     }
-    auto new_sym = Symbol(padded_dim.name() + "_p_" + std::to_string(pre) + "_" + std::to_string(post));
+    auto new_sym = Symbol(padded_dim.name() + "_p_" + std::to_string(pre) +
+                          "_" + std::to_string(post));
     std::vector<Symbol> out_shape;
     for (const auto& sym : shape()) {
       if (sym == padded_dim) {
