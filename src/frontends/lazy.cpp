@@ -51,6 +51,7 @@ void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
     constraints_.emplace_back(
         std::make_pair(Expr::size(shape_.at(i)), Expr(s)));
   }
+  updateHash();
 }
 
 std::vector<void*> TensorImpl::getInputBuffers(

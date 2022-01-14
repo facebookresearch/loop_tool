@@ -83,8 +83,8 @@ struct TensorImpl {
     h = symbolic::hash(h ^ shape_.size());
     auto cm = constraints();
     for (auto& p : cm) {
-      h = symbolic::hash(p.first.hash());
-      h = symbolic::hash(p.second.hash());
+      h = symbolic::hash(h ^ p.first.hash());
+      h = symbolic::hash(h ^ p.second.hash());
     }
     for (const auto& d : deps_) {
       h = symbolic::hash(h ^ d->hash());
