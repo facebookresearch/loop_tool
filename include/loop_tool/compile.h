@@ -69,7 +69,8 @@ class Compiler {
   std::unordered_map<LoopTree::TreeRef, int64_t>
       inner_sizes;  // total size of inner loops over same var
   std::unordered_map<IR::NodeRef, Allocation> allocations;
-  std::unordered_map<IR::NodeRef, IR::NodeRef> resolved_views;
+  std::unordered_map<IR::NodeRef, IR::NodeRef> resolved_reads;
+  std::unordered_map<IR::NodeRef, IR::NodeRef> resolved_writes;
   std::unordered_map<IR::VarRef, int64_t> var_sizes;
   std::unordered_map<IR::VarRef, symbolic::Symbol> var_to_sym;
   std::unordered_map<symbolic::Symbol, IR::VarRef,

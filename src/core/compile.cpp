@@ -879,35 +879,34 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
   std::unordered_map<IR::VarRef, int64_t> cur_sizes;
   std::unordered_set<LoopTree::TreeRef> traversed;
 
-  auto resolve_view = [&](IR::NodeRef n) {
+  // if a view node is unscheduled, it can still be written to or read from
+  // if as_write, resolve as if the view is being written to
+  // otherwise read from
+  auto resolve_view = [&](IR::NodeRef n, bool as_write) {
     const auto &node = lt.ir.node(n);
-    if (node.outputs().size() == 1) {
-      const auto &consumer_ref = node.outputs().at(0);
-      if (!lt.scheduled.count(consumer_ref)) {
-        const auto &consumer = lt.ir.node(consumer_ref);
-        if (consumer.op() == Operation::write &&
-            consumer.inputs().size() == 1) {
-          return consumer_ref;
-        }
-      }
-    }
     if (node.op() != Operation::view) {
       return n;
     }
     while (!lt.scheduled.count(n)) {
       const auto &node = lt.ir.node(n);
-      if (node.op() == Operation::read) {
+      if (node.op() == Operation::write || node.op() == Operation::read) {
         return n;
       }
       ASSERT(node.op() == Operation::view);
-      ASSERT(node.inputs().size() == 1);
-      n = node.inputs().at(0);
+      if (as_write) {
+        ASSERT(node.outputs().size() == 1);
+        n = node.outputs().at(0);
+      } else {
+        ASSERT(node.inputs().size() == 1);
+        n = node.inputs().at(0);
+      }
     }
     return n;
   };
 
   for (const auto &node_ref : lt.ir.nodes()) {
-    resolved_views[node_ref] = resolve_view(node_ref);
+    resolved_reads[node_ref] = resolve_view(node_ref, false);
+    resolved_writes[node_ref] = resolve_view(node_ref, true);
     auto node = lt.ir.node(node_ref);
     auto add_sym = [&](symbolic::Symbol sym) {
       if (node.has_sym(sym)) {
@@ -1547,12 +1546,12 @@ std::vector<int64_t> Compiler::memory_sizes() const {
 std::vector<symbolic::Constraint> Compiler::gen_constraints(
     IR::NodeRef node_ref, LoopTree::TreeRef ref) const {
   // Find a route to a scheduled base node
-  auto base_node_ref = resolved_views.at(node_ref);
+  auto base_node_ref = resolved_reads.at(node_ref);
 
   const auto &node = lt.ir.node(lt.node(ref));
   if (node.op() == Operation::view) {
     ASSERT(node.inputs().size() == 1);
-    base_node_ref = resolved_views.at(node.inputs().at(0));
+    base_node_ref = resolved_reads.at(node.inputs().at(0));
   }
 
   std::unordered_set<Symbol, Hash<Symbol>> target_syms;
@@ -1949,28 +1948,28 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
 
 Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
                                       LoopTree::TreeRef ref) const {
-  // Deprecated! See gen_index_equations()
+  auto read_node_ref = resolved_reads.at(node_ref);
+  //auto view_exprs = gen_index_equations(read_node_ref, node_ref, ref);
   auto view_exprs = gen_constraints(node_ref, ref);
-  auto base_node_ref = resolved_views.at(node_ref);
 
   // This is the robust way to calculate view-based accesses, but is currently a
   // WIP
   // TODO, integrate more fully and simplify gen_access
-  if (base_node_ref != node_ref && false) {
-    auto hotfix_exprs = gen_index_equations(base_node_ref, node_ref, ref);
-    view_exprs.clear();
-    for (auto i = 0; i < hotfix_exprs.first.size(); ++i) {
-      auto v = lt.ir.node(base_node_ref).vars().at(i);
-      auto sym = var_to_sym.at(v);
-      // later logic can't process this yet
-      if (hotfix_exprs.first.at(i) == Expr(sym)) {
-        continue;
-      }
-      view_exprs.emplace_back(sym, hotfix_exprs.first.at(i));
-    }
-  }
-  const auto &base_node = lt.ir.node(base_node_ref);
-  auto alloc = allocations.at(base_node_ref);
+  //if (base_node_ref != node_ref) {
+  //  auto hotfix_exprs = gen_index_equations(base_node_ref, node_ref, ref);
+  //  view_exprs.clear();
+  //  for (auto i = 0; i < hotfix_exprs.first.size(); ++i) {
+  //    auto v = lt.ir.node(base_node_ref).vars().at(i);
+  //    auto sym = var_to_sym.at(v);
+  //    // later logic can't process this yet
+  //    if (hotfix_exprs.first.at(i) == Expr(sym)) {
+  //      continue;
+  //    }
+  //    view_exprs.emplace_back(sym, hotfix_exprs.first.at(i));
+  //  }
+  //}
+  const auto &read_node = lt.ir.node(read_node_ref);
+  auto alloc = allocations.at(read_node_ref);
 
   auto use_node_ref = lt.node(ref);
   const auto &use_node = lt.ir.node(use_node_ref);
@@ -1981,7 +1980,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
 
   // either output or input vars
   std::unordered_set<symbolic::Symbol, Hash<symbolic::Symbol>> base_symbols;
-  for (auto v : base_node.vars()) {
+  for (auto v : read_node.vars()) {
     if (var_to_sym.count(v)) {
       base_symbols.insert(var_to_sym.at(v));
     }
@@ -2061,8 +2060,8 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     return stride;
   };
   std::unordered_map<IR::VarRef, int64_t> base_strides;
-  for (auto i = 0; i < base_node.vars().size(); ++i) {
-    auto v = base_node.vars().at(i);
+  for (auto i = 0; i < read_node.vars().size(); ++i) {
+    auto v = read_node.vars().at(i);
     base_strides[v] = stride_at(i);
   }
 
@@ -2072,13 +2071,13 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
         << "cannot find symbol " << c.first.dump();
     auto v = sym_to_var.at(c.first.symbol());
     // ASSERT(base_strides.count(v)) <<" can't find var " << lt.ir.var(v).name()
-    // << " in base node strides " << lt.ir.dump(base_node_ref) << "\n";
+    // << " in base node strides " << lt.ir.dump(read_node_ref) << "\n";
     auto base_stride = base_strides.count(v) ? base_strides.at(v) : 0;
     idx_expr = idx_expr + c.second * Expr(base_stride);
   }
   auto total_offset = zero(idx_expr).value();
 
-  Access access(allocations.at(base_node_ref));
+  Access access(allocations.at(read_node_ref));
   access.total_offset = total_offset;
   for (auto v : vars) {
     // NB: ok to generate a fake symbol, we only use it for lookup
@@ -2421,7 +2420,6 @@ struct CPUCompiled : public Compiled {
     auto compiler = Compiler(lt);
     auto code = compiler.gen_string();
     try {
-      // ASSERT(0);
       std::stringstream fn_name;
       fn_name << "fn_" << compiler.count;
       std::string source_name = "/tmp/" + fn_name.str() + ".c";
