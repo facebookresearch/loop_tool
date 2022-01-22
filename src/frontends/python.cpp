@@ -383,8 +383,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("sqrt", [](lazy::Tensor &t) { return t.sqrt(); })
       .def("pad", [](lazy::Tensor &t, lazy::Symbol s,
                      int64_t amt) { return t.pad(s, amt); })
-      .def("pad", [](lazy::Tensor &t, lazy::Symbol s,
-                     int64_t pre, int64_t post) { return t.pad(s, pre, post); })
+      .def("pad", [](lazy::Tensor &t, lazy::Symbol s, int64_t pre,
+                     int64_t post) { return t.pad(s, pre, post); })
       .def("transpose",
            [](lazy::Tensor &t, py::args args) {
              std::vector<lazy::Symbol> vars;

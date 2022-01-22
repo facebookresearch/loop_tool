@@ -95,7 +95,7 @@ struct Expr {
   Expr replace(Symbol A, int64_t c) const;
   // actually returns count
   size_t contains(Symbol s) const;
-  std::vector<Symbol> symbols() const;
+  std::vector<Symbol> symbols(bool include_sized = true) const;
 
   static Expr size(const Expr& expr);
   static Expr max(const Expr& lhs, const Expr& rhs);

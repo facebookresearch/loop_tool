@@ -950,6 +950,14 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
       var_sizes[p.first] = tmp_sizes.at(p.first);
     }
   }
+  for (const auto &v : lt.ir.vars()) {
+    if (var_to_sym.count(v)) {
+      continue;
+    }
+    auto s = Symbol(lt.ir.var(v).name() + "_gen");
+    var_to_sym[v] = s;
+    sym_to_var[s] = v;
+  }
 
   for (const auto &v : lt.ir.vars()) {
     ASSERT(var_sizes.count(v))
@@ -1851,14 +1859,12 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
       if (c.first == Expr(sym)) {
         bool only_output_vars = true;
         bool only_input_vars = true;
-        for (const auto &s : c.second.symbols()) {
-          if (!toward_input && !out_vars.count(sym_to_var.at(s))) {
+        for (const auto &s : c.second.symbols(false)) {
+          if (!out_vars.count(sym_to_var.at(s))) {
             only_output_vars = false;
-            break;
           }
-          if (toward_input && !in_vars.count(sym_to_var.at(s))) {
+          if (!in_vars.count(sym_to_var.at(s))) {
             only_input_vars = false;
-            break;
           }
         }
         if (!toward_input && only_output_vars) {
@@ -1949,13 +1955,17 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
 Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
                                       LoopTree::TreeRef ref) const {
   auto read_node_ref = resolved_reads.at(node_ref);
-  //auto view_exprs = gen_index_equations(read_node_ref, node_ref, ref);
-  auto view_exprs = gen_constraints(node_ref, ref);
+  auto view_exprs = gen_index_equations(read_node_ref, node_ref, ref);
+  for (const auto &e : view_exprs.second) {
+    ASSERT(e.type() == Expr::Type::symbol) << "Viewed writes not yet supported";
+  }
+
+  // auto view_exprs = gen_constraints(node_ref, ref);
 
   // This is the robust way to calculate view-based accesses, but is currently a
   // WIP
   // TODO, integrate more fully and simplify gen_access
-  //if (base_node_ref != node_ref) {
+  // if (base_node_ref != node_ref) {
   //  auto hotfix_exprs = gen_index_equations(base_node_ref, node_ref, ref);
   //  view_exprs.clear();
   //  for (auto i = 0; i < hotfix_exprs.first.size(); ++i) {
@@ -1978,51 +1988,17 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
   auto scope_vars = lt.scope_vars(ref);
   auto vars = intersection(node_vars, scope_vars);
 
-  // either output or input vars
-  std::unordered_set<symbolic::Symbol, Hash<symbolic::Symbol>> base_symbols;
+  // either input vars
+  std::vector<symbolic::Symbol> read_symbols;
   for (auto v : read_node.vars()) {
     if (var_to_sym.count(v)) {
-      base_symbols.insert(var_to_sym.at(v));
+      read_symbols.emplace_back(var_to_sym.at(v));
     }
   }
-
-  auto has_base_symbol = [&](const symbolic::Constraint &c) {
-    for (auto s : c.first.symbols()) {
-      if (base_symbols.count(s)) {
-        return true;
-      }
-    }
-    for (auto s : c.second.symbols()) {
-      if (base_symbols.count(s)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  auto get_base_symbol = [&](const symbolic::Constraint &c) {
-    symbolic::Symbol base_sym;
-    bool found_base = false;
-    for (auto s : c.first.symbols()) {
-      if (base_symbols.count(s)) {
-        ASSERT(!found_base) << "Found multiple base symbols in constraint "
-                            << c.first.dump() << ": " << c.second.dump();
-        base_sym = s;
-        found_base = true;
-      }
-    }
-    for (auto s : c.second.symbols()) {
-      if (base_symbols.count(s)) {
-        ASSERT(!found_base) << "Found multiple base symbols in constraint "
-                            << c.first.dump() << ": " << c.second.dump();
-        base_sym = s;
-        found_base = true;
-      }
-    }
-    ASSERT(found_base) << "Couldn't find base symbol in constraint "
-                       << c.first.dump() << ": " << c.second.dump();
-    return base_sym;
-  };
+  auto read_exprs = view_exprs.first;
+  for (auto i = 0; i < read_exprs.size(); ++i) {
+    const auto &e = read_exprs.at(i);
+  }
 
   auto zero = [&](const symbolic::Expr &expr) {
     auto sized = expr.walk([&](const symbolic::Expr &e) {
@@ -2051,6 +2027,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     return out;
   };
 
+  ASSERT(alloc.sizes.size() == read_exprs.size());
   auto stride_at = [&](int idx) {
     int64_t stride = alloc.sizes.at(idx) > 0 ? 1 : 0;
     for (auto i = idx + 1; i < alloc.sizes.size(); ++i) {
@@ -2059,60 +2036,50 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     }
     return stride;
   };
-  std::unordered_map<IR::VarRef, int64_t> base_strides;
-  for (auto i = 0; i < read_node.vars().size(); ++i) {
-    auto v = read_node.vars().at(i);
-    base_strides[v] = stride_at(i);
-  }
 
+  Access access(alloc);
   Expr idx_expr(0);
-  for (auto c : view_exprs) {
-    ASSERT(sym_to_var.count(c.first.symbol()))
-        << "cannot find symbol " << c.first.dump();
-    auto v = sym_to_var.at(c.first.symbol());
-    // ASSERT(base_strides.count(v)) <<" can't find var " << lt.ir.var(v).name()
-    // << " in base node strides " << lt.ir.dump(read_node_ref) << "\n";
-    auto base_stride = base_strides.count(v) ? base_strides.at(v) : 0;
-    idx_expr = idx_expr + c.second * Expr(base_stride);
+  for (auto i = 0; i < read_exprs.size(); ++i) {
+    auto stride = stride_at(i);
+    idx_expr = idx_expr + read_exprs.at(i) * Expr(stride);
   }
-  auto total_offset = zero(idx_expr).value();
+  access.total_offset = zero(idx_expr).value();
 
-  Access access(allocations.at(read_node_ref));
-  access.total_offset = total_offset;
   for (auto v : vars) {
     // NB: ok to generate a fake symbol, we only use it for lookup
     auto sym = var_to_sym.count(v) ? var_to_sym.at(v) : Symbol();
-    bool set = false;
-    for (auto c : view_exprs) {
-      if ((c.first.contains(sym) || c.second.contains(sym)) &&
-          has_base_symbol(c)) {
-        auto expr = isolate(c, sym).second;
-        auto base_sym = get_base_symbol(c);
-        auto base_var = sym_to_var.at(base_sym);
-        auto base_expr = isolate(c, base_sym).second;
-        auto stride = (base_sym == sym) ? Expr(base_strides.at(v))
-                                        : (differentiate(expr, base_sym) *
-                                           Expr(base_strides.at(base_var)))
-                                              .simplify();
-        auto offset = (base_sym == sym) ? Expr(0) : zero(base_expr).simplify();
-        auto max = var_sizes.at(base_var);
-        auto v_max = var_sizes.at(v);
-        if (max >= v_max) {
-          max = -1;
-        }
-        if (stride.type() != Expr::Type::value ||
-            offset.type() != Expr::Type::value) {
-          continue;
-        }
-        access.vars[v] = std::make_tuple(stride.value(), offset.value(), max);
-        set = true;
-        break;
+    bool found_expr = false;
+    for (auto i = 0; i < read_exprs.size(); ++i) {
+      const auto &e = read_exprs.at(i);
+      auto read_var = read_node.vars().at(i);
+      if (read_symbols.at(i) == sym) {
+        auto stride = stride_at(i);
+        access.vars[v] = std::make_tuple(stride, 0, -1);
+        found_expr = true;
+        continue;
       }
-    }
-    if (!set) {
-      // if this var is unrelated, we don't stride
-      auto stride = base_strides.count(v) ? base_strides.at(v) : 0;
-      access.vars[v] = std::make_tuple(stride, 0, -1);
+      if (!e.contains(sym)) {
+        continue;
+      }
+      ASSERT(!found_expr)
+          << "Found two dependencies on the same variable, not yet supported";
+      found_expr = true;
+      const auto &read_sym = read_symbols.at(i);
+      auto constraint = Constraint(read_sym, e);
+      auto offset = zero(e).simplify();
+      auto expr = isolate(constraint, sym).second;
+      auto stride = differentiate(expr, read_symbols.at(i)) *
+                    Expr(stride_at(i)).simplify();
+      auto max = var_sizes.at(read_var);
+      auto v_max = var_sizes.at(v);
+      if (max >= v_max) {
+        max = -1;
+      }
+      if (stride.type() != Expr::Type::value ||
+          offset.type() != Expr::Type::value) {
+        continue;
+      }
+      access.vars[v] = std::make_tuple(stride.value(), offset.value(), max);
     }
   }
   return access;

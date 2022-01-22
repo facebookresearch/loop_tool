@@ -210,10 +210,16 @@ size_t Expr::contains(Symbol s) const {
   }
 }
 
-std::vector<Symbol> Expr::symbols() const {
+std::vector<Symbol> Expr::symbols(bool include_sized) const {
   std::vector<Symbol> out;
   std::unordered_set<Symbol, Hash<Symbol>> seen;
-  walk([&](const Expr& e) {
+  auto size_removed_expr = walk([&](const Expr& e) {
+    if (!include_sized && e.op() == Op::size) {
+      return Expr(0);
+    }
+    return e;
+  });
+  size_removed_expr.walk([&](const Expr& e) {
     if (e.type() == Expr::Type::symbol) {
       auto sym = e.symbol();
       if (seen.count(sym)) {
