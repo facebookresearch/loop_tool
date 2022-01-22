@@ -66,16 +66,9 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
 }
 
 void IR::reset_aux(IR::NodeRef node_ref) {
-  // TODO attempt to preserve old order
-  std::vector<std::pair<IR::NodeRef, IR::LoopSize>> order;
   auto &n = node(node_ref);
-  // auto vars = loop_vars(node_ref);
-  // for (const auto &v : vars) {
-  //  order.emplace_back(v, IR::LoopSize{-1, -1});
-  //}
   priorities_[node_ref] = 0;
   reuse_disabled_[node_ref].clear();
-  // orders_[node_ref] = order;
 }
 
 void IR::replace_all_uses(NodeRef old_node, NodeRef new_node) {
@@ -435,8 +428,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   std::vector<IR::NodeRef> sorted_nodes = toposort(ir);
   std::unordered_map<IR::VarRef, IR::VarRef> view_base;
   for (const auto &node_ref : sorted_nodes) {
-    //std::cerr << "NODE: " << ir.dump(node_ref) << "\n";
-    const auto& n = ir.node(node_ref);
+    const auto &n = ir.node(node_ref);
     if (n.op() != Operation::view) {
       for (auto v : n.vars()) {
         if (view_base.count(v)) {
@@ -447,26 +439,21 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       continue;
     }
     auto reduction_vars = to_set(ir.reduction_vars(node_ref));
-    for (const auto& c : n.constraints()) {
-      //std::cerr << "constraint: " << c.first.dump() << ": " << c.second.dump() << "\n";
+    for (const auto &c : n.constraints()) {
       auto syms = to_set<Symbol, Hash>(c.first.symbols());
       auto rhs_syms = to_set<Symbol, Hash>(c.second.symbols());
       syms.insert(rhs_syms.begin(), rhs_syms.end());
 
       IR::VarRef base_var = -1;
       std::vector<IR::VarRef> viewed_vars;
-      for (const auto& sym : syms) {
+      for (const auto &sym : syms) {
         auto v = n.var(sym);
-        //std::cerr << "sym: " << Expr(sym).dump() << "\n";
         if (reduction_vars.count(v)) {
           ASSERT(base_var == -1);
           ASSERT(view_base.count(v));
           base_var = view_base.at(v);
-          //std::cerr << "SET BASE VAR " << ir.var(base_var).name() << "\n";
-          //std::cerr << "reduction\n";
           continue;
         }
-        //std::cerr << "not reduction\n";
         viewed_vars.emplace_back(v);
       }
       // there may not be a mapping, we just skip it
@@ -475,18 +462,12 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       }
       for (auto v : viewed_vars) {
         view_base[v] = base_var;
-        //std::cerr << "SET VIEW INTO BASE " << ir.var(v).name() << " = " << ir.var(base_var).name() << "\n";
-        //std::cerr << "mapped " << v << " to " << base_var << "\n";
       }
     }
   }
-  //for (const auto& p : view_base) {
-  //  std::cerr << ir.var(p.first).name() << " = " << ir.var(p.second).name() << "\n";
-  //  std::cerr << "found mapped " << p.first << " to " << p.second << "\n";
-  //}
 
   for (const auto &node_ref : sorted_nodes) {
-    const auto& n = ir.node(node_ref);
+    const auto &n = ir.node(node_ref);
     auto l_order = loop_order(node_ref);
     if (n.vars().size() != 0 && l_order.size() == 0) {
       continue;
@@ -520,7 +501,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     }
     // prune mismatched views by checking if different version of vars are used
     std::unordered_set<IR::VarRef> scheduled_vars;
-    for (const auto& loop : l_order) {
+    for (const auto &loop : l_order) {
       scheduled_vars.insert(loop.var);
     }
     for (auto i = 0; i < l_order.size(); ++i) {

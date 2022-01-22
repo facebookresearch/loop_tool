@@ -422,10 +422,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                    }
                    return std::make_pair(py::cast<lazy::Expr>(arg), rhs);
                  }();
-                 // auto sym =
-                 // py::cast<lazy::Symbol>(py::cast<py::tuple>(t)[0]);
-                 constraints.emplace_back(
-                     constraint);  // std::make_pair(sym, expr));
+                 constraints.emplace_back(constraint);
                }
                return t.to(output_shape, constraints);
              }

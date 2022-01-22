@@ -101,14 +101,20 @@ else()
   message("To build python bindings, pip install pybind11 and run `cmake .. -Dpybind11_DIR=$(python -c 'import pybind11;print(pybind11.get_cmake_dir())')`")
 endif()
 
-if(DEFINED ENV{EMCC_DIR})
-  SET(EMCC $ENV{EMCC_DIR}/emcc)
+if(DEFINED EMCC_DIR)
+  SET(EMCC ${EMCC_DIR}/emcc)
   message("Using ${EMCC} to compile javascript bindings...")
-  SET(EMCC_INCLUDE $ENV{EMCC_DIR}/system/include)
+  SET(EMCC_INCLUDE ${EMCC_DIR}/system/include)
   file(GLOB JS_SRCS ${SRC_DIR}/frontends/javascript*.cpp)
+  SET(EMCC_FLAGS -s NO_DISABLE_EXCEPTION_CATCHING)
+  if (CMAKE_BUILD_TYPE MATCHES Debug)
+    message("Running a debug build for emcc...")
+    SET(EMCC_FLAGS ${EMCC_FLAGS} -gsource-map -s ASSERTIONS=1)
+  else()
+    SET(EMCC_FLAGS ${EMCC_FLAGS} -Oz)
+  endif()
   add_custom_command(OUTPUT loop_tool_js_emcc
-    COMMAND ${EMCC} -I${EMCC_INCLUDE} -I${LIB_INCLUDE} ${CORE_SRCS} ${JS_SRCS} -o loop_tool.js -Oz --bind
-    -s ASSERTIONS=1
+    COMMAND ${EMCC} -I${EMCC_INCLUDE} -I${LIB_INCLUDE} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o loop_tool.js --bind
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS "${CORE_SRCS}"
     COMMENT "Compiling with emcc"

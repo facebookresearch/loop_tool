@@ -139,8 +139,6 @@ int64_t TensorImpl::size(int dim) const {
   return expr.evaluate();
 }
 
-// std::pair<IR::NodeRef, std::unordered_map<const TensorImpl*, IR::NodeRef>>
-// TensorImpl::resolve( IR::NodeRef TensorImpl::resolve(
 IR::NodeRef TensorImpl::resolve(
     IR& ir, std::unordered_map<int, std::pair<IR::VarRef, int64_t>>& var_map,
     std::unordered_map<const TensorImpl*, IR::NodeRef>& impl_map) const {

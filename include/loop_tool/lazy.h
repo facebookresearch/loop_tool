@@ -430,8 +430,6 @@ struct Tensor {
         out_shape.emplace_back(sym);
       }
     }
-    std::cerr << "constraint! " << new_sym.name() << ": "
-              << (padded_dim + Expr(pre)).dump() << "\n";
     return this->to(out_shape, Constraint(new_sym, padded_dim + Expr(pre)),
                     Constraint(Expr::size(new_sym),
                                Expr::size(padded_dim) + Expr(post + pre)));
@@ -511,13 +509,13 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  inline Tensor as(std::vector<Symbol> shape) {
+  inline Tensor as(std::vector<Symbol> shape) const {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
     return Tensor(std::make_shared<TensorImpl>(Operation::name, shape, deps));
   }
 
   template <typename... Args>
-  Tensor as(const Args&... args) {
+  Tensor as(const Args&... args) const {
     std::vector<Symbol> shape{args...};
     return as(shape);
   }

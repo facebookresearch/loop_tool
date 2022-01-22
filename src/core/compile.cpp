@@ -2295,7 +2295,6 @@ struct CPUCompiled : public Compiled {
         fn_impl(const_cast<void **>(memory.data()));
       };
     } catch (const std::exception &e) {
-      ASSERT(0);
       std::cerr << e.what() << "\n";
       std::cerr << "Falling back to interpreted execution on CPU\n";
       fn = compiler.gen_exec();
