@@ -430,6 +430,8 @@ struct Tensor {
         out_shape.emplace_back(sym);
       }
     }
+    std::cerr << "constraint! " << new_sym.name() << ": "
+              << (padded_dim + Expr(pre)).dump() << "\n";
     return this->to(out_shape, Constraint(new_sym, padded_dim + Expr(pre)),
                     Constraint(Expr::size(new_sym),
                                Expr::size(padded_dim) + Expr(post + pre)));

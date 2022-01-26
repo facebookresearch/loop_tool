@@ -483,42 +483,47 @@ bool Expr::operator==(const Expr& rhs) const {
   return rhs.op() == op() && match;
 }
 
-std::string Expr::dump(bool short_form) const {
+std::string Expr::dump(bool short_form, const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements) const {
   std::stringstream ss;
   if (type_ == Expr::Type::value) {
     ss << value();
   } else if (type_ == Expr::Type::symbol) {
-    ss << symbol().name();
-    if (!short_form) {
-      ss << "[id:" << symbol().id() << "]";
+    auto sym = symbol();
+    if (replacements.count(sym)) {
+      ss << replacements.at(sym);
+    } else {
+      ss << symbol().name();
+      if (!short_form) {
+        ss << "[id:" << symbol().id() << "]";
+      }
     }
   } else if (op_ == Op::size) {
     ASSERT(args().size() == 1);
-    ss << "|" << args().at(0).dump(short_form) << "|";
+    ss << "|" << args().at(0).dump(short_form, replacements) << "|";
   } else if (op_ == Op::max) {
     ASSERT(args().size() == 2);
-    ss << "max(" << args().at(0).dump(short_form) << ", "
-       << args().at(1).dump(short_form) << ")";
+    ss << "max(" << args().at(0).dump(short_form, replacements) << ", "
+       << args().at(1).dump(short_form, replacements) << ")";
   } else if (op_ == Op::negate) {
     ASSERT(args().size() == 1);
     auto arg = args().at(0);
     ss << "-";
     if (arg.type() == Expr::Type::function) {
-      ss << "(" << args().at(0).dump(short_form) << ")";
+      ss << "(" << args().at(0).dump(short_form, replacements) << ")";
     } else {
-      ss << args().at(0).dump(short_form);
+      ss << args().at(0).dump(short_form, replacements);
     }
   } else if (op_ == Op::reciprocal) {
     ASSERT(args().size() == 1);
-    ss << args().at(0).dump(short_form) << "^-1";
+    ss << "(1 / " << args().at(0).dump(short_form, replacements) << ")";
   } else {
     ASSERT(args().size() == 2);
     auto lhs = args().at(0);
     auto rhs = args().at(1);
     if (lhs.op() == Op::constant || lhs.args().size() == 1) {
-      ss << lhs.dump(short_form);
+      ss << lhs.dump(short_form, replacements);
     } else {
-      ss << "(" << lhs.dump(short_form) << ")";
+      ss << "(" << lhs.dump(short_form, replacements) << ")";
     }
     // we pretty print addition of negatives
     if (op_ == Op::add) {
@@ -540,9 +545,9 @@ std::string Expr::dump(bool short_form) const {
     }
 
     if (rhs.op() == Op::constant || rhs.args().size() == 1) {
-      ss << rhs.dump(short_form);
+      ss << rhs.dump(short_form, replacements);
     } else {
-      ss << "(" << rhs.dump(short_form) << ")";
+      ss << "(" << rhs.dump(short_form, replacements) << ")";
     }
   }
   return ss.str();

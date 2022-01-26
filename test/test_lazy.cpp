@@ -161,8 +161,8 @@ TEST(LazyAdd) {
       auto ref = A.data<float>()[i] + B.data<float>()[i];
       auto diff = std::abs(C.data<float>()[i] - ref);
       max_diff = std::max(max_diff, diff);
-      std::cout << "ref: " << ref << " vs " <<C.data<float>()[i] << "\n";
-      //std::cout << ref << ":" << C.data<float>()[i] << "(" << diff << ") ";
+      std::cout << "ref: " << ref << " vs " << C.data<float>()[i] << "\n";
+      // std::cout << ref << ":" << C.data<float>()[i] << "(" << diff << ") ";
     }
     std::cout << "\n";
     std::cout << "max diff " << max_diff << "\n";
@@ -182,7 +182,8 @@ TEST(LazyAdd) {
     auto C = add(A, B);
     (void)C.data<float>();
     auto diff = std::abs(C.data<float>()[0] - (A_[0] + B_[0]));
-    ASSERT(diff < 0.01) << "got: " << C.data<float>()[0] << " expected: " << (A_[0] + B_[0]);
+    ASSERT(diff < 0.01) << "got: " << C.data<float>()[0]
+                        << " expected: " << (A_[0] + B_[0]);
   }
   auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double> diff = end - start;
@@ -334,9 +335,11 @@ TEST(LazyConcat1D) {
   A.bind(nullptr, {8});
   B.bind(nullptr, {5});
   auto A_ = A.to({NM}, lz::Constraint(NM, N),
-      lz::Constraint(lz::Expr::size(NM), lz::Expr::size(N) + lz::Expr::size(M)));
+                 lz::Constraint(lz::Expr::size(NM),
+                                lz::Expr::size(N) + lz::Expr::size(M)));
   auto B_ = B.to({NM}, lz::Constraint(NM, M + lz::Expr::size(N)));
   auto C = A_ + B_;
+  std::cerr << C.code() << "\n";
   std::cerr << "shape:\n";
   for (auto s : C.shape()) {
     std::cerr << s.name() << "\n";
@@ -349,9 +352,9 @@ TEST(LazyConcat1D) {
     B.data<float>()[i] = i;
   }
   for (auto i = 0; i < 13; ++i) {
-  std::cerr << "C[" << i << "]: " << C.data<float>()[i] << "\n";
+    std::cerr << "C[" << i << "]: " << C.data<float>()[i] << "\n";
   }
-  //ASSERT(C.data<float>()[2] == 2);
+  // ASSERT(C.data<float>()[2] == 2);
   ASSERT(C.data<float>()[10] == 2);
   auto D = A | B;
   ASSERT(D.data<float>()[10] == C.data<float>()[10]);
@@ -360,23 +363,21 @@ TEST(LazyConcat1D) {
 TEST(LazyConcat2D) {
   namespace lz = ::loop_tool::lazy;
   int64_t batch = 2;
-  lz::Symbol N, M0, M1, M;
+  lz::Symbol N("N"), M0("M0"), M1("M1"), M("M");
   lz::Tensor A(N, M0);
   lz::Tensor B(N, M1);
-  //auto A_ = A.to({N, M}, lz::Constraint(M, M0));
-  //auto B_ = B.to({N, M}, lz::Constraint(M, M1 + lz::Expr::size(M0)));
-  //auto C = A_ + B_;
-  auto C = A | B; // different dimensions are concatenated
+  auto C = A | B;  // different dimensions are concatenated
   A.bind(nullptr, {batch, 5});
   B.bind(nullptr, {batch, 3});
   ASSERT(C.shape()[0] == N);
   ASSERT(C.size(1) == 8);
   for (auto i = 0; i < batch * 5; ++i) {
-    A.data<float>()[i] = 11;//i;
+    A.data<float>()[i] = 11;  // i;
   }
   for (auto i = 0; i < batch * 3; ++i) {
-    B.data<float>()[i] = 7;//i;
+    B.data<float>()[i] = 7;  // i;
   }
+  std::cerr << loop_tool::dot(C.ir()) << "\n";
   std::cerr << "checking " << C.data<float>()[0] << "\n";
   for (auto i = 0; i < batch * 8; ++i) {
     std::cerr << C.data<float>()[i] << "\n";
@@ -452,7 +453,7 @@ TEST(LazyPaddedConv) {
   }
   LoopTree loop_tree(ir);
   auto f = Compiler(loop_tree).gen_exec(-1);
-  //ASSERT(0);
+  // ASSERT(0);
 
   Y.compile();
   Y.set(ir);

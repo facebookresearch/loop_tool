@@ -34,9 +34,10 @@ class Compiler {
     // scoped sizes
     std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
-    inline int64_t size() const {
+    inline int64_t size(int start_idx = 0) const {
       int64_t s = 1;
-      for (const auto &s_ : sizes) {
+      for (int i = start_idx; i < sizes.size(); ++i) {
+        const auto &s_ = sizes.at(i);
         s *= std::max(s_, (int64_t)1);
       }
       return s;
@@ -48,6 +49,8 @@ class Compiler {
   struct Access {
     Access(const Allocation &a) : alloc(a) {}
     Allocation alloc;
+    // alloc (base vars) mapped to expr, max
+    std::vector<std::pair<symbolic::Expr, int64_t>> exprs;
     // stride, offset, max
     std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
     int64_t total_offset;
@@ -93,6 +96,8 @@ class Compiler {
 
   InnerFnTypeImproved gen_reset(LoopTree::TreeRef ref) const;
 
+  symbolic::Expr reify_sizes(const symbolic::Expr &expr) const;
+  int64_t get_expr_max(const symbolic::Expr &) const;
   IdxInformation gen_idx_info(LoopTree::TreeRef ref,
                               const Compiler::Access &access) const;
   std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(

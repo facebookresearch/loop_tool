@@ -2,6 +2,7 @@ import loop_tool_py as lt
 
 const_map = {}
 
+
 def fill(constant, symbolic_shape):
     if constant in const_map:
         const = const_map[constant]
@@ -61,21 +62,19 @@ def linear(X, W, bias=None):
         Y = Y + bias
     return Y
 
+
 # pad(X, (s.K, 1), (s.X, (0, 1)))
 def pad(X, *args):
+    print(args)
     for d, pad in args:
         if type(pad) is tuple:
-          #print("padding", d, *pad)
-          X = X.pad(d, *pad)
+            X = X.pad(d, *pad)
         else:
-          #print("padding both sides of ", d, pad)
-          X = X.pad(d, pad)
+            X = X.pad(d, pad)
     return X
- 
+
 
 def conv(X, W, spatial, window, stride=1, channel_reduce=True):
-    print("spatial is ", spatial)
-    print("window is ", window)
     assert len(spatial) == len(window)
     # output dimensions need new names
     new_spatial = [lt.Symbol(x.name + "o") for x in spatial]
@@ -88,8 +87,8 @@ def conv(X, W, spatial, window, stride=1, channel_reduce=True):
         reduction_dims = (set(X.symbolic_shape) & set(W.symbolic_shape)) | set(window)
     else:
         reduction_dims = set(window)
-    print(new_spatial, (X*W).shape, (X*W).symbolic_shape)
     return (X * W).sum(*reduction_dims)
+
 
 def batch_norm(x, mean, var, weight, bias, eps=lt.Tensor().set(1e-5)):
     x = (x - mean) * weight

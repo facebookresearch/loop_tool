@@ -1143,82 +1143,96 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   std::stringstream ss;
   auto acc = gen_access(node_ref, ref);
   auto info = gen_idx_info(ref, acc);
+  std::unordered_map<Symbol, std::string, Hash<Symbol>> sym_strings;
+  auto p = lt.parent(ref);
+  while (p != acc.alloc.lca) {
+    const auto &l = lt.loop(p);
+    auto sym = var_to_sym.at(l.var);
+    std::stringstream sym_str;
+    if (sym_strings.count(sym)) {
+      sym_str << sym_strings.at(sym) << "+";
+    }
+    sym_str << "i_" << std::to_string(p);
+    auto stride = inner_sizes.at(p);
+    if (stride > 1) {
+      sym_str << "*" << stride;
+    }
+    sym_strings[var_to_sym.at(l.var)] = sym_str.str();
+    p = lt.parent(p);
+  }
+  for (const auto &p : sym_strings) {
+    sym_strings[p.first] = "(" + p.second + ")";
+  }
 
-  if (info.maxes.size()) {
-    ss << "(";
-    std::unordered_map<int, std::string> bound_strings;
-    std::vector<LoopTree::TreeRef> ref_idxs;
-    auto p = lt.parent(ref);
-    while (p != -1) {
-      ref_idxs.emplace_back(p);
-      p = lt.parent(p);
+  bool constrained = false;
+  // access expression scoped to the allocation (TODO do this earlier)
+  std::vector<Expr> scoped_exprs;
+  for (const auto &p : acc.exprs) {
+    auto expr = p.first
+                    .walk([&](const Expr &e) {
+                      if (e.type() == Expr::Type::symbol) {
+                        if (!sym_strings.count(e.symbol())) {
+                          return Expr(0);
+                        }
+                      }
+                      return e;
+                    })
+                    .simplify();
+    scoped_exprs.emplace_back(expr);
+  }
+  for (auto i = 0; i < scoped_exprs.size(); ++i) {
+    const auto &p = acc.exprs.at(i);
+    const auto &expr = scoped_exprs.at(i);
+    if (p.second != -1 && expr != Expr(0)) {
+      constrained = true;
     }
-    std::reverse(ref_idxs.begin(), ref_idxs.end());
-    for (auto i = 0; i < info.strides.size(); ++i) {
-      auto bound_idx = info.idxs[i];
-      if (bound_idx == -1) {
+  }
+  // TODO eliminate this restriction
+  if (node_ref == lt.node(ref)) {
+    constrained = false;
+  }
+
+  if (constrained) {
+    ss << "(";
+    bool constraint_added = false;
+    for (auto i = 0; i < scoped_exprs.size(); ++i) {
+      const auto &p = acc.exprs.at(i);
+      const auto &expr = scoped_exprs.at(i);
+      if (p.second == -1) {
         continue;
       }
-      auto stride = info.strides[i];
-      if (stride < 1) {
-        continue;
-      }
-      if (bound_strings[bound_idx].size()) {
-        bound_strings[bound_idx] += " + ";
-      }
-      bound_strings[bound_idx] += "i_" + std::to_string(ref_idxs.at(i));
-      if (stride > 1) {
-        bound_strings[bound_idx] += " * " + std::to_string(stride);
-      }
-    }
-    bool emitted = false;
-    ss << "(";
-    for (const auto &p : bound_strings) {
-      if (emitted) {
+      const auto &str = expr.dump(false, sym_strings);
+      if (constraint_added) {
         ss << " && ";
       }
-      ss << "(" << p.second << " < " << info.maxes.at(p.first) << ") && ";
-      ss << "(" << p.second << " >= " << info.mins.at(p.first) << ")";
-      emitted = true;
+      ss << "((" << str << ") >= 0) && ((" << str << ") < " << p.second << ")";
+      constraint_added = true;
     }
-    ss << ") ? ";
+    ss << " ? ";
   }
 
   if (acc.alloc.size() > 1 || is_input_output(acc.alloc.node_ref)) {
     ss << "((float*)memory[" << acc.alloc.mem_idx << "])";
     ss << "[";
-    auto p = lt.parent(ref);
-    auto i = 1;
-    bool emitted = false;
-    while (p != acc.alloc.lca) {
-      auto stride = info.strides[info.strides.size() - i];
-      if (stride > 0) {
-        if (emitted) {
-          ss << " + ";
-        } else {
-          emitted = true;
-        }
-        ss << "i_" << p;
-        if (stride > 1) {
-          ss << " * " << stride;
-        }
+    for (auto i = 0; i < acc.exprs.size(); ++i) {
+      if (!acc.alloc.sizes.at(i)) {
+        continue;
       }
-      p = lt.parent(p);
-      i++;
-    };
-    if (acc.total_offset) {
-      ss << " + " << acc.total_offset;
+      const auto &expr = scoped_exprs.at(i);
+      ss << (expr * Expr(acc.alloc.size(i + 1))).dump(false, sym_strings);
+      if (i != acc.exprs.size() - 1) {
+        ss << "+";
+      }
     }
-    // input/output could be a single integer (should be rare)
-    if (acc.alloc.size() == 1 && emitted == false) {
-      ss << 0;
+    if (acc.exprs.size() == 0) {
+      ss << "0";
     }
     ss << "]";
   } else {
     ss << "v" << acc.alloc.mem_idx;
   }
 
-  if (info.maxes.size()) {
+  if (constrained) {
     ss << " : " << 0 << ")";
   }
   return ss.str();
@@ -1244,6 +1258,8 @@ std::string Compiler::gen_reset_string(LoopTree::TreeRef ref) const {
       return 0;
     } else if (node.op() == Operation::multiply) {
       return 1;
+    } else if (node.op() == Operation::write) {
+      return 0;  // TODO fix
     } else if (node.op() == Operation::view) {
       return 0;  // TODO fix
     }
@@ -1254,17 +1270,23 @@ std::string Compiler::gen_reset_string(LoopTree::TreeRef ref) const {
     const auto &alloc = p.second;
     if (alloc.lca == ref) {
       const auto &node = lt.ir.node(alloc.node_ref);
-      bool is_reduction = lt.ir.reduction_vars(alloc.node_ref).size() &&
-                          node.op() != Operation::view;
+      bool needs_set = lt.ir.reduction_vars(alloc.node_ref).size() &&
+                       node.op() != Operation::view;
+      for (const auto &input : node.inputs()) {
+        if (lt.ir.node(input).op() == Operation::view &&
+            !lt.scheduled.count(input)) {
+          needs_set = true;
+        }
+      }
       if (!lt.scheduled.count(alloc.node_ref)) {
         continue;
       } else if (alloc.size() == 1 && !(is_input_output(alloc.node_ref))) {
         ss << line_prefix << "float v" << alloc.mem_idx;
-        if (is_reduction) {
+        if (needs_set) {
           ss << " = " << value(node);
         }
         ss << ";\n";
-      } else if (is_reduction) {
+      } else if (needs_set) {
         set_called = true;
         ss << line_prefix << "set((float*)memory[" << alloc.mem_idx << "], ";
         ss << value(node) << ", " << alloc.size() << ");\n";
@@ -1492,25 +1514,35 @@ static inline void set(float* mem, float val, int64_t length) {
 
     ss << "\n";
     const auto &sizes = memory_sizes();
-    int last_relevant_input = sizes.size();
-    for (int i = sizes.size() - 1; i >= 0; i--) {
-      if (sizes.at(i) <= 1) {
-        last_relevant_input = i;
-      }
-    }
-    ss << "// memory := { ";
-    for (auto i = 0; i < last_relevant_input; ++i) {
-      auto s = sizes.at(i);
+    auto i = 0;
+    auto num_inputs = lt.ir.inputs().size();
+    auto num_outputs = lt.ir.outputs().size();
+    auto dump = [&](int idx, int64_t s) {
+      ss << idx << ":";
       if (s <= 1) {
         ss << "nullptr";
       } else {
         ss << "float[" << s << "]";
       }
-      if (i + 1 != last_relevant_input) {
-        ss << ", ";
-      }
+      ss << ", ";
+    };
+    ss << "// memory: {\n";
+    ss << "//   ";
+    for (; i < num_inputs; ++i) {
+      dump(i, sizes.at(i));
     }
-    ss << " }\n";
+    ss << "// inputs\n";
+    ss << "//   ";
+    for (; i < num_inputs + num_outputs; ++i) {
+      dump(i, sizes.at(i));
+    }
+    ss << "// outputs\n";
+    ss << "//   ";
+    for (; i < sizes.size(); ++i) {
+      dump(i, sizes.at(i));
+    }
+    ss << "// scratch\n";
+    ss << "// }\n";
     ss << "void fn_" << count << "(void** memory) {\n";
     ss << body.str();
     ss << "}\n";
@@ -1550,175 +1582,6 @@ std::vector<int64_t> Compiler::memory_sizes() const {
   return memory;
 }
 
-// DEPRECATED
-std::vector<symbolic::Constraint> Compiler::gen_constraints(
-    IR::NodeRef node_ref, LoopTree::TreeRef ref) const {
-  // Find a route to a scheduled base node
-  auto base_node_ref = resolved_reads.at(node_ref);
-
-  const auto &node = lt.ir.node(lt.node(ref));
-  if (node.op() == Operation::view) {
-    ASSERT(node.inputs().size() == 1);
-    base_node_ref = resolved_reads.at(node.inputs().at(0));
-  }
-
-  std::unordered_set<Symbol, Hash<Symbol>> target_syms;
-  std::unordered_set<Symbol, Hash<Symbol>> base_syms;
-  for (auto v : node.vars()) {
-    if (var_to_sym.count(v)) {
-      target_syms.insert(var_to_sym.at(v));
-    }
-  }
-  for (auto v : lt.ir.node(base_node_ref).vars()) {
-    if (var_to_sym.count(v)) {
-      base_syms.insert(var_to_sym.at(v));
-    }
-  }
-
-  std::vector<Constraint> constraints;
-
-  auto to_syms = [&](std::vector<IR::VarRef> vs) {
-    std::vector<Symbol> syms;
-    for (auto v : vs) {
-      syms.emplace_back(var_to_sym.at(v));
-    }
-    return syms;
-  };
-
-  // only view nodes have constraints, we
-  // want ones that map input vars to output
-  auto get_constraints = [&](IR::NodeRef node_ref) {
-    std::unordered_map<Symbol, Expr, Hash<Symbol>> out;
-    const auto &node = lt.ir.node(node_ref);
-    if (node.op() != Operation::view) {
-      return out;
-    }
-    ASSERT(node.inputs().size() == 1);
-    auto input_vars = lt.ir.node(node.inputs().at(0)).vars();
-    auto input_syms = to_set<Symbol, Hash>(to_syms(input_vars));
-    for (const auto &c : node.constraints()) {
-      if (c.first.type() != Expr::Type::symbol) {
-        continue;
-      }
-      auto sym = c.first.symbol();
-      auto expr = c.second;
-      if (!input_syms.count(sym)) {
-        continue;
-      }
-      auto skip = false;
-      for (auto sym : expr.symbols()) {
-        if (input_syms.count(sym)) {
-          skip = true;
-          break;
-        }
-      }
-      if (skip) {
-        continue;
-      }
-      out.emplace(sym, expr);
-    }
-    return out;
-  };
-
-  // collect initial constraints
-  auto vars = to_set(node.vars());
-  for (auto c : get_constraints(lt.node(ref))) {
-    constraints.emplace_back(std::make_pair(Expr(c.first), c.second));
-  }
-
-  // eager exit if we don't have to calculate anything
-  if (node_ref == base_node_ref) {
-    return constraints;
-  }
-
-  // get path from base_node_ref to ref
-  std::vector<IR::NodeRef> path;
-  {
-    auto cur_node_ref = base_node_ref;
-    auto dest_node_ref = lt.node(ref);
-    while (cur_node_ref != dest_node_ref) {
-      // path.emplace(path.begin(), cur_node_ref);
-      path.emplace_back(cur_node_ref);
-      const auto &cur_node = lt.ir.node(cur_node_ref);
-      auto outputs = cur_node.outputs();
-      if (!outputs.size()) {
-        break;
-      }
-      cur_node_ref = outputs.at(0);
-    }
-  }
-
-  // node by node we accumulate constraints
-  // starting from the base
-  std::unordered_map<Symbol, Expr, Hash<Symbol>> out_cs;
-  for (auto cur_node_ref : path) {
-    auto &cur_node = lt.ir.node(cur_node_ref);
-    auto cs = get_constraints(cur_node_ref);
-    for (const auto &c : cs) {
-      if (base_syms.count(c.first)) {
-        ASSERT(!out_cs.count(c.first));
-        out_cs.emplace(c.first, c.second);
-      }
-
-      for (auto &p : out_cs) {
-        p.second = p.second.replace(c.first, c.second);
-      }
-    }
-  }
-
-  // begin to coalesce constraints
-  std::vector<Constraint> all_constraints;
-  for (auto cur_node_ref : path) {
-    auto &cur_node = lt.ir.node(cur_node_ref);
-    bool add_all = false;
-    if (constraints.size() == 0) {
-      add_all = true;
-    }
-    for (auto c : cur_node.constraints()) {
-      all_constraints.emplace_back(c);
-      if (c.first.type() != Expr::Type::symbol) {
-        continue;
-      }
-      auto sym = c.first.symbol();
-      if (add_all) {
-        constraints.emplace_back(c);
-        continue;
-      }
-      bool valid = true;
-      for (auto cc : constraints) {
-        if (c.second.contains(cc.first.symbol())) {
-          valid = false;
-        }
-      }
-      if (valid) {
-        for (auto &cc : constraints) {
-          if (cc.second.contains(sym)) {
-            cc.second = cc.second.replace(sym, c.second);
-          }
-        }
-      }
-    }
-  }
-  auto new_constraints = unify(all_constraints);
-
-  // On occassion (e.g. windowed constraints), we pick up
-  // dependencies on output variables.  We can safely set these to zero
-  // for calculation of offsets and derivatives
-  // (They'd go to zero anyway for the calculations)
-  for (auto &cc : constraints) {
-    for (auto sym : cc.second.symbols()) {
-      if (node.has_sym(sym) && vars.count(node.var(sym))) {
-        cc.second = cc.second.replace(sym, Expr(0)).simplify();
-      }
-    }
-  }
-  constraints.clear();
-  for (auto c : out_cs) {
-    constraints.emplace_back(std::make_pair(Expr(c.first), c.second));
-  }
-  return constraints;
-}
-
 // this includes locally threaded and scoped vars (which reduce strides)
 Compiler::Allocation Compiler::gen_alloc(IR::NodeRef node_ref) const {
   const auto &inputs = lt.ir.inputs();
@@ -1752,9 +1615,8 @@ Compiler::Allocation Compiler::gen_alloc(IR::NodeRef node_ref) const {
       for (auto v : node.vars()) {
         sizes.emplace_back(var_sizes.at(v));
       }
-      return Allocation(mem_idx, node_ref, sizes, -1);
     }
-    return Allocation(mem_idx, node_ref);
+    return Allocation(mem_idx, node_ref, sizes, -1);
   }
 
   std::function<std::vector<LoopTree::TreeRef>(IR::NodeRef nr, bool io_switch)>
@@ -1801,9 +1663,10 @@ Compiler::Allocation Compiler::gen_alloc(IR::NodeRef node_ref) const {
   std::vector<int64_t> sizes;
   for (auto v : node.vars()) {
     if (var_sizes.count(v)) {
+      ASSERT(var_sizes.at(v) > 0);
       sizes.emplace_back(var_sizes.at(v));
     } else {
-      sizes.emplace_back(0);
+      sizes.emplace_back(1);
     }
   }
   return Allocation(mem_idx, node_ref, sizes, lca);
@@ -1843,7 +1706,8 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
     }
     return collected;
   };
-  auto chain = get_chain(write_node_ref, read_node_ref);
+  auto rev_chain = get_chain(write_node_ref, read_node_ref);
+  auto chain = rev_chain;
   std::reverse(chain.begin(), chain.end());
 
   auto get_expr = [&](IR::NodeRef node_ref, IR::VarRef input_var,
@@ -1927,8 +1791,6 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
   auto collect_bw =
       [&](const std::unordered_set<Symbol, Hash<Symbol>> &target_syms,
           std::vector<Expr> base_exprs) {
-        auto rev_chain = chain;
-        std::reverse(rev_chain.begin(), rev_chain.end());
         for (auto nr : rev_chain) {
           const auto &node = lt.ir.node(nr);
           ASSERT(node.inputs().size() == 1);
@@ -1952,32 +1814,48 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
   return std::make_pair(read_exprs, write_exprs);
 }
 
+Expr Compiler::reify_sizes(const Expr &expr) const {
+  return expr
+      .walk([&](const Expr &e) {
+        if (e.op() == Op::size) {
+          ASSERT(e.args().size() == 1);
+          auto sym = e.args().at(0).symbol();
+          return Expr(var_sizes.at(sym_to_var.at(sym)));
+        }
+        return e;
+      })
+      .simplify();
+}
+
+int64_t Compiler::get_expr_max(const Expr &expr) const {
+  auto no_size = reify_sizes(expr);
+  auto max = no_size
+                 .walk([&](const Expr &e) {
+                   if (e.type() == Expr::Type::symbol) {
+                     auto sym = e.symbol();
+                     return Expr(std::max(var_sizes.at(sym_to_var.at(sym)) - 1,
+                                          (int64_t)0));
+                   }
+                   return e;
+                 })
+                 .simplify();
+  ASSERT(max.type() == Expr::Type::value)
+      << "Couldn't derive explicit upper bound for expr " << expr.dump()
+      << " (simplified to " << max.dump() << ")";
+  return max.value() + 1;
+}
+
 Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
                                       LoopTree::TreeRef ref) const {
   auto read_node_ref = resolved_reads.at(node_ref);
   auto view_exprs = gen_index_equations(read_node_ref, node_ref, ref);
+
+  bool is_write = node_ref == lt.node(ref);
   for (const auto &e : view_exprs.second) {
-    ASSERT(e.type() == Expr::Type::symbol) << "Viewed writes not yet supported";
+    ASSERT(!is_write || e.type() == Expr::Type::symbol)
+        << "viewed writes not yet supported, found expr: " << e.dump();
   }
 
-  // auto view_exprs = gen_constraints(node_ref, ref);
-
-  // This is the robust way to calculate view-based accesses, but is currently a
-  // WIP
-  // TODO, integrate more fully and simplify gen_access
-  // if (base_node_ref != node_ref) {
-  //  auto hotfix_exprs = gen_index_equations(base_node_ref, node_ref, ref);
-  //  view_exprs.clear();
-  //  for (auto i = 0; i < hotfix_exprs.first.size(); ++i) {
-  //    auto v = lt.ir.node(base_node_ref).vars().at(i);
-  //    auto sym = var_to_sym.at(v);
-  //    // later logic can't process this yet
-  //    if (hotfix_exprs.first.at(i) == Expr(sym)) {
-  //      continue;
-  //    }
-  //    view_exprs.emplace_back(sym, hotfix_exprs.first.at(i));
-  //  }
-  //}
   const auto &read_node = lt.ir.node(read_node_ref);
   auto alloc = allocations.at(read_node_ref);
 
@@ -2044,6 +1922,17 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     idx_expr = idx_expr + read_exprs.at(i) * Expr(stride);
   }
   access.total_offset = zero(idx_expr).value();
+  for (auto i = 0; i < read_exprs.size(); ++i) {
+    const auto &expr = reify_sizes(read_exprs.at(i));
+    auto max = get_expr_max(expr);
+    if (max <= alloc.sizes.at(i)) {
+      max = -1;  // this means we don't need to check anything
+    } else {
+      max = alloc.sizes.at(i);
+      ASSERT(max > 0);
+    }
+    access.exprs.emplace_back(expr, max);
+  }
 
   for (auto v : vars) {
     // NB: ok to generate a fake symbol, we only use it for lookup
@@ -2053,6 +1942,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
       const auto &e = read_exprs.at(i);
       auto read_var = read_node.vars().at(i);
       if (read_symbols.at(i) == sym) {
+        ASSERT(!found_expr);
         auto stride = stride_at(i);
         access.vars[v] = std::make_tuple(stride, 0, -1);
         found_expr = true;
@@ -2068,8 +1958,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
       auto constraint = Constraint(read_sym, e);
       auto offset = zero(e).simplify();
       auto expr = isolate(constraint, sym).second;
-      auto stride = differentiate(expr, read_symbols.at(i)) *
-                    Expr(stride_at(i)).simplify();
+      auto stride = differentiate(e, sym) * Expr(stride_at(i)).simplify();
       auto max = var_sizes.at(read_var);
       auto v_max = var_sizes.at(v);
       if (max >= v_max) {
@@ -2406,6 +2295,7 @@ struct CPUCompiled : public Compiled {
         fn_impl(const_cast<void **>(memory.data()));
       };
     } catch (const std::exception &e) {
+      ASSERT(0);
       std::cerr << e.what() << "\n";
       std::cerr << "Falling back to interpreted execution on CPU\n";
       fn = compiler.gen_exec();

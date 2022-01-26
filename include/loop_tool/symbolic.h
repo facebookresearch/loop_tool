@@ -9,6 +9,7 @@ LICENSE file in the root directory of this source tree.
 #include <functional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace loop_tool {
@@ -111,7 +112,7 @@ struct Expr {
   Expr reciprocal() const;
   bool operator!=(const Expr& rhs) const;
   bool operator==(const Expr& rhs) const;
-  std::string dump(bool short_form = false) const;
+  std::string dump(bool short_form = false, const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements = {}) const;
   size_t size() const;
 };
 

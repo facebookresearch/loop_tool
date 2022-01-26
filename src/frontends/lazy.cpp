@@ -157,7 +157,6 @@ IR::NodeRef TensorImpl::resolve(
     node_deps.emplace_back(node_ref);
   }
   IR::NodeRef node_ref = -1;
-
   for (const auto& s : shape()) {
     if (!var_map.count(s.id())) {
       ASSERT(size_constraints().count(s.id()))
