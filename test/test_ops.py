@@ -1,9 +1,10 @@
-import loop_tool_py as lt
-import nn
+import loop_tool as lt
 import numpy as np
 import tinygrad
 from tinygrad import nn as tg_nn
 import tinygrad.tensor as tg
+import inspect
+import sys
 
 
 def test_exp():
@@ -44,7 +45,7 @@ def test_mean():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.mean(0).data
-    B_lt = nn.mean(A_lt, [A_lt.symbolic_shape[0]])
+    B_lt = lt.nn.mean(A_lt, [A_lt.symbolic_shape[0]])
     assert np.allclose(B_tg, B_lt.numpy(), rtol=0.001, atol=0.001)
 
 
@@ -55,7 +56,7 @@ def test_sigmoid():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.sigmoid().data
-    B_lt = nn.sigmoid(A_lt).numpy()
+    B_lt = lt.nn.sigmoid(A_lt).numpy()
     assert np.allclose(B_tg, B_lt, rtol=0.001, atol=0.001)
 
 
@@ -66,7 +67,7 @@ def test_swish():
     A_lt = lt.Tensor(A_np)
 
     B_tg = A_tg.swish().data
-    B_lt = nn.swish(A_lt).numpy()
+    B_lt = lt.nn.swish(A_lt).numpy()
     assert np.allclose(B_tg, B_lt, rtol=0.001, atol=0.001)
 
 
@@ -77,7 +78,7 @@ def test_relu():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.relu().data
-    B_lt = nn.relu(A_lt)
+    B_lt = lt.nn.relu(A_lt)
 
 
 def test_relu6():
@@ -87,7 +88,7 @@ def test_relu6():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.relu6().data
-    B_lt = nn.relu6(A_lt)
+    B_lt = lt.nn.relu6(A_lt)
     assert np.allclose(B_tg, B_lt.numpy(), rtol=0.01, atol=0.01)
 
 
@@ -98,7 +99,7 @@ def test_hardswish():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.hardswish().data
-    B_lt = nn.hardswish(A_lt)
+    B_lt = lt.nn.hardswish(A_lt)
     assert np.allclose(B_tg, B_lt.numpy(), rtol=0.01, atol=0.01)
 
 
@@ -109,7 +110,7 @@ def test_tanh():
     A_tg = tg.Tensor(A_np)
 
     B_tg = A_tg.tanh().data
-    B_lt = nn.tanh(A_lt)
+    B_lt = lt.nn.tanh(A_lt)
 
     assert np.allclose(B_tg, B_lt.numpy(), rtol=0.01, atol=0.01)
 
@@ -132,7 +133,7 @@ def test_linear():
     bias_lt = lt.Tensor(s.N).set(bias_np)
 
     C_tg = A_tg.linear(B_tg, bias_tg)
-    C_lt = nn.linear(A_lt, B_lt, bias_lt)
+    C_lt = lt.nn.linear(A_lt, B_lt, bias_lt)
 
     assert np.allclose(C_tg.data, C_lt.numpy(), rtol=0.01, atol=0.01)
 
@@ -154,7 +155,7 @@ def test_conv():
     W_lt = lt.Tensor(s.oc, s.ic, s.wy, s.wx).set(W)
 
     Y_tg = X_tg.conv2d(W_tg)
-    Y_lt = nn.conv(X_lt, W_lt, [s.y, s.x], [s.wy, s.wx])
+    Y_lt = lt.nn.conv(X_lt, W_lt, [s.y, s.x], [s.wy, s.wx])
 
     # transpose to compare with the hardcoded layout of tinygrad
     b, y, x, c = Y_lt.symbolic_shape
@@ -180,7 +181,7 @@ def test_dwconv():
     W_lt = lt.Tensor(s.c, s.wy, s.wx).set(W)
 
     Y_tg = X_tg.conv2d(W_tg, stride=stride, groups=channel)
-    Y_lt = nn.conv(
+    Y_lt = lt.nn.conv(
         X_lt, W_lt, [s.y, s.x], [s.wy, s.wx], stride=stride, channel_reduce=False
     )
 
@@ -211,7 +212,7 @@ def test_batch_norm():
     weight = lt.Tensor(s.C).set(bn.weight.data)
     bias = lt.Tensor(s.C).set(bn.bias.data)
 
-    B_lt = nn.batch_norm(A_lt, mean, var, weight, bias)
+    B_lt = lt.nn.batch_norm(A_lt, mean, var, weight, bias)
 
     assert np.allclose(B_tg.data, B_lt.numpy(), rtol=0.001, atol=0.001)
 
@@ -224,7 +225,7 @@ def test_pad():
     A_lt = lt.Tensor(A_np)
     B_tg = A_tg.pad2d(padding=[2, 3, 2, 3])
     _, _, m, n = A_lt.symbolic_shape
-    B_lt = nn.pad(A_lt, (m, (2, 3)), (n, (2, 3)))
+    B_lt = lt.nn.pad(A_lt, (m, (2, 3)), (n, (2, 3)))
 
     assert np.allclose(B_tg.data, B_lt.numpy(), rtol=0.001, atol=0.001)
 
@@ -233,11 +234,11 @@ def test_pad_pad():
     A_np = np.random.randn(1, 1)
     A_lt = lt.Tensor(lt.Symbol("Y"), lt.Symbol("X")).set(A_np)
     X = A_lt.symbolic_shape[1]
-    A_lt = nn.pad(A_lt, (X, 1))
+    A_lt = lt.nn.pad(A_lt, (X, 1))
     X = A_lt.symbolic_shape[0]
-    A_lt = nn.pad(A_lt, (X, 1))
+    A_lt = lt.nn.pad(A_lt, (X, 1))
     X = A_lt.symbolic_shape[0]
-    A_lt = nn.pad(A_lt, (X, 1))
+    A_lt = lt.nn.pad(A_lt, (X, 1))
 
 
 def test_pad_1dconv():
@@ -256,7 +257,7 @@ def test_pad_1dconv():
 
     n = A_lt.symbolic_shape[0]
     A_lt = A_lt.pad(n, 1)
-    B_lt = nn.conv(A_lt, W_lt, A_lt.symbolic_shape, W_lt.symbolic_shape)
+    B_lt = lt.nn.conv(A_lt, W_lt, A_lt.symbolic_shape, W_lt.symbolic_shape)
     assert np.allclose(B_np, B_lt.numpy(), rtol=0.001, atol=0.001)
 
 
@@ -276,13 +277,13 @@ def test_pad_conv():
 
     B_tg = A_tg.pad2d(padding=[2, 3, 2, 3])
     _, c, m, n = A_lt.symbolic_shape
-    B_lt = nn.pad(A_lt, (m, (2, 3)), (n, (2, 3)))
+    B_lt = lt.nn.pad(A_lt, (m, (2, 3)), (n, (2, 3)))
     assert np.allclose(B_tg.data, B_lt.numpy(), rtol=0.001, atol=0.001)
 
     C_tg = B_tg.conv2d(W_tg)
     _, c, m, n = B_lt.symbolic_shape
     _, c, km, kn = W_lt.symbolic_shape
-    C_lt = nn.conv(B_lt, W_lt, [m, n], [km, kn])
+    C_lt = lt.nn.conv(B_lt, W_lt, [m, n], [km, kn])
     b, y, x, c = C_lt.symbolic_shape
     C_lt = C_lt.transpose(b, c, y, x)
 
@@ -306,15 +307,14 @@ def test_pad_dwconv():
 
     s = lt.SymbolGenerator()
     X_lt = lt.Tensor(s.b, s.c, s.y, s.x).set(X)
-    X_lt = nn.pad(X_lt, (s.y, (0, 1)), (s.x, (0, 1)))
+    X_lt = lt.nn.pad(X_lt, (s.y, (0, 1)), (s.x, (0, 1)))
     _, _, yo, xo = X_lt.symbolic_shape
     W_lt = lt.Tensor(s.c, s.wy, s.wx).set(W)
 
     Y_tg = X_tg.conv2d(W_tg, stride=stride, groups=channel)
-    Y_lt = nn.conv(
+    Y_lt = lt.nn.conv(
         X_lt, W_lt, [yo, xo], [s.wy, s.wx], stride=stride, channel_reduce=False
     )
-    # print(Y_lt.code)
     Y_lt_n = Y_lt.numpy()
     assert np.allclose(Y_tg.data.shape, Y_lt_n.shape), "mismatched shape!"
     assert np.allclose(
@@ -322,23 +322,16 @@ def test_pad_dwconv():
     ), f"{Y_tg.data}\nvs\n {Y_lt_n}"
 
 
-test_exp()
-test_recip()
-test_add_one()
-test_mean()
-test_sigmoid()
-test_swish()
-test_relu()
-test_relu6()
-test_hardswish()
-test_tanh()
-test_linear()
-test_conv()
-test_dwconv()
-test_batch_norm()
-test_pad()
-test_pad_pad()
-test_pad_1dconv()
-test_pad_conv()
-test_pad_dwconv()
-print("pass.")
+def run():
+    fns = [
+        obj
+        for name, obj in inspect.getmembers(sys.modules[__name__])
+        if (inspect.isfunction(obj) and name.startswith("test_"))
+    ]
+    for fn in fns:
+        fn()
+        print(".", end="", flush=True)
+    print("pass.")
+
+
+run()

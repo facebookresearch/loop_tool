@@ -65,7 +65,6 @@ def linear(X, W, bias=None):
 
 # pad(X, (s.K, 1), (s.X, (0, 1)))
 def pad(X, *args):
-    print(args)
     for d, pad in args:
         if type(pad) is tuple:
             X = X.pad(d, *pad)

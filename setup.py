@@ -99,15 +99,16 @@ class CMakeBuild(build_ext):
             ["cmake", "--build", "."] + build_args, cwd=self.build_temp
         )
 
-
 setup(
-    name="loop_tool_py",
+    name="loop_tool",
     version="0.0.9",
     author="Bram Wasti",
     author_email="bwasti@fb.com",
     description="A lightweight IR for dense linear algebra",
     long_description="",
-    ext_modules=[CMakeExtension("cmake_example")],
+    ext_modules=[CMakeExtension("src")],
+    packages=['loop_tool'],
+    package_dir={'loop_tool': 'python'},
     install_requires=[],
     setup_requires=['pybind11', 'ninja'],
     include_package_data=True,

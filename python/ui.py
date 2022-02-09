@@ -5,54 +5,30 @@ from curses import wrapper
 
 # use with vim file -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
 
-def mm(A, B):
-    s = lt.SymbolGenerator()
-    C = A.to(s.m, s.k) * B.to(s.k, s.n)
-    return C.sum(s.k)
+#
+# print(C.loop_tree)
+#
+# c0 = C.loop_tree.roots[0]
+# c1 = C.loop_tree.children(c0)[0]
+#
+# tree = lt.swap(C.loop_tree, c0, c1)
+# C.set(tree)
+#
+# print(C.loop_tree)
+
+# highlighted = tree.roots[0]
+
+# def woot(ref, depth):
+#    if ref == highlighted:
+#        print(" " * depth, tree.dump(ref), "<<<")
+#    else:
+#        print(" " * depth, tree.dump(ref))
+#
+#
+# tree.walk(woot)
 
 
-m, n, k = 8, 16, 32
-A = lt.Tensor(m, k).set(np.random.randn(m, k))
-B = lt.Tensor(k, n).set(np.random.randn(k, n))
-
-s = lt.SymbolGenerator()
-C = mm(A, B).to(s.m, s.n).sum(s.m)  # * A.to(s.m, s.k)
-
-def conv(X, W):
-    s = lt.SymbolGenerator()
-    X = X.pad(X.symbolic_shape[1], 1)
-    return (X[s.B, s.No + s.K] * W.to(s.B, s.K)).sum(s.K)
-
-
-X = lt.Tensor(256, 128).set(np.random.randn(256 * 128))
-W = lt.Tensor(256, 3).set(np.random.randn(256 * 3))
-
-C = conv(X, W)
-
-print(C.loop_tree)
-
-c0 = C.loop_tree.roots[0]
-c1 = C.loop_tree.children(c0)[0]
-
-tree = lt.swap(C.loop_tree, c0, c1)
-C.set(tree)
-
-print(C.loop_tree)
-
-highlighted = tree.roots[0]
-
-
-def woot(ref, depth):
-    if ref == highlighted:
-        print(" " * depth, tree.dump(ref), "<<<")
-    else:
-        print(" " * depth, tree.dump(ref))
-
-
-tree.walk(woot)
-
-
-def ui(stdscr, tensor, fn):
+def ui_impl(stdscr, tensor, fn):
     tree = tensor.loop_tree
     highlighted = tree.roots[0]
     drag = None
@@ -257,4 +233,5 @@ def ui(stdscr, tensor, fn):
         tree_pad.refresh(0, 0, 0, 0, rows, cols)
 
 
-wrapper(ui, C, "/tmp/woo.c")
+def ui(T, path):
+    wrapper(ui_impl, T, path)
