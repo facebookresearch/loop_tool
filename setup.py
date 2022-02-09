@@ -105,7 +105,8 @@ setup(
     author="Bram Wasti",
     author_email="bwasti@fb.com",
     description="A lightweight IR for dense linear algebra",
-    long_description="",
+    long_description="", # TODO
+    url="https://github.com/facebookresearch/loop_tool",
     ext_modules=[CMakeExtension("src")],
     packages=['loop_tool'],
     package_dir={'loop_tool': 'python'},
