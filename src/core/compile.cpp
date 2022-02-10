@@ -1517,9 +1517,9 @@ static inline void set(float* mem, float val, int64_t length) {
     auto i = 0;
     auto num_inputs = lt.ir.inputs().size();
     auto num_outputs = lt.ir.outputs().size();
-    auto dump = [&](int idx, int64_t s) {
+    auto dump = [&](int idx, int64_t s, bool force_nonnull = false) {
       ss << idx << ":";
-      if (s <= 1) {
+      if (s <= 1 && !force_nonnull) {
         ss << "nullptr";
       } else {
         ss << "float[" << s << "]";
@@ -1529,12 +1529,12 @@ static inline void set(float* mem, float val, int64_t length) {
     ss << "// memory: {\n";
     ss << "//   ";
     for (; i < num_inputs; ++i) {
-      dump(i, sizes.at(i));
+      dump(i, sizes.at(i), true);
     }
     ss << "// inputs\n";
     ss << "//   ";
     for (; i < num_inputs + num_outputs; ++i) {
-      dump(i, sizes.at(i));
+      dump(i, sizes.at(i), true);
     }
     ss << "// outputs\n";
     ss << "//   ";
@@ -2294,6 +2294,7 @@ struct CPUCompiled : public Compiled {
       fn = [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
         fn_impl(const_cast<void **>(memory.data()));
       };
+      std::remove(source_name.c_str());
     } catch (const std::exception &e) {
       std::cerr << e.what() << "\n";
       std::cerr << "Falling back to interpreted execution on CPU\n";

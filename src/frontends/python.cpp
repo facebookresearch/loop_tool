@@ -203,7 +203,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
     }
   }
   py::class_<Compiler::Allocation>(m, "CompilerAllocation")
-      .def_property_readonly("size", &Compiler::Allocation::size);
+      .def_property_readonly("size", [](const Compiler::Allocation &alloc) {
+        return alloc.size();
+      });
   py::class_<Compiler>(m, "Compiler")
       .def(py::init<const LoopTree &>())
       .def_property_readonly("allocations",
@@ -512,6 +514,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("unify", [](lazy::Tensor &t) { t.unify(); })
       .def("compile", [](lazy::Tensor &t) { t.compile(); })
       .def("resolve", [](lazy::Tensor &t) { (void)t.data<float>(); })
+      .def("invalidate", [](lazy::Tensor &t) { t.force_recompute(); })
       .def_property_readonly("compiled",
                              [](lazy::Tensor &t) { return t.compiled(); })
       .def_property_readonly("ir", [](lazy::Tensor &t) { return t.ir(); })

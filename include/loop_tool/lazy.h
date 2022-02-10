@@ -178,6 +178,8 @@ struct TensorImpl {
   std::vector<void*> getInputBuffers(
       std::unordered_set<const TensorImpl*>& seen) const;
 
+  inline void force_recompute() const { force_recompute_ = true; }
+
   template <typename T>
   T* data() const {
     // data cache was hit
@@ -551,6 +553,8 @@ struct Tensor {
   inline std::string code() const { return impl_->code(); }
   inline void set(const IR& ir) { impl_->set(ir); }
   inline void set(const LoopTree& loop_tree) { impl_->set(loop_tree); }
+
+  inline void force_recompute() const { impl()->force_recompute(); }
 
   template <typename T>
   inline T* data() const {

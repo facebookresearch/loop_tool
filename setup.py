@@ -27,6 +27,7 @@ class CMakeExtension(Extension):
 class CMakeBuild(build_ext):
     def build_extension(self, ext):
         import pybind11
+
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
 
         # required for auto-detection of auxiliary "native" libs
@@ -46,7 +47,9 @@ class CMakeBuild(build_ext):
             "-DCMAKE_BUILD_TYPE={}".format(cfg),  # not used on MSVC, but no harm
             "-Dpybind11_DIR={}".format(pybind11.get_cmake_dir()),
             "-DCMAKE_BUILD_WITH_INSTALL_RPATH=TRUE",
-            "-DCMAKE_INSTALL_RPATH={}".format("@loader_path" if "darwin" in sys.platform else "$ORIGIN")
+            "-DCMAKE_INSTALL_RPATH={}".format(
+                "@loader_path" if "darwin" in sys.platform else "$ORIGIN"
+            ),
         ]
         build_args = []
 
@@ -99,19 +102,20 @@ class CMakeBuild(build_ext):
             ["cmake", "--build", "."] + build_args, cwd=self.build_temp
         )
 
+
 setup(
     name="loop_tool",
     version="0.0.9",
     author="Bram Wasti",
     author_email="bwasti@fb.com",
     description="A lightweight IR for dense linear algebra",
-    long_description="", # TODO
+    long_description="",  # TODO
     url="https://github.com/facebookresearch/loop_tool",
-    ext_modules=[CMakeExtension("src")],
-    packages=['loop_tool'],
-    package_dir={'loop_tool': 'python'},
+    ext_modules=[CMakeExtension("loop_tool_py")],
+    packages=["loop_tool"],
+    package_dir={"loop_tool": "python"},
     install_requires=[],
-    setup_requires=['pybind11', 'ninja'],
+    setup_requires=["pybind11", "ninja"],
     include_package_data=True,
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,

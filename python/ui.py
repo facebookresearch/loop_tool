@@ -2,31 +2,9 @@ import loop_tool_py as lt
 import numpy as np
 import curses
 from curses import wrapper
+import time
 
-# use with vim file -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
-
-#
-# print(C.loop_tree)
-#
-# c0 = C.loop_tree.roots[0]
-# c1 = C.loop_tree.children(c0)[0]
-#
-# tree = lt.swap(C.loop_tree, c0, c1)
-# C.set(tree)
-#
-# print(C.loop_tree)
-
-# highlighted = tree.roots[0]
-
-# def woot(ref, depth):
-#    if ref == highlighted:
-#        print(" " * depth, tree.dump(ref), "<<<")
-#    else:
-#        print(" " * depth, tree.dump(ref))
-#
-#
-# tree.walk(woot)
-
+# use with vim [file] -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
 
 def ui_impl(stdscr, tensor, fn):
     tree = tensor.loop_tree
@@ -37,25 +15,92 @@ def ui_impl(stdscr, tensor, fn):
     curses.curs_set(0)
     tree_pad = curses.newpad(rows, cols)
 
-    def render():
-        tensor.set(tree)
-        with open(fn, "w") as f:
-            f.write(tensor.code)
+    def count_stats(tree):
+        loop_sizes = []
+        total_flops = 0
+        total_reads = 0
+        total_writes = 0
+        def _r(ref, depth):
+          nonlocal loop_sizes, total_flops, total_reads, total_writes
+          if tree.is_loop(ref):
+            loop_sizes = loop_sizes[:depth]
+            loop = tree.loop(ref)
+            loop_sizes.append(loop)
+            return
+          var_sizes = dict()
+          for loop in loop_sizes[::-1]:
+            if loop.var not in var_sizes:
+              var_sizes[loop.var] = 1
+            var_sizes[loop.var] *= loop.size
+            var_sizes[loop.var] += loop.tail
+          iterations = 1
+          for _, s in var_sizes.items():
+            iterations *= s
+          if "read" in tree.dump(ref):
+            total_reads += iterations
+          elif "view" in tree.dump(ref):
+            total_reads += iterations
+            total_writes += iterations
+          elif "write" in tree.dump(ref):
+            total_writes += iterations
+          else:
+            total_flops += iterations
+        tree.walk(_r)
+        return total_flops, total_reads, total_writes
+
+    def benchmark(limit_ms=100):
+        start = time.time() * 1000
+        iters = 1
+        t = 0
+        while (t - start) < limit_ms:
+          for i in range(iters):
+            tensor.invalidate()
+            tensor.resolve()
+          t = time.time() * 1000
+          iters *= 2
+        return 1000 * (iters - 1) / (t - start)
+
+    iters_sec = 0
+    flops = 0
+    reads = 0
+    writes = 0
+    def render(changed, info=""):
+        nonlocal iters_sec, flops, reads, writes
         tree_pad.erase()
         i = 0
+        tree_pad.addstr(i, 0, info)
 
+        if changed:
+          tensor.set(tree)
+          with open(fn, "w") as f:
+              f.write(tensor.code)
+          _ = benchmark(10) # warmup
+          iters_sec = benchmark()
+          flops, reads, writes = count_stats(tree)
+        tree_pad.addstr(i, len(info) + 1, f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)")
+
+        def _render_ref(ref):
+            if tree.is_loop(ref):
+              loop = tree.loop(ref)
+              v = tree.ir.dump_var(loop.var)
+              r = f" r {loop.tail}" if loop.tail else ""
+              return f"for {v} in {loop.size}{r}"
+            return tree.dump(ref)
         def _r(ref, depth):
             nonlocal i
             i += 1
-            tree_pad.addstr(i, depth, tree.dump(ref))
+            tree_pad.addstr(i, depth, _render_ref(ref))#tree.dump(ref))
             if ref == highlighted:
                 tree_pad.chgat(i, 0, curses.A_REVERSE)
 
         tree.walk(_r)
 
-    render()
-    stdscr.refresh()
-    tree_pad.refresh(0, 0, 0, 0, rows, cols)
+        stdscr.refresh()
+        tree_pad.refresh(0, 0, 0, 0, rows, cols)
+
+    render(True)
+    #stdscr.refresh()
+    #tree_pad.refresh(0, 0, 0, 0, rows, cols)
 
     def get_versions(loop):
         versions = []
@@ -176,17 +221,18 @@ def ui_impl(stdscr, tensor, fn):
             allocs = lt.Compiler(tree).allocations
             n = tree.ir_node(ref)
             if n in allocs:
-                s += f"size: {allocs[n].size}"
+                s += f"[size: {allocs[n].size}]"
             else:
-                s += f"allocs size {len(allocs)}"
+                s += f"[allocs size {len(allocs)}]"
         return s
 
     def prompt(s):
         nonlocal tree
         tree_pad.addstr(0, 0, s)
         stdscr.refresh()
-        tree_pad.refresh(0, 0, 0, 0, rows, cols)
+        tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
         aggregate_s = ""
+        split_size = 0
         while True:
             key = stdscr.getkey()
             tree_pad.addstr(0, len(s) + len(aggregate_s), key)
@@ -198,20 +244,23 @@ def ui_impl(stdscr, tensor, fn):
                     split_size = int(aggregate_s)
                 except:
                     pass
-                tree = lt.split(tree, highlighted, split_size)
-                return
+                return split_size
             stdscr.refresh()
-            tree_pad.refresh(0, 0, 0, 0, rows, cols)
+            tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
 
     while True:
         key = stdscr.getkey()
+        changed = False
         if key == "q":
             return
         elif key == "s":
-            prompt("inner size? ")
+            split_size = prompt("inner size? ")
+            tree = lt.split(tree, highlighted, split_size)
+            changed = True
         elif key == "KEY_DOWN":
             if drag:
                 drag_inward(highlighted)
+                changed = True
             else:
                 n = next_ref(tree, highlighted)
                 if n is not None:
@@ -219,6 +268,7 @@ def ui_impl(stdscr, tensor, fn):
         elif key == "KEY_UP":
             if drag:
                 drag_outward(highlighted)
+                changed = True
             else:
                 p = prev_ref(tree, highlighted)
                 if p is not None:
@@ -227,10 +277,9 @@ def ui_impl(stdscr, tensor, fn):
             key = "ENTER"
             drag = None if drag else loop_version(highlighted)
             rehighlight()
-        render()
-        tree_pad.addstr(0, 0, info(highlighted))
-        stdscr.refresh()
-        tree_pad.refresh(0, 0, 0, 0, rows, cols)
+        render(changed, info=info(highlighted))
+        #stdscr.refresh()
+        #tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
 
 
 def ui(T, path):
