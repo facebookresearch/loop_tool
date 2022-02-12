@@ -1,6 +1,10 @@
 #!/bin/bash
 set -vex
 uname -a
+if [ "$(uname -m)" != "x86_64" ]; then
+  exit 0
+fi
+
 cat /proc/version
 
 apt-get -qq update
