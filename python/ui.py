@@ -8,6 +8,7 @@ import time
 
 def ui_impl(stdscr, tensor, fn):
     tree = tensor.loop_tree
+    trees = [tree]
     highlighted = tree.roots[0]
     drag = None
     rows, cols = stdscr.getmaxyx()
@@ -72,8 +73,10 @@ def ui_impl(stdscr, tensor, fn):
 
         if changed:
           tensor.set(tree)
-          with open(fn, "w") as f:
-              f.write(tensor.code)
+          trees.append(tree)
+          if fn:
+              with open(fn, "w") as f:
+                  f.write(tensor.code)
           _ = benchmark(10) # warmup
           iters_sec = benchmark()
           flops, reads, writes = count_stats(tree)
@@ -89,7 +92,7 @@ def ui_impl(stdscr, tensor, fn):
         def _r(ref, depth):
             nonlocal i
             i += 1
-            tree_pad.addstr(i, depth, _render_ref(ref))#tree.dump(ref))
+            tree_pad.addstr(i, depth, _render_ref(ref))
             if ref == highlighted:
                 tree_pad.chgat(i, 0, curses.A_REVERSE)
 
@@ -99,8 +102,6 @@ def ui_impl(stdscr, tensor, fn):
         tree_pad.refresh(0, 0, 0, 0, rows, cols)
 
     render(True)
-    #stdscr.refresh()
-    #tree_pad.refresh(0, 0, 0, 0, rows, cols)
 
     def get_versions(loop):
         versions = []
@@ -228,9 +229,10 @@ def ui_impl(stdscr, tensor, fn):
 
     def prompt(s):
         nonlocal tree
-        tree_pad.addstr(0, 0, s)
+        rows, cols = stdscr.getmaxyx()
+        tree_pad.addstr(0, 0, s + " " * (cols - len(s) - 1))
         stdscr.refresh()
-        tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
+        tree_pad.refresh(0, 0, 0, 0, rows, cols)
         aggregate_s = ""
         split_size = 0
         while True:
@@ -252,23 +254,36 @@ def ui_impl(stdscr, tensor, fn):
         key = stdscr.getkey()
         changed = False
         if key == "q":
-            return
+            break
         elif key == "s":
             split_size = prompt("inner size? ")
-            tree = lt.split(tree, highlighted, split_size)
+            try:
+                tree = lt.split(tree, highlighted, split_size)
+                changed = True
+            except:
+                pass
+        elif key == "u" and len(trees):
+            trees = trees[:-1]
+            tree = trees[-1]
             changed = True
         elif key == "KEY_DOWN":
             if drag:
-                drag_inward(highlighted)
-                changed = True
+                try:
+                    drag_inward(highlighted)
+                    changed = True
+                except:
+                    pass
             else:
                 n = next_ref(tree, highlighted)
                 if n is not None:
                     highlighted = n
         elif key == "KEY_UP":
             if drag:
-                drag_outward(highlighted)
-                changed = True
+                try:
+                    drag_outward(highlighted)
+                    changed = True
+                except:
+                    pass
             else:
                 p = prev_ref(tree, highlighted)
                 if p is not None:
@@ -278,9 +293,10 @@ def ui_impl(stdscr, tensor, fn):
             drag = None if drag else loop_version(highlighted)
             rehighlight()
         render(changed, info=info(highlighted))
-        #stdscr.refresh()
-        #tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
+        if key == "u":
+            trees = trees[:-1]
+    return tree
 
 
-def ui(T, path):
-    wrapper(ui_impl, T, path)
+def ui(T, path=""):
+    T.set(wrapper(ui_impl, T, path))

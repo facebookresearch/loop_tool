@@ -34,3 +34,5 @@ B = lt.Tensor(m, k).set(np.random.randn(m, k))
 C = mm(A, B)
 
 lt.ui(C, "/tmp/woo.c")
+
+print(C.code)
