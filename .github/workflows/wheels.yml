@@ -4,25 +4,41 @@ on: [push, pull_request]
 
 jobs:
   build_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     env:
       CIBW_ENVIRONMENT: "CMAKE_GENERATOR='Ninja' GNUMAKEFLAGS=-j4 CUDA_PATH=/usr/local/cuda"
       CIBW_BUILD_VERBOSITY: 3
-      CIBW_ARCHS_MACOS: "x86_64 arm64"
-      CIBW_ARCHS_LINUX: "x86_64 aarch64"
-      CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_24"
-      CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux_2_24"
-      CIBW_MANYLINUX_PYPY_X86_64_IMAGE: "manylinux_2_24"
-      CIBW_MANYLINUX_PYPY_AARCH64_IMAGE: "manylinux_2_24"
     strategy:
       matrix:
-        os: [ubuntu-20.04, macOS-10.15] # windows-2019
+        include:
+           - runs-on: ubuntu-latest
+             cibw-arch: manylinux_x86_64
+           - runs-on: ubuntu-latest
+             cibw-arch: manylinux_aarch64
+           - runs-on: macos-latest
+             cibw-arch: macosx_x86_64
+           - runs-on: macos-latest
+             cibw-arch: macosx_arm64
+    name: Wheels • ${{ matrix.cibw-arch }}
+    runs-on: ${{ matrix.runs-on }}
 
     steps:
       - uses: actions/checkout@v2
 
       - uses: actions/setup-python@v2
+
+      - name: Package source distribution
+        if: runner.os == 'Linux'
+        run: |
+          python setup.py sdist -d wheelhouse --formats=gztar 
+
+      - name: Configure cibuildwheel
+        shell: bash
+        run: |
+            CMAKE_OSX_ARCHITECTURES=${{ matrix.cibw-arch == 'macosx_x86_64' && 'x86_64' || matrix.cibw-arch == 'macosx_arm64' && 'arm64' || matrix.cibw-arch == 'macosx_universal2' && '"arm64;x86_64"' || '' }}
+            echo "CIBW_ARCHS_LINUX=x86_64 aarch64" >> $GITHUB_ENV
+            echo "CIBW_ARCHS_MACOS=x86_64 arm64" >> $GITHUB_ENV
+            echo "CIBW_BUILD=*-${{ matrix.cibw-arch }}" >> $GITHUB_ENV
+            echo "CIBW_ENVIRONMENT_MACOS=CMAKE_OSX_ARCHITECTURES=\"$CMAKE_OSX_ARCHITECTURES\"" >> $GITHUB_ENV
 
       - name: Set up QEMU
         if: runner.os == 'Linux'
@@ -31,10 +47,11 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.1.1
+        uses: pypa/cibuildwheel@v2.3.1
         env:
           CIBW_BEFORE_BUILD: pip install ninja
-          CIBW_BEFORE_ALL_LINUX: sh install_cuda.sh
+          # TODO re-enable when backend is cleaned up
+          #CIBW_BEFORE_ALL_LINUX: sh install_cuda.sh
 
       - uses: actions/upload-artifact@v2
         with:
