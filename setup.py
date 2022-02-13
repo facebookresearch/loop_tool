@@ -105,7 +105,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="loop_tool",
-    version="0.0.9",
+    version="0.1.0",
     author="Bram Wasti",
     author_email="bwasti@fb.com",
     description="A lightweight IR for dense linear algebra",
