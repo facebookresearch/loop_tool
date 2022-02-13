@@ -270,7 +270,7 @@ def ui_impl(stdscr, tensor, fn):
                 changed = True
             except:
                 pass
-        elif key == "u" and len(trees):
+        elif key == "u" and len(trees) > 1:
             trees = trees[:-1]
             tree = trees[-1]
             changed = True
