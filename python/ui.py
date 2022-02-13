@@ -1,10 +1,10 @@
 import loop_tool_py as lt
-import numpy as np
 import curses
 from curses import wrapper
 import time
 
 # use with vim [file] -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
+
 
 def ui_impl(stdscr, tensor, fn):
     tree = tensor.loop_tree
@@ -21,31 +21,33 @@ def ui_impl(stdscr, tensor, fn):
         total_flops = 0
         total_reads = 0
         total_writes = 0
+
         def _r(ref, depth):
-          nonlocal loop_sizes, total_flops, total_reads, total_writes
-          if tree.is_loop(ref):
-            loop_sizes = loop_sizes[:depth]
-            loop = tree.loop(ref)
-            loop_sizes.append(loop)
-            return
-          var_sizes = dict()
-          for loop in loop_sizes[::-1]:
-            if loop.var not in var_sizes:
-              var_sizes[loop.var] = 1
-            var_sizes[loop.var] *= loop.size
-            var_sizes[loop.var] += loop.tail
-          iterations = 1
-          for _, s in var_sizes.items():
-            iterations *= s
-          if "read" in tree.dump(ref):
-            total_reads += iterations
-          elif "view" in tree.dump(ref):
-            total_reads += iterations
-            total_writes += iterations
-          elif "write" in tree.dump(ref):
-            total_writes += iterations
-          else:
-            total_flops += iterations
+            nonlocal loop_sizes, total_flops, total_reads, total_writes
+            if tree.is_loop(ref):
+                loop_sizes = loop_sizes[:depth]
+                loop = tree.loop(ref)
+                loop_sizes.append(loop)
+                return
+            var_sizes = dict()
+            for loop in loop_sizes[::-1]:
+                if loop.var not in var_sizes:
+                    var_sizes[loop.var] = 1
+                var_sizes[loop.var] *= loop.size
+                var_sizes[loop.var] += loop.tail
+            iterations = 1
+            for _, s in var_sizes.items():
+                iterations *= s
+            if "read" in tree.dump(ref):
+                total_reads += iterations
+            elif "view" in tree.dump(ref):
+                total_reads += iterations
+                total_writes += iterations
+            elif "write" in tree.dump(ref):
+                total_writes += iterations
+            else:
+                total_flops += iterations
+
         tree.walk(_r)
         return total_flops, total_reads, total_writes
 
@@ -54,17 +56,18 @@ def ui_impl(stdscr, tensor, fn):
         iters = 1
         t = 0
         while (t - start) < limit_ms:
-          for i in range(iters):
-            tensor.invalidate()
-            tensor.resolve()
-          t = time.time() * 1000
-          iters *= 2
+            for i in range(iters):
+                tensor.invalidate()
+                tensor.resolve()
+            t = time.time() * 1000
+            iters *= 2
         return 1000 * (iters - 1) / (t - start)
 
     iters_sec = 0
     flops = 0
     reads = 0
     writes = 0
+
     def render(changed, info=""):
         nonlocal iters_sec, flops, reads, writes
         tree_pad.erase()
@@ -72,23 +75,28 @@ def ui_impl(stdscr, tensor, fn):
         tree_pad.addstr(i, 0, info)
 
         if changed:
-          tensor.set(tree)
-          trees.append(tree)
-          if fn:
-              with open(fn, "w") as f:
-                  f.write(tensor.code)
-          _ = benchmark(10) # warmup
-          iters_sec = benchmark()
-          flops, reads, writes = count_stats(tree)
-        tree_pad.addstr(i, len(info) + 1, f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)")
+            tensor.set(tree)
+            trees.append(tree)
+            if fn:
+                with open(fn, "w") as f:
+                    f.write(tensor.code)
+            _ = benchmark(10)  # warmup
+            iters_sec = benchmark()
+            flops, reads, writes = count_stats(tree)
+        tree_pad.addstr(
+            i,
+            len(info) + 1,
+            f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)",
+        )
 
         def _render_ref(ref):
             if tree.is_loop(ref):
-              loop = tree.loop(ref)
-              v = tree.ir.dump_var(loop.var)
-              r = f" r {loop.tail}" if loop.tail else ""
-              return f"for {v} in {loop.size}{r}"
+                loop = tree.loop(ref)
+                v = tree.ir.dump_var(loop.var)
+                r = f" r {loop.tail}" if loop.tail else ""
+                return f"for {v} in {loop.size}{r}"
             return tree.dump(ref)
+
         def _r(ref, depth):
             nonlocal i
             i += 1
