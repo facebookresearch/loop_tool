@@ -1,5 +1,6 @@
 # `loop_tool`
 
+
 `loop_tool` is an experimental loop-based computation toolkit.
 Building on the fact that many useful operations (in linear algebra, neural networks, and media processing)
 can be written as highly optimized bounded loops,
@@ -12,6 +13,8 @@ can be written as highly optimized bounded loops,
 2. A simple functional IR
     - Optimized through local node-level annotations
     - Lowered to various backends (currently CPU and CUDA)
+
+![](https://user-images.githubusercontent.com/4842908/153905962-fd068faa-1438-4327-9c50-c8d1072cbd27.mp4)
 
 ## Install
 
