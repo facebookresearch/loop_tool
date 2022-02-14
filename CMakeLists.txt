@@ -4,11 +4,20 @@ set(CMAKE_CXX_STANDARD 14)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/)
 
+set(LIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
+set(LIB_PRIVATE_INCLUDE ${SRC_DIR})
+
 file(GLOB CORE_SRCS
   ${SRC_DIR}/core/*.cpp
 )
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
+
+option(BUILD_WASM "Build a WebAssembly compilation target" ON)
+if (BUILD_WASM)
+  list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm.cpp")
+  set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
+endif()
 
 file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp
@@ -21,11 +30,11 @@ if (APPLE)
   set(WHOLE_ARCHIVE_END "-Wl,-noall_load")
 endif()
 
-set(LIB_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include/)
 
 add_library(loop_tool SHARED ${CORE_SRCS})
+target_include_directories(loop_tool PRIVATE ${LIB_PRIVATE_INCLUDE})
 target_include_directories(loop_tool PUBLIC
-    $<BUILD_INTERFACE:${LIB_INCLUDE}>
+    "$<BUILD_INTERFACE:${LIB_INCLUDE}>"
     $<INSTALL_INTERFACE:include/>
 )
 
@@ -62,6 +71,7 @@ if (CUDAToolkit_FOUND)
 endif() # CUDAToolkit_FOUND
 
 add_executable(loop_tool_test ${TEST_SRCS})
+target_include_directories(loop_tool_test PUBLIC ${SRC_DIR})
 target_link_libraries(loop_tool_test loop_tool_test_utils loop_tool)
 
 if (CUDAToolkit_FOUND)

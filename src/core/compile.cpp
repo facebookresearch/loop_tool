@@ -1142,7 +1142,6 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
                                         LoopTree::TreeRef ref) const {
   std::stringstream ss;
   auto acc = gen_access(node_ref, ref);
-  auto info = gen_idx_info(ref, acc);
   std::unordered_map<Symbol, std::string, Hash<Symbol>> sym_strings;
   auto p = lt.parent(ref);
   while (p != acc.alloc.lca) {
@@ -1318,6 +1317,7 @@ std::string Compiler::gen_compute_node_string(LoopTree::TreeRef ref) const {
       case Operation::multiply:
       case Operation::subtract:
       case Operation::divide:
+      case Operation::min:
       case Operation::max:
         return true;
       default:
@@ -1336,12 +1336,18 @@ std::string Compiler::gen_compute_node_string(LoopTree::TreeRef ref) const {
         return "/";
       case Operation::max:
         return "max";
+      case Operation::min:
+        return "min";
+      case Operation::log:
+        return "log";
       case Operation::exp:
         return "exp";
       case Operation::sqrt:
         return "sqrt";
       case Operation::negate:
         return "-";
+      case Operation::abs:
+        return "abs";
       case Operation::reciprocal:
         return "1 / ";
       default:
@@ -1481,9 +1487,13 @@ std::string Compiler::gen_string(
     }
     std::stringstream ss;
     bool define_max = false;
+    bool define_min = false;
     for (auto n : lt.ir.nodes()) {
       if (lt.ir.node(n).op() == Operation::max) {
         define_max = true;
+      }
+      if (lt.ir.node(n).op() == Operation::min) {
+        define_min = true;
       }
     }
 
@@ -1499,6 +1509,14 @@ std::string Compiler::gen_string(
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
+)""";
+    }
+    if (define_min) {
+      ss << R"""(
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 )""";
     }
 
@@ -2124,6 +2142,8 @@ InnerFnTypeImproved Compiler::gen_binary_node(LoopTree::TreeRef ref) const {
         return [=](float a, float b) -> float { return a * b; };
       case Operation::divide:
         return [=](float a, float b) -> float { return a / b; };
+      case Operation::min:
+        return [=](float a, float b) -> float { return a < b ? a : b; };
       case Operation::max:
         return [=](float a, float b) -> float { return a > b ? a : b; };
       default:
@@ -2166,10 +2186,14 @@ InnerFnTypeImproved Compiler::gen_unary_node(LoopTree::TreeRef ref) const {
 
   auto arith = [&]() -> std::function<float(float)> {
     switch (node.op()) {
+      case Operation::log:
+        return [=](float a) -> float { return std::log(a); };
       case Operation::exp:
         return [=](float a) -> float { return std::exp(a); };
       case Operation::sqrt:
         return [=](float a) -> float { return std::sqrt(a); };
+      case Operation::abs:
+        return [=](float a) -> float { return std::abs(a); };
       case Operation::negate:
         return [=](float a) -> float { return -a; };
       case Operation::reciprocal:
@@ -2249,12 +2273,15 @@ InnerFnTypeImproved Compiler::gen_node(LoopTree::TreeRef ref) const {
     case Operation::subtract:
     case Operation::multiply:
     case Operation::divide:
+    case Operation::min:
     case Operation::max:
       return gen_binary_node(ref);
+    case Operation::log:
     case Operation::exp:
     case Operation::sqrt:
     case Operation::reciprocal:
     case Operation::negate:
+    case Operation::abs:
       return gen_unary_node(ref);
     default:
       ASSERT(0) << "Cannot generate node: " << lt.ir.dump(node_ref);

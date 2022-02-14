@@ -1,0 +1,3 @@
+[submodule "extern/wasmblr"]
+	path = extern/wasmblr
+	url = https://github.com/bwasti/wasmblr.git

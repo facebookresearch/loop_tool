@@ -117,9 +117,12 @@ namespace loop_tool {
   _(subtract)   \
   _(multiply)   \
   _(divide)     \
+  _(min)        \
   _(max)        \
+  _(log)        \
   _(exp)        \
-  _(sqrt)        \
+  _(sqrt)       \
+  _(abs)        \
   _(negate)     \
   _(reciprocal) \
   _(name)
