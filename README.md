@@ -15,7 +15,7 @@ can be written as highly optimized bounded loops,
 
 ## Install
 
-`loop_tool` clocks in under 400KB for both Linux and Mac OS.
+`loop_tool` clocks in at ~500KB for both Linux and Mac OS.
 
 ```
 pip install loop_tool
