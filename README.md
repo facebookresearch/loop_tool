@@ -18,13 +18,13 @@ can be written as highly optimized bounded loops,
 `loop_tool` clocks in under 400KB for both Linux and Mac OS.
 
 ```
-pip install loop_tool_py
+pip install loop_tool
 ```
 
 Verify the installation worked and determine which backends are supported:
 
 ```
-python -c 'import loop_tool_py as lt; print(lt.backends())'
+python -c 'import loop_tool as lt; print(lt.backends())'
 ```
 
 ## Usage
@@ -127,20 +127,6 @@ assert str(new_W.loop_tree) == str(W.loop_tree)
 assert np.allclose(new_W.numpy(), np.sum(new_X.numpy() * new_Z.numpy()))
 ```
 
-As a CUDA code generator
-
-```python
-if "cuda" in lt.backends():
-  lt.set_default_backend("cuda")
-  lt.set_default_hardware("cuda")
-  W = lt.Tensor(128).to(N) + lt.Tensor(128).to(N)
-  print(W.compiled.code)
-
-  loop_tree = W.loop_tree
-  loop_tree.annotate(loop_tree.loops[0], "parallel")
-  W.set(loop_tree)
-  print(W.compiled.code)
-```
 Almost all examples above have nearly identical C++ interfaces, e.g.
 
 ```cpp
@@ -159,12 +145,6 @@ std::cout << lt.dump() << "\n";
 lt.annotate(lt.loops()[0], "parallel");
 C.set(lt);
 ```
-
-## Tutorial
-
-For zero-install interactive usage examples,
-a step by step Python notebook tutorial can be found here:
-https://github.com/facebookresearch/loop_tool/blob/main/tutorial.ipynb
 
 ## Build C++ API from source
 
@@ -185,19 +165,6 @@ To build the Python bindings from source, install `pybind11`:
 pip install pybind11 # or conda
 python setup.py install
 ```
-
-## Run
-
-If you have CUDA, check out the demo `bench.py` file:
-
-```
-python test/bench.py
-```
-
-This will sweep a couple of configurations for a simple pointwise addition.
-All driven from Python (~100k runs per benchmark), this should be able to find a
-schedule that hits ~70% of peak bandwidth regardless of GPU.
-
 
 ## Extra builds/tests
 
