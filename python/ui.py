@@ -115,7 +115,6 @@ def drag_inward(tree, ref):
 
 def drag_outward(tree, ref):
     p = tree.parent(ref)
-    # v_before = get_versions(tree, tree.loop(ref))
     if p != -1:
         tree = lt.swap(tree, ref, p)
     return tree
@@ -140,19 +139,66 @@ def loop_version(tree, ref):
     return (loop, version)
 
 
-def info(tree, ref, drag):
+def highlight(tree, drag):
+    assert drag
+    highlighted = None
+    version = 0
+
+    def find_loop(ref, depth):
+        nonlocal highlighted
+        nonlocal version
+        if (
+            tree.is_loop(ref)
+            and (tree.loop(ref) == drag[0] and version == drag[1])
+            and highlighted == None
+        ):
+            highlighted = ref
+        if tree.is_loop(ref) and (tree.loop(ref) == drag[0]):
+            version += 1
+
+    tree.walk(find_loop)
+    assert highlighted != None, (
+        f"found {version} versions but wanted {drag[1]}:\n" + tree.dump()
+    )
+    return highlighted
+
+
+def gen_info(tree, highlighted, drag):
     s = ""
-    if tree.is_loop(ref):
+    if tree.is_loop(highlighted):
         if drag is not None:
-            s += "[dragging]"
+            s += f"[dragging {tree.ir.dump_var(drag[0].var)} v{drag[1]}]"
     else:
         allocs = lt.Compiler(tree).allocations
-        n = tree.ir_node(ref)
+        n = tree.ir_node(highlighted)
         if n in allocs:
             s += f"[size: {allocs[n].size}]"
         else:
             s += f"[allocs size {len(allocs)}]"
     return s
+
+
+def prompt(stdscr, pad, s):
+    rows, cols = stdscr.getmaxyx()
+    pad.addstr(0, 0, s + " " * (cols - len(s) - 1))
+    stdscr.refresh()
+    pad.refresh(0, 0, 0, 0, rows, cols)
+    aggregate_s = ""
+    split_size = 0
+    while True:
+        key = stdscr.getkey()
+        pad.addstr(0, len(s) + len(aggregate_s), key)
+        aggregate_s += key
+        if key == "":
+            return
+        elif key == "\n":
+            try:
+                split_size = int(aggregate_s)
+            except:
+                pass
+            return split_size
+        stdscr.refresh()
+        pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
 
 
 def ui_impl(stdscr, tensor, fn):
@@ -170,35 +216,12 @@ def ui_impl(stdscr, tensor, fn):
     reads = 0
     writes = 0
 
-    def highlight():
-        nonlocal highlighted
-        if not drag:
-            return
-        highlighted = None
-        version = 0
-
-        def find_loop(ref, depth):
-            nonlocal highlighted
-            nonlocal version
-            if (
-                tree.is_loop(ref)
-                and (tree.loop(ref) == drag[0] and version == drag[1])
-                and highlighted == None
-            ):
-                highlighted = ref
-            if tree.is_loop(ref) and (tree.loop(ref) == drag[0]):
-                version += 1
-
-        tree.walk(find_loop)
-        assert highlighted != None, (
-            f"found {version} versions and wanted {drag[1]}:\n" + tree.dump()
-        )
-
-    def render(changed, info=""):
-        highlight()
-        nonlocal iters_sec, flops, reads, writes
+    def render(changed):
+        nonlocal highlighted, iters_sec, flops, reads, writes
+        highlighted = highlight(tree, drag) if drag else highlighted
         tree_pad.erase()
         i = 0
+        info = gen_info(tree, highlighted, drag)
         tree_pad.addstr(i, 0, info)
 
         if changed:
@@ -238,36 +261,13 @@ def ui_impl(stdscr, tensor, fn):
 
     render(True)
 
-    def prompt(s):
-        nonlocal tree
-        rows, cols = stdscr.getmaxyx()
-        tree_pad.addstr(0, 0, s + " " * (cols - len(s) - 1))
-        stdscr.refresh()
-        tree_pad.refresh(0, 0, 0, 0, rows, cols)
-        aggregate_s = ""
-        split_size = 0
-        while True:
-            key = stdscr.getkey()
-            tree_pad.addstr(0, len(s) + len(aggregate_s), key)
-            aggregate_s += key
-            if key == "":
-                return
-            elif key == "\n":
-                try:
-                    split_size = int(aggregate_s)
-                except:
-                    pass
-                return split_size
-            stdscr.refresh()
-            tree_pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
-
     while True:
         key = stdscr.getkey()
         changed = False
         if key == "q":
             break
         elif key == "s":
-            split_size = prompt("inner size? ")
+            split_size = prompt(stdscr, tree_pad, "inner size? ")
             try:
                 tree = lt.split(tree, highlighted, split_size)
                 changed = True
@@ -302,7 +302,7 @@ def ui_impl(stdscr, tensor, fn):
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)
-        render(changed, info=info(tree, highlighted, drag))
+        render(changed)
         if key == "u":
             trees = trees[:-1]
     return tree
