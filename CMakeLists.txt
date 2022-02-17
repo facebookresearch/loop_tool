@@ -111,6 +111,14 @@ else()
   message("To build python bindings, pip install pybind11 and run `cmake .. -Dpybind11_DIR=$(python -c 'import pybind11;print(pybind11.get_cmake_dir())')`")
 endif()
 
+FUNCTION(PREPEND var prefix)
+   SET(listVar "")
+   FOREACH(f ${ARGN})
+      LIST(APPEND listVar "${prefix}/${f}")
+   ENDFOREACH(f)
+   SET(${var} "${listVar}" PARENT_SCOPE)
+ENDFUNCTION(PREPEND)
+
 if(DEFINED EMCC_DIR)
   SET(EMCC ${EMCC_DIR}/emcc)
   message("Using ${EMCC} to compile javascript bindings...")
@@ -123,8 +131,9 @@ if(DEFINED EMCC_DIR)
   else()
     SET(EMCC_FLAGS ${EMCC_FLAGS} -Oz)
   endif()
+  PREPEND(INC "-I" ${LIB_INCLUDE} ${LIB_PRIVATE_INCLUDE})
   add_custom_command(OUTPUT loop_tool_js_emcc
-    COMMAND ${EMCC} -I${EMCC_INCLUDE} -I${LIB_INCLUDE} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o loop_tool.js --bind
+    COMMAND ${EMCC} -I${EMCC_INCLUDE} ${INC} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o loop_tool.js --bind
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS "${CORE_SRCS}"
     COMMENT "Compiling with emcc"

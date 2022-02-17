@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 #include "emscripten/bind.h"
 #include "emscripten/val.h"
 #include "loop_tool/loop_tool.h"
+#include "loop_tool/wasm.h"
 
 using namespace loop_tool;
 
@@ -66,6 +67,14 @@ std::string getExceptionMessage(int ptr) {
 
 std::string graphviz(const lazy::Tensor &t) { return dot(t.ir()); }
 
+emscripten::val wasm(const lazy::Tensor &t) {
+  auto wc = loop_tool::WebAssemblyCompiler(t.loop_tree());
+  auto bytes = wc.emit();
+  return emscripten::val(
+     emscripten::typed_memory_view(bytes.size(),
+                                   bytes.data()));
+}
+
 EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Symbol>("Symbol").constructor<std::string>();
   js::class_<lazy::Tensor>("Tensor")
@@ -75,6 +84,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("mul", &lazy::Tensor::operator*)
       .function("add", &lazy::Tensor::operator+)
       .function("graphviz", &graphviz)
-      .function("code", &lazy::Tensor::code);
+      .function("code", &lazy::Tensor::code)
+      .function("wasm", &wasm);
   emscripten::function("getExceptionMessage", &getExceptionMessage);
 }

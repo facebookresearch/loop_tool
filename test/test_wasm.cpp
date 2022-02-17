@@ -8,7 +8,7 @@ LICENSE file in the root directory of this source tree.
 
 #include <fstream>
 
-#include "backends/wasm/wasm.h"
+#include "loop_tool/wasm.h"
 #include "test_utils.h"
 
 TEST(WasmBasic) {
