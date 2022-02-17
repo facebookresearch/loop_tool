@@ -394,6 +394,13 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
+  Tensor min(const Tensor& rhs) const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_, rhs.impl()};
+    auto new_impl = std::make_shared<TensorImpl>(Operation::min,
+                                                 broadcast_shape(rhs), deps);
+    return Tensor(new_impl);
+  }
+
   Tensor operator|(const Tensor& rhs) const {
     ASSERT(impl_->shape().size() == rhs.impl()->shape().size());
     std::vector<Symbol> out_shape;
@@ -460,7 +467,7 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  Tensor sum(std::vector<Symbol> reduction_vars) const {
+  Tensor sum(const std::vector<Symbol>& reduction_vars) const {
     std::unordered_set<int> reduction;
     for (auto rv : reduction_vars) {
       reduction.insert(rv.id());
@@ -490,10 +497,24 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
+  Tensor log() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl =
+        std::make_shared<TensorImpl>(Operation::log, impl_->shape(), deps);
+    return Tensor(new_impl);
+  }
+
   Tensor sqrt() const {
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
     auto new_impl =
         std::make_shared<TensorImpl>(Operation::sqrt, impl_->shape(), deps);
+    return Tensor(new_impl);
+  }
+
+  Tensor abs() const {
+    std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
+    auto new_impl =
+        std::make_shared<TensorImpl>(Operation::abs, impl_->shape(), deps);
     return Tensor(new_impl);
   }
 
@@ -555,6 +576,7 @@ struct Tensor {
   inline void set(const LoopTree& loop_tree) { impl_->set(loop_tree); }
 
   inline void force_recompute() const { impl()->force_recompute(); }
+  inline size_t hash() const { return impl()->hash(); }
 
   template <typename T>
   inline T* data() const {

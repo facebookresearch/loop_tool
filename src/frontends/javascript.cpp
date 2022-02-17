@@ -53,12 +53,25 @@ lazy::Tensor as_impl(const lazy::Tensor &t, std::vector<lazy::Symbol> symbols) {
   return t.as(symbols);
 }
 
-lazy::Tensor *makeTensor(const std::vector<int32_t> &sv) {
+lazy::Tensor sum_impl(const lazy::Tensor &t,
+                      const std::vector<lazy::Symbol> &symbols) {
+  return t.sum(symbols);
+}
+
+lazy::Tensor *tensor_constructor(const std::vector<int32_t> &sv) {
   std::vector<int64_t> inp;
   for (auto s : sv) {
     inp.emplace_back(s);
   }
   return new lazy::Tensor(inp);
+}
+
+std::vector<int32_t> sizes_impl(const lazy::Tensor &t) {
+  std::vector<int32_t> out;
+  for (const auto &s : t.sizes()) {
+    out.emplace_back(s);
+  }
+  return out;
 }
 
 std::string getExceptionMessage(int ptr) {
@@ -70,21 +83,40 @@ std::string graphviz(const lazy::Tensor &t) { return dot(t.ir()); }
 emscripten::val wasm(const lazy::Tensor &t) {
   auto wc = loop_tool::WebAssemblyCompiler(t.loop_tree());
   auto bytes = wc.emit();
-  return emscripten::val(
-     emscripten::typed_memory_view(bytes.size(),
-                                   bytes.data()));
+  emscripten::val view{
+      emscripten::typed_memory_view(bytes.size(), bytes.data())};
+  auto result = emscripten::val::global("Uint8Array").new_(bytes.size());
+  // copy data from generated output to return object
+  result.call<void>("set", view);
+  return result;
 }
 
 EMSCRIPTEN_BINDINGS(loop_tool) {
-  js::class_<lazy::Symbol>("Symbol").constructor<std::string>();
+  js::class_<lazy::Symbol>("Symbol").constructor<std::string>().function(
+      "name", &lazy::Symbol::name);
   js::class_<lazy::Tensor>("Tensor")
-      .constructor(&makeTensor, emscripten::allow_raw_pointers())
+      .constructor(&tensor_constructor, emscripten::allow_raw_pointers())
       .function("to", &to_impl)
       .function("as", &as_impl)
-      .function("mul", &lazy::Tensor::operator*)
+      .function("shape", &sizes_impl)
+      .function("symbolic_shape", &lazy::Tensor::shape)
       .function("add", &lazy::Tensor::operator+)
+      .function(
+          "sub",
+          emscripten::select_overload<lazy::Tensor(const lazy::Tensor &) const>(
+              &lazy::Tensor::operator-))
+      .function("mul", &lazy::Tensor::operator*)
+      .function("div", &lazy::Tensor::operator/)
+      .function("max", &lazy::Tensor::max)
+      .function("min", &lazy::Tensor::min)
+      .function("sum", &sum_impl)
+      .function("neg", emscripten::select_overload<lazy::Tensor() const>(
+                           &lazy::Tensor::operator-))
+      .function("abs", &lazy::Tensor::abs)
       .function("graphviz", &graphviz)
+      .function("numel", &lazy::Tensor::numel)
       .function("code", &lazy::Tensor::code)
+      .function("hash", &lazy::Tensor::hash)
       .function("wasm", &wasm);
   emscripten::function("getExceptionMessage", &getExceptionMessage);
 }
