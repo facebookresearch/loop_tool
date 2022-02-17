@@ -124,7 +124,7 @@ if(DEFINED EMCC_DIR)
   message("Using ${EMCC} to compile javascript bindings...")
   SET(EMCC_INCLUDE ${EMCC_DIR}/system/include)
   file(GLOB JS_SRCS ${SRC_DIR}/frontends/javascript*.cpp)
-  SET(EMCC_FLAGS -s NO_DISABLE_EXCEPTION_CATCHING)
+  SET(EMCC_FLAGS -s NO_DISABLE_EXCEPTION_CATCHING -s MODULARIZE -s "EXPORT_NAME=\"createMyModule\"")
   if (CMAKE_BUILD_TYPE MATCHES Debug)
     message("Running a debug build for emcc...")
     SET(EMCC_FLAGS ${EMCC_FLAGS} -gsource-map -s ASSERTIONS=1)
@@ -133,7 +133,7 @@ if(DEFINED EMCC_DIR)
   endif()
   PREPEND(INC "-I" ${LIB_INCLUDE} ${LIB_PRIVATE_INCLUDE})
   add_custom_command(OUTPUT loop_tool_js_emcc
-    COMMAND ${EMCC} -I${EMCC_INCLUDE} ${INC} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o loop_tool.js --bind
+    COMMAND ${EMCC} -I${EMCC_INCLUDE} ${INC} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o libloop_tool.js --bind
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS "${CORE_SRCS}"
     COMMENT "Compiling with emcc"
