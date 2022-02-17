@@ -13,7 +13,7 @@ file(GLOB CORE_SRCS
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
 
-option(BUILD_WASM "Build a WebAssembly compilation target" ON)
+option(BUILD_WASM "Build a WebAssembly compilation target" OFF)
 if (BUILD_WASM)
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm.cpp")
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
@@ -65,6 +65,10 @@ file(GLOB TEST_SRCS ${TEST_DIR}/test_*.cpp)
 list(APPEND TEST_SRCS "${TEST_DIR}/test.cpp") # main file
 add_library(loop_tool_test_utils "${TEST_DIR}/utils.cpp")
 target_include_directories(loop_tool_test_utils PUBLIC ${SRC_DIR})
+
+if (BUILD_WASM)
+  list(APPEND TEST_SRCS "${TEST_DIR}/wasm_test.cpp")
+endif()
 
 if (CUDAToolkit_FOUND)
   list(APPEND TEST_SRCS "${TEST_DIR}/cuda_test.cpp")
