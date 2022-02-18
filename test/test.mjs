@@ -11,7 +11,6 @@ import {
   performance
 } from 'perf_hooks';
 
-let n = new lt.Symbol("N");
 (async () => {
   let n = new lt.Symbol("N");
   let a = new lt.Tensor(2).to(n);
@@ -21,10 +20,24 @@ let n = new lt.Symbol("N");
   b.set(new Float32Array([4, 9]));
   let c = a.add(b);
   c = c.add(b);
-  console.log(c.graphviz);
+  //console.log(c.graphviz);
   let d = await c.data;
   console.log(d);
 })();
+
+function cmp(a, b) {
+  if (a.length != b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; ++i) {
+    if (Math.abs(a[i] - b[i]) > 0.001) {
+      console.log(a[i], b[i], "at index", i);
+      return false;
+    }
+  }
+  return true;
+
+}
 
 function rand(array) {
   for (let i = 0; i < array.length; ++i) {
@@ -53,12 +66,16 @@ function mm(a, b, m, n, k) {
   let c_ref = mm(a.buffer, b.buffer, 100, 300, 200);
   let c = a.mul(b).sum(k);
   let d = await c.data;
-  console.log(c.graphviz);
+  //console.log(c.graphviz);
   console.log(c.shape, c.symbolic_shape);
-  //console.log(c_ref, d);
+  if (cmp(c_ref, d)) {
+    console.log("results look good");
+  } else {
+    console.log("ERROR!");
+  }
 })();
 
-async function benchmark(fn, warmup = 10, iters = 100) {
+async function benchmark(fn, warmup = 10, iters = 1000) {
   for (let i = 0; i < warmup; ++i) {
     await fn();
   }
@@ -71,17 +88,28 @@ async function benchmark(fn, warmup = 10, iters = 100) {
 }
 
 (async () => {
-  const fn = async () => {
+  const fn_wrapped = async () => {
     let n = new lt.Symbol("N");
     let a = new lt.Tensor(128 * 128).to(n);
     let b = new lt.Tensor(128 * 128).to(n);
     let c = a.add(b);
-    c = c.add(b);
-    c = c.add(b);
-    c = c.add(b);
-    c = c.add(b);
-    c = c.add(b);
     let d = await c.data;
   }
-  console.log(await benchmark(fn), "iters per second");
+  let n = new lt.Symbol("N");
+  let a = new lt.Tensor(128 * 128).to(n);
+  let b = new lt.Tensor(128 * 128).to(n);
+  let c = a.add(b);
+  let [mem_map, fn] = await c.compile();
+  const fn_mem = async () => {
+    for (let k of Object.keys(mem_map)) {
+      if (k == c._id) {
+        continue;
+      }
+      mem_map[k].fill(1);
+    }
+    fn();
+  }
+  console.log(await benchmark(fn), "iters per second (pure fn)");
+  console.log(await benchmark(fn_mem), "iters per second (fn + fill inputs)");
+  console.log(await benchmark(fn_wrapped), "iters per second (wrapped)");
 })();

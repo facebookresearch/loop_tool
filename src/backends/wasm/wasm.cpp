@@ -257,11 +257,11 @@ std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   memory_locations.clear();
   iterators.clear();
 
-  int32_t running_location = 0;
   std::vector<std::pair<IR::NodeRef, int64_t>> sizes(allocations.size());
   for (const auto& p : allocations) {
     sizes[p.second.mem_idx] = std::make_pair(p.first, p.second.size());
   }
+  int32_t running_location = 0;
   for (const auto& p : sizes) {
     memory_locations[p.first] = running_location;
     running_location += p.second * 4;

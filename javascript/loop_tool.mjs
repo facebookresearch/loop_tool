@@ -37,6 +37,7 @@ class CompilationCache {
   }
 };
 
+let _tensor_id = 0;
 let cc = new CompilationCache();
 
 let Symbol = lt.Symbol;
@@ -52,6 +53,7 @@ function symbols(str) {
 class Tensor {
   // either a size, an array or an lt.Tensor
   constructor(...args) {
+    this._id = _tensor_id++;
     this._inputs = [];
     this._data = null;
     if (args.length == 1 && args[0].constructor == lt.Tensor) {
@@ -84,28 +86,34 @@ class Tensor {
     this._data = new_data;
   }
 
+  async compile() {
+    let [mem, fn] = await cc.compile(this._tensor);
+    let offset = 0;
+    let mem_map = {};
+    for (let inp of this._inputs) {
+      if (inp._id in mem_map) {
+        continue;
+      }
+      let inp_d = new Float32Array(mem.buffer, offset, inp.numel);
+      offset += inp.numel * 4;
+      mem_map[inp._id] = inp_d;
+    }
+    mem_map[this._id] = new Float32Array(mem.buffer, offset, this.numel);
+    return [mem_map, fn];
+  }
+
   get data() {
     return (async () => {
       if (this._data) {
         return this._data;
       }
 
-      let [mem, fn] = await cc.compile(this._tensor);
-      let offset = 0;
-      let seen = {};
+      let [mem_map, fn] = await this.compile();
       for (let inp of this._inputs) {
-        let inp_off = offset;
-        if (inp in seen) {
-          inp_off = seen[inp];
-        } else {
-          offset += inp.numel * 4;
-        }
-        let inp_d = new Float32Array(mem.buffer, inp_off, inp.numel);
-        inp_d.set(inp.buffer);
-        seen[inp] = offset;
+        mem_map[inp._id].set(inp.buffer);
       }
       fn();
-      this.data_ = new Float32Array(mem.buffer, offset, this.numel);
+      this.data_ = mem_map[this._id];
       return this.data_;
     })();
   }

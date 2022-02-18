@@ -92,8 +92,10 @@ emscripten::val wasm(const lazy::Tensor &t) {
 }
 
 EMSCRIPTEN_BINDINGS(loop_tool) {
-  js::class_<lazy::Symbol>("Symbol").constructor<std::string>().function(
-      "name", &lazy::Symbol::name);
+  js::class_<lazy::Symbol>("Symbol")
+      .constructor<std::string>()
+      .function("name", &lazy::Symbol::name)
+      .function("id", &lazy::Symbol::id);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor, emscripten::allow_raw_pointers())
       .function("to", &to_impl)
