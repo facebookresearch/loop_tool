@@ -5,6 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 import * as lt from '../javascript/loop_tool.mjs';
+import * as fs from 'fs';
 
 import {
   PerformanceObserver,
@@ -26,6 +27,12 @@ console.log(e.dump());
   a = a.to(no, k, [[n.expr(), no.expr().add(k.expr())]]);
   let c = a.mul(b).sum(k);
   console.log(c.shape);
+  const loop_tree = c.loop_tree;
+  for (let ref of loop_tree.walk()) {
+    if (loop_tree.is_loop(ref)) {
+      console.log(loop_tree.depth(ref));
+    }
+  }
   let d = await c.data;
   //console.log("data", d);
 })();
@@ -39,8 +46,34 @@ console.log(e.dump());
   b.set(new Float32Array([4, 9]));
   let c = a.add(b);
   c = c.add(b);
+  console.log(c.hash + '.wasm');
+  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
   //console.log(c.graphviz);
   let d = await c.data;
+  console.log(d);
+});
+
+(async () => {
+  let n = new lt.Symbol("N");
+  const N = 10;
+  let a = new lt.Tensor(N).to(n);
+  let b = new lt.Tensor(N).to(n);
+  rand(a.buffer);
+  rand(b.buffer);
+  let c = a.add(b);
+  c = c.add(b);
+  const loop_tree = c.loop_tree;
+  loop_tree.annotate(loop_tree.children(-1), "unroll");
+  console.log(loop_tree.dump());
+  c.set_loop_tree(loop_tree);
+  console.log(c.hash + '.wasm');
+  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
+  let d = await c.data;
+  for (let i = 0; i < N; ++i) {
+    if (Math.abs(d[i] - (a.buffer[i] + 2 * b.buffer[i])) > 0.001) {
+      console.log("EROR", d[i]);
+    }
+  }
   console.log(d);
 })();
 
@@ -94,7 +127,7 @@ function mm(a, b, m, n, k) {
   }
 })();
 
-async function benchmark(fn, warmup = 10, iters = 10) {
+async function benchmark(fn, warmup = 100, iters = 10000) {
   for (let i = 0; i < warmup; ++i) {
     await fn();
   }
@@ -130,5 +163,16 @@ async function benchmark(fn, warmup = 10, iters = 10) {
   }
   console.log(await benchmark(fn), "iters per second (pure fn)");
   console.log(await benchmark(fn_mem), "iters per second (fn + fill inputs)");
-  console.log(await benchmark(fn_wrapped), "iters per second (wrapped)");
-});
+  console.log(await benchmark(fn_wrapped, 10, 100), "iters per second (wrapped)");
+
+  {
+    let [m, n, k] = lt.symbols("M N K");
+    let a = new lt.Tensor(100, 200).to(m, k);
+    let b = new lt.Tensor(200, 300).to(k, n);
+    let c = a.mul(b).sum(k);
+    let [mem_map, fn] = await c.compile();
+    let iter_sec = await benchmark(fn, 10, 100);
+    console.log(iter_sec, "mm iters per second (pure fn)", `${100 * 200 * 300 * 2 * iter_sec / 1e9} gflops`);
+  }
+
+})();

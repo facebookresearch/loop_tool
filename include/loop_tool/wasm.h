@@ -62,20 +62,29 @@ class WebAssemblyCompiler : public Compiler {
       if (!scheduled_consumers || !unrolled) {
         continue;
       }
-      local_storage.insert(node_ref);
+      if (alloc.size() == 1) {  // for now
+        local_storage.insert(node_ref);
+      }
     }
   }
 
-  void push_access_to_stack(IR::NodeRef node_ref, LoopTree::TreeRef ref) const;
-  void push_float_to_stack(IR::NodeRef node_ref, LoopTree::TreeRef ref) const;
+  int32_t push_access_to_stack(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref,
+      std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
+  void push_float_to_stack(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref,
+      std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   void push_vector_to_stack(IR::NodeRef node_ref, LoopTree::TreeRef ref) const;
   void emit_vectorized_node(LoopTree::TreeRef ref) const;
-  void emit_node(LoopTree::TreeRef ref) const;
+  void emit_node(LoopTree::TreeRef ref,
+                 std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   void emit_reset(LoopTree::TreeRef ref) const;
   void emit_loop(LoopTree::TreeRef ref,
-                 std::unordered_map<IR::VarRef, int> overrides) const;
+                 std::unordered_map<IR::VarRef, int> overrides,
+                 std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   void emit(LoopTree::TreeRef ref,
-            std::unordered_map<IR::VarRef, int> overrides) const;
+            std::unordered_map<IR::VarRef, int> overrides,
+            std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   std::vector<uint8_t> emit() const;
 };
 

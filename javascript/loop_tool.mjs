@@ -12,29 +12,60 @@ class CompilationCache {
   constructor(max = 2000) {
     this.max = max;
     this.hash_list = [];
-    this.cache = {};
+    this.loop_tree_cache = {};
+    this.instance_cache = {};
   };
 
   async compile(tensor) {
     const h = tensor.hash();
-    if (h in this.cache) {
-      return this.cache[h];
+    if (h in this.instance_cache) {
+      return this.instance_cache[h];
     }
     if (this.hash_list.length == this.max) {
       const remove = this.hash_list[0];
-      this.hash_list = this.hash_list.slice(1);
-      delete cache[remove];
+      this.evict(remove);
     }
     this.hash_list.push(h);
-    const m = await WebAssembly.compile(tensor.wasm()).catch(e => {
+
+    if (!(h in this.loop_tree_cache)) {
+      this.loop_tree_cache[h] = tensor.loop_tree();
+    }
+    const loop_tree = this.loop_tree_cache[h];
+    const m = await WebAssembly.compile(loop_tree.wasm()).catch(e => {
       throw e;
     });
     const instance = await WebAssembly.instantiate(m, {}).catch(e => {
       throw e;
     });
-    this.cache[h] = [instance.exports.mem, instance.exports.fn];
-    return this.cache[h];
+    this.instance_cache[h] = [instance.exports.mem, instance.exports.fn];
+    return this.instance_cache[h];
   }
+
+  evict(h) {
+    const idx = this.hash_list.indexOf(h);
+    if (idx < 0) {
+      return;
+    }
+    this.hash_list = this.hash_list.splice(idx, 1);
+    delete this.instance_cache[h];
+    delete this.loop_tree_cache[h];
+  }
+
+  loop_tree(tensor) {
+    const h = tensor.hash();
+    if (!(h in this.loop_tree_cache)) {
+      this.compile(tensor);
+    }
+    return this.loop_tree_cache[h];
+  }
+
+  set_loop_tree(tensor, loop_tree) {
+    const h = tensor.hash();
+    this.evict(h);
+    this.loop_tree_cache[h] = loop_tree;
+    this.compile(tensor);
+  }
+
 };
 
 let _tensor_id = 0;
@@ -103,6 +134,14 @@ class Tensor {
     return [mem_map, fn];
   }
 
+  get wasm() {
+    return this.loop_tree.wasm();
+  }
+
+  get hash() {
+    return this._tensor.hash();
+  }
+
   get data() {
     return (async () => {
       if (this._data) {
@@ -136,7 +175,11 @@ class Tensor {
   }
 
   get loop_tree() {
-    return this._tensor.loop_tree();
+    return cc.loop_tree(this._tensor);
+  }
+
+  set_loop_tree(loop_tree) {
+    cc.set_loop_tree(this._tensor, loop_tree);
   }
 
   collect_inputs(...ts) {

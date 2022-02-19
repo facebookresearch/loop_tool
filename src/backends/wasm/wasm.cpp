@@ -9,21 +9,28 @@ LICENSE file in the root directory of this source tree.
 using namespace loop_tool;
 using namespace symbolic;
 
-void WebAssemblyCompiler::push_access_to_stack(IR::NodeRef node_ref,
-                                               LoopTree::TreeRef ref) const {
+int32_t WebAssemblyCompiler::push_access_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   // grab the relevant loops
   std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
                      Hash<Symbol>>
       sym_strides;
   auto access = gen_access(node_ref, ref);
   auto p = lt.parent(ref);
+  int32_t offset = 0;
   while (p != access.alloc.lca) {
     const auto& l = lt.loop(p);
     auto sym = var_to_sym.at(l.var);
     auto stride = inner_sizes.at(p);
-    sym_strides[sym].emplace_back(p, stride);
+    if (unrolls.count(p)) {
+      offset += unrolls.at(p) * stride;
+    } else {
+      sym_strides[sym].emplace_back(p, stride);
+    }
     p = lt.parent(p);
   }
+  offset *= 4;
 
   // grab index equation
   std::vector<Expr> scoped_exprs;
@@ -81,39 +88,29 @@ void WebAssemblyCompiler::push_access_to_stack(IR::NodeRef node_ref,
   } else {
     cg->i32.const_(0);
   }
+  return offset;
 }
 
 void WebAssemblyCompiler::push_vector_to_stack(IR::NodeRef node_ref,
                                                LoopTree::TreeRef ref) const {
-  const auto& vars = lt.ir.node(node_ref).vars();
-  const auto& var_set = to_set(vars);
-  // three cases
-  auto dim = lt.loop(lt.parent(ref)).var;
-  if (vars.back() == dim) {  // 1. contiguous load
-    push_access_to_stack(node_ref, ref);
-    cg->v128.load(0, memory_locations.at(node_ref));
-  } else if (var_set.count(dim)) {  // 2. strided load
-    ASSERT(0) << "Gather not yet supported";
-  } else {  // 3. broadcast load
-    push_access_to_stack(node_ref, ref);
-    cg->v128.load32_splat(0, memory_locations.at(node_ref));
-  }
 }
 
-void WebAssemblyCompiler::push_float_to_stack(IR::NodeRef node_ref,
-                                              LoopTree::TreeRef ref) const {
+void WebAssemblyCompiler::push_float_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   if (local_f32.count(node_ref)) {
     cg->local.get(local_f32.at(node_ref));
     return;
   }
-  push_access_to_stack(node_ref, ref);
-  cg->f32.load(0, memory_locations.at(node_ref));
-  // maybe save to local?
+  auto offset = push_access_to_stack(node_ref, ref, unrolls);
+  cg->f32.load(0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
 }
 
 void WebAssemblyCompiler::emit_vectorized_node(LoopTree::TreeRef ref) const {}
 
-void WebAssemblyCompiler::emit_node(LoopTree::TreeRef ref) const {
+void WebAssemblyCompiler::emit_node(
+    LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   const auto& node_ref = lt.node(ref);
   const auto& node = lt.ir.node(node_ref);
 
@@ -121,16 +118,19 @@ void WebAssemblyCompiler::emit_node(LoopTree::TreeRef ref) const {
     emit_reset(lt.parent(ref));
   }
 
-  push_access_to_stack(node_ref, ref);
+  int32_t store_offset = 0;
+  if (local_storage.count(node_ref)) {
+    local_f32[node_ref] = cg->local(cg->f32);
+  } else {
+    store_offset = push_access_to_stack(node_ref, ref, unrolls);
+  }
 
   for (const auto& inp_ref : node.inputs()) {
-    push_access_to_stack(inp_ref, ref);
-    cg->f32.load(0, memory_locations.at(resolved_reads.at(inp_ref)));
+    push_float_to_stack(inp_ref, ref, unrolls);
   }
   bool is_reduction = lt.ir.reduction_vars(node_ref).size();
   if (is_reduction) {
-    push_access_to_stack(node_ref, ref);
-    cg->f32.load(0, memory_locations.at(node_ref));
+    push_float_to_stack(node_ref, ref, unrolls);
   }
 
   switch (node.op()) {
@@ -168,7 +168,12 @@ void WebAssemblyCompiler::emit_node(LoopTree::TreeRef ref) const {
       ASSERT(0) << "Can't handle op yet for wasm " << lt.ir.dump(node_ref);
   };
 
-  cg->f32.store(0, memory_locations.at(node_ref));
+  if (local_storage.count(node_ref)) {
+    cg->local.set(local_f32.at(node_ref));
+  } else {
+    cg->f32.store(
+        0, memory_locations.at(resolved_writes.at(node_ref)) + store_offset);
+  }
 }
 
 void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
@@ -225,8 +230,8 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
 }
 
 void WebAssemblyCompiler::emit_loop(
-    LoopTree::TreeRef ref,
-    std::unordered_map<IR::VarRef, int> overrides) const {
+    LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   const auto& loop = lt.loop(ref);
   ASSERT(loop.size > -1);
   ASSERT(loop.tail > -1);
@@ -252,16 +257,10 @@ void WebAssemblyCompiler::emit_loop(
       lt.annotation(ref) == "unroll") {  // 1. vectorized
     emit_vectorized_node(ref);
   } else if (lt.annotation(ref) == "unroll") {  // 2. unrolled loop
-    // generate any loop header logic
-    auto iter = cg->local(cg->i32);
-    iterators[ref] = iter;
-
     for (auto i = 0; i < size; ++i) {
-      cg->i32.const_(i);
-      cg->local.set(iter);
-      // generate body code
+      unrolls[ref] = i;
       for (auto c : lt.children(ref)) {
-        emit(c, overrides);
+        emit(c, overrides, unrolls);
       }
     }
   } else {  // 3. default loop
@@ -274,7 +273,7 @@ void WebAssemblyCompiler::emit_loop(
 
     // generate body code
     for (auto c : lt.children(ref)) {
-      emit(c, overrides);
+      emit(c, overrides, unrolls);
     }
 
     // generate any loop footer logic
@@ -293,25 +292,25 @@ void WebAssemblyCompiler::emit_loop(
     overrides[loop.var] = tail;
     // value is now fixed
     for (auto c : lt.children(ref)) {
-      emit(c, overrides);
+      emit(c, overrides, unrolls);
     }
   }
 }
 
 void WebAssemblyCompiler::emit(
-    LoopTree::TreeRef ref,
-    std::unordered_map<IR::VarRef, int> overrides) const {
+    LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   if (ref == -1) {
     auto func = cg->function({}, {}, [&]() {
       for (auto c : lt.roots) {
-        emit(c, overrides);
+        emit(c, overrides, unrolls);
       }
     });
     cg->export_(func, "fn");
   } else if (lt.kind(ref) == LoopTree::NODE) {
-    emit_node(ref);
+    emit_node(ref, unrolls);
   } else {
-    emit_loop(ref, overrides);
+    emit_loop(ref, overrides, unrolls);
   }
 }
 
@@ -321,24 +320,6 @@ std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   local_v128.clear();
   memory_locations.clear();
   iterators.clear();
-
-  // we can determine exactly which memory can reside in float32, vec4 and
-  // multiples of them usage based:
-  // 1. in vectorized node, used as fp32 or used as full vec
-  // for m:4 unroll
-  //   for n:4 unroll // this is a vectorized node, we know c[m,n] is going to
-  //   be vec
-  //     c[m,n] = a[m] * b[n]
-  // for m:4 unroll
-  //   for n:4 unroll
-  //     d[m,n] += c[m,n]
-
-  // for n:4 unroll
-  //   for m:4 unroll
-  //     c[m,n] = a[m] * b[n] // a is vectorized, but we get a bunch of c
-  // for m:4 unroll
-  //   for n:4 unroll // now c can be vectorized, but we find it isn't
-  //     d[m,n] += c[m,n]
 
   std::vector<std::pair<IR::NodeRef, int64_t>> sizes(allocations.size());
   for (const auto& p : allocations) {
@@ -351,7 +332,7 @@ std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   }
   auto pages = running_location / (1 << 16) + 1;
   cg->memory(pages).export_("mem");
-  emit(-1, {});
+  emit(-1, {}, {});
 
   return cg->emit();
 }

@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 #include "emscripten/bind.h"
 #include "emscripten/val.h"
 #include "loop_tool/loop_tool.h"
+#include "loop_tool/mutate.h"
 #include "loop_tool/wasm.h"
 
 using namespace loop_tool;
@@ -87,8 +88,8 @@ std::string getExceptionMessage(int ptr) {
 
 std::string graphviz(const lazy::Tensor &t) { return dot(t.ir()); }
 
-emscripten::val wasm(const lazy::Tensor &t) {
-  auto wc = loop_tool::WebAssemblyCompiler(t.loop_tree());
+emscripten::val wasm(const LoopTree &loop_tree) {
+  auto wc = loop_tool::WebAssemblyCompiler(loop_tree);
   auto bytes = wc.emit();
   emscripten::val view{
       emscripten::typed_memory_view(bytes.size(), bytes.data())};
@@ -104,6 +105,23 @@ std::string dump_expr(lazy::Expr &e) { return e.dump(); }
 
 std::string dump_loop_tree(const LoopTree &lt) { return lt.dump(); }
 
+std::vector<LoopTree::TreeRef> walk_loop_tree(const LoopTree &lt) {
+  std::vector<LoopTree::TreeRef> out;
+  auto fn = [&](LoopTree::TreeRef ref, int depth) { out.emplace_back(ref); };
+  lt.walk(fn);
+  return out;
+}
+
+bool is_loop(const LoopTree &lt, LoopTree::TreeRef ref) {
+  return lt.kind(ref) == LoopTree::LOOP;
+}
+
+IR::VarRef loop_var(const LoopTree::Loop &loop) { return loop.var; }
+
+int32_t loop_size(const LoopTree::Loop &loop) { return loop.size; }
+
+int32_t loop_tail(const LoopTree::Loop &loop) { return loop.tail; }
+
 EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Expr>("Expr")
       .constructor<int>()
@@ -116,7 +134,21 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("name", &lazy::Symbol::name)
       .function("expr", &expr_from_sym)
       .function("id", &lazy::Symbol::id);
-  js::class_<LoopTree>("LoopTree").function("dump", &dump_loop_tree);
+  js::class_<LoopTree::Loop>("Loop")
+      .function("var", &loop_var)
+      .function("size", &loop_size)
+      .function("tail", &loop_tail);
+  js::class_<LoopTree>("LoopTree")
+      .function("dump", &dump_loop_tree)
+      .function("wasm", &wasm)
+      .function("walk", &walk_loop_tree)
+      .function("depth", &LoopTree::depth)
+      .function("children", &LoopTree::children)
+      .function("is_loop", &is_loop)
+      .function("loop", &LoopTree::loop)
+      .function("node", &LoopTree::node)
+      .function("annotation", &LoopTree::annotation)
+      .function("annotate", &LoopTree::annotate);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor, js::allow_raw_pointers())
       .function("to", &to_impl)
@@ -139,7 +171,10 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("loop_tree", &lazy::Tensor::loop_tree)
       .function("numel", &lazy::Tensor::numel)
       .function("code", &lazy::Tensor::code)
-      .function("hash", &lazy::Tensor::hash)
-      .function("wasm", &wasm);
-  emscripten::function("getExceptionMessage", &getExceptionMessage);
+      .function("hash", &lazy::Tensor::hash);
+  js::function("split", split);
+  js::function("swap", swap);
+  js::function("disable_reuse", disable_reuse);
+  js::function("enable_reuse", enable_reuse);
+  js::function("getExceptionMessage", &getExceptionMessage);
 }
