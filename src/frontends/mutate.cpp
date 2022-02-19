@@ -120,4 +120,31 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
   return LoopTree(new_ir);
 }
 
+LoopTree toggle_reuse(const LoopTree& lt, LoopTree::TreeRef ref, IR::NodeRef n,
+                      bool enable) {
+  auto new_ir = lt.ir;
+  auto loop_order = lt.loop_order(n);
+  for (auto i = 0; i < loop_order.size(); ++i) {
+    const auto& loop = loop_order.at(i);
+    if (loop == lt.loop(ref)) {
+      if (enable) {
+        new_ir.enable_reuse(n, i);
+      } else {
+        new_ir.disable_reuse(n, i);
+      }
+      break;
+    }
+  }
+  return LoopTree(new_ir);
+}
+LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
+                       IR::NodeRef n) {
+  return toggle_reuse(lt, loop, n, false);
+}
+
+LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
+                      IR::NodeRef n) {
+  return toggle_reuse(lt, loop, n, true);
+}
+
 }  // namespace loop_tool

@@ -11,5 +11,9 @@ namespace loop_tool {
 
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b);
+LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
+                       IR::NodeRef n);
+LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
+                      IR::NodeRef n);
 
 }  // namespace loop_tool

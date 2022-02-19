@@ -41,6 +41,7 @@ let _tensor_id = 0;
 let cc = new CompilationCache();
 
 let Symbol = lt.Symbol;
+let Expr = lt.Expr;
 
 function symbols(str) {
   let out = [];
@@ -112,8 +113,8 @@ class Tensor {
       for (let inp of this._inputs) {
         mem_map[inp._id].set(inp.buffer);
       }
-      fn();
       this.data_ = mem_map[this._id];
+      fn();
       return this.data_;
     })();
   }
@@ -132,6 +133,10 @@ class Tensor {
 
   get code() {
     return this._tensor.code();
+  }
+
+  get loop_tree() {
+    return this._tensor.loop_tree();
   }
 
   collect_inputs(...ts) {
@@ -165,6 +170,12 @@ class Tensor {
   }
 
   to(...syms) {
+    const l = syms.length;
+    if (l && syms[l-1].constructor != lt.Symbol) {
+      let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), syms[l-1]));
+      out_t._inputs = this.collect_inputs(this);
+      return out_t;
+    }
     this._tensor = this._tensor.as(syms);
     return this;
   }
@@ -177,5 +188,6 @@ class Tensor {
 export {
   Tensor,
   Symbol,
-  symbols
+  symbols,
+  Expr
 };

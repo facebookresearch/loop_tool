@@ -11,6 +11,25 @@ import {
   performance
 } from 'perf_hooks';
 
+let e = (new lt.Expr(3)).add(new lt.Symbol("k").expr());
+console.log(e);
+console.log(e.dump());
+
+(async () => {
+  let n = new lt.Symbol("N");
+  let k = new lt.Symbol("K");
+  let no = new lt.Symbol("No");
+  let a = new lt.Tensor(10).to(n);
+  rand(a.buffer);
+  let b = new lt.Tensor(3).to(k);
+  rand(b.buffer);
+  a = a.to(no, k, [[n.expr(), no.expr().add(k.expr())]]);
+  let c = a.mul(b).sum(k);
+  console.log(c.shape);
+  let d = await c.data;
+  //console.log("data", d);
+})();
+
 (async () => {
   let n = new lt.Symbol("N");
   let a = new lt.Tensor(2).to(n);
@@ -75,7 +94,7 @@ function mm(a, b, m, n, k) {
   }
 })();
 
-async function benchmark(fn, warmup = 10, iters = 1000) {
+async function benchmark(fn, warmup = 10, iters = 10) {
   for (let i = 0; i < warmup; ++i) {
     await fn();
   }
@@ -112,4 +131,4 @@ async function benchmark(fn, warmup = 10, iters = 1000) {
   console.log(await benchmark(fn), "iters per second (pure fn)");
   console.log(await benchmark(fn_mem), "iters per second (fn + fill inputs)");
   console.log(await benchmark(fn_wrapped), "iters per second (wrapped)");
-})();
+});

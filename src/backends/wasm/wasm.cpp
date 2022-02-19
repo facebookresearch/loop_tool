@@ -41,32 +41,77 @@ void WebAssemblyCompiler::push_access_to_stack(IR::NodeRef node_ref,
     scoped_exprs.emplace_back(expr);
   }
 
-  cg->i32.const_(0);
+  Expr full_expr(0);
   for (auto i = 0; i < scoped_exprs.size(); ++i) {
-    if (!access.alloc.sizes.at(i)) {
-      continue;
-    }
-    const auto& expr = scoped_exprs.at(i);
-    if (expr.type() == Expr::Type::value && expr.value() == 0) {
-      continue;
-    }
-    ASSERT(expr.type() == Expr::Type::symbol)
-        << "TODO can't yet handle: " << expr.dump();
-    auto sym = expr.symbol();
     auto stride = access.alloc.size(i + 1);
+    const auto& expr = scoped_exprs.at(i);
+    full_expr = full_expr + expr * Expr(stride);
+  }
+  full_expr = full_expr.simplify();
+
+  bool emitted = false;
+  for (const auto& sym : full_expr.symbols()) {
+    auto stride_expr = differentiate(full_expr, sym).simplify();
+    ASSERT(stride_expr.type() == Expr::Type::value) << "Invalid indexing expr";
+    auto stride = stride_expr.value();
+    if (stride == 0) {
+      continue;
+    }
     for (const auto& p : sym_strides.at(sym)) {
+      int32_t inner_stride = p.second * stride;
+      if (inner_stride == 0) {
+        continue;
+      }
       cg->local.get(iterators.at(p.first));
-      cg->i32.const_((int32_t)p.second);
-      cg->i32.mul();
-      cg->i32.const_((int32_t)stride);
-      cg->i32.mul();
-      cg->i32.add();
+      if (inner_stride > 1) {
+        cg->i32.const_(inner_stride);
+        cg->i32.mul();
+      }
+      if (emitted) {
+        cg->i32.add();
+      } else {
+        emitted = true;
+      }
     }
   }
   // float size
-  cg->i32.const_(4);
-  cg->i32.mul();
+  if (emitted) {
+    cg->i32.const_(4);
+    cg->i32.mul();
+  } else {
+    cg->i32.const_(0);
+  }
 }
+
+void WebAssemblyCompiler::push_vector_to_stack(IR::NodeRef node_ref,
+                                               LoopTree::TreeRef ref) const {
+  const auto& vars = lt.ir.node(node_ref).vars();
+  const auto& var_set = to_set(vars);
+  // three cases
+  auto dim = lt.loop(lt.parent(ref)).var;
+  if (vars.back() == dim) {  // 1. contiguous load
+    push_access_to_stack(node_ref, ref);
+    cg->v128.load(0, memory_locations.at(node_ref));
+  } else if (var_set.count(dim)) {  // 2. strided load
+    ASSERT(0) << "Gather not yet supported";
+  } else {  // 3. broadcast load
+    push_access_to_stack(node_ref, ref);
+    cg->v128.load32_splat(0, memory_locations.at(node_ref));
+  }
+}
+
+void WebAssemblyCompiler::push_float_to_stack(IR::NodeRef node_ref,
+                                              LoopTree::TreeRef ref) const {
+  if (local_f32.count(node_ref)) {
+    cg->local.get(local_f32.at(node_ref));
+    return;
+  }
+  push_access_to_stack(node_ref, ref);
+  cg->f32.load(0, memory_locations.at(node_ref));
+  // maybe save to local?
+}
+
+void WebAssemblyCompiler::emit_vectorized_node(LoopTree::TreeRef ref) const {}
 
 void WebAssemblyCompiler::emit_node(LoopTree::TreeRef ref) const {
   const auto& node_ref = lt.node(ref);
@@ -80,7 +125,7 @@ void WebAssemblyCompiler::emit_node(LoopTree::TreeRef ref) const {
 
   for (const auto& inp_ref : node.inputs()) {
     push_access_to_stack(inp_ref, ref);
-    cg->f32.load(0, memory_locations.at(inp_ref));
+    cg->f32.load(0, memory_locations.at(resolved_reads.at(inp_ref)));
   }
   bool is_reduction = lt.ir.reduction_vars(node_ref).size();
   if (is_reduction) {
@@ -202,27 +247,46 @@ void WebAssemblyCompiler::emit_loop(
     emit_reset(lt.parent(ref));
   }
 
-  // generate any loop header logic
-  auto iter = cg->local(cg->i32);
-  iterators[ref] = iter;
-  cg->i32.const_(0);
-  cg->local.set(iter);
-  cg->loop(cg->void_);
+  // three cases
+  if (false && size == 4 && lt.children(ref).size() == 1 &&
+      lt.annotation(ref) == "unroll") {  // 1. vectorized
+    emit_vectorized_node(ref);
+  } else if (lt.annotation(ref) == "unroll") {  // 2. unrolled loop
+    // generate any loop header logic
+    auto iter = cg->local(cg->i32);
+    iterators[ref] = iter;
 
-  // generate body code
-  for (auto c : lt.children(ref)) {
-    emit(c, overrides);
+    for (auto i = 0; i < size; ++i) {
+      cg->i32.const_(i);
+      cg->local.set(iter);
+      // generate body code
+      for (auto c : lt.children(ref)) {
+        emit(c, overrides);
+      }
+    }
+  } else {  // 3. default loop
+    // generate any loop header logic
+    auto iter = cg->local(cg->i32);
+    iterators[ref] = iter;
+    cg->i32.const_(0);
+    cg->local.set(iter);
+    cg->loop(cg->void_);
+
+    // generate body code
+    for (auto c : lt.children(ref)) {
+      emit(c, overrides);
+    }
+
+    // generate any loop footer logic
+    cg->local.get(iter);
+    cg->i32.const_(1);
+    cg->i32.add();
+    cg->local.tee(iter);
+    cg->i32.const_(size);
+    cg->i32.lt_u();
+    cg->br_if(0);
+    cg->end();
   }
-
-  // generate any loop footer logic
-  cg->local.get(iter);
-  cg->i32.const_(1);
-  cg->i32.add();
-  cg->local.tee(iter);
-  cg->i32.const_(size);
-  cg->i32.lt_u();
-  cg->br_if(0);
-  cg->end();
 
   // generate any tail logic
   if (tail > 0) {
@@ -253,9 +317,28 @@ void WebAssemblyCompiler::emit(
 
 std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   cg = std::move(std::make_shared<wasmblr::CodeGenerator>());
-  locals.clear();
+  local_f32.clear();
+  local_v128.clear();
   memory_locations.clear();
   iterators.clear();
+
+  // we can determine exactly which memory can reside in float32, vec4 and
+  // multiples of them usage based:
+  // 1. in vectorized node, used as fp32 or used as full vec
+  // for m:4 unroll
+  //   for n:4 unroll // this is a vectorized node, we know c[m,n] is going to
+  //   be vec
+  //     c[m,n] = a[m] * b[n]
+  // for m:4 unroll
+  //   for n:4 unroll
+  //     d[m,n] += c[m,n]
+
+  // for n:4 unroll
+  //   for m:4 unroll
+  //     c[m,n] = a[m] * b[n] // a is vectorized, but we get a bunch of c
+  // for m:4 unroll
+  //   for n:4 unroll // now c can be vectorized, but we find it isn't
+  //     d[m,n] += c[m,n]
 
   std::vector<std::pair<IR::NodeRef, int64_t>> sizes(allocations.size());
   for (const auto& p : allocations) {
