@@ -12,71 +12,6 @@ import {
   performance
 } from 'perf_hooks';
 
-let e = (new lt.Expr(3)).add(new lt.Symbol("k").expr());
-console.log(e);
-console.log(e.dump());
-
-(async () => {
-  let n = new lt.Symbol("N");
-  let k = new lt.Symbol("K");
-  let no = new lt.Symbol("No");
-  let a = new lt.Tensor(10).to(n);
-  rand(a.buffer);
-  let b = new lt.Tensor(3).to(k);
-  rand(b.buffer);
-  a = a.to(no, k, [[n.expr(), no.expr().add(k.expr())]]);
-  let c = a.mul(b).sum(k);
-  console.log(c.shape);
-  const loop_tree = c.loop_tree;
-  for (let ref of loop_tree.walk()) {
-    if (loop_tree.is_loop(ref)) {
-      console.log(loop_tree.depth(ref));
-    }
-  }
-  let d = await c.data;
-  //console.log("data", d);
-})();
-
-(async () => {
-  let n = new lt.Symbol("N");
-  let a = new lt.Tensor(2).to(n);
-  a.buffer[0] = 3;
-  a.buffer[1] = 2;
-  let b = new lt.Tensor(2).to(n);
-  b.set(new Float32Array([4, 9]));
-  let c = a.add(b);
-  c = c.add(b);
-  console.log(c.hash + '.wasm');
-  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
-  //console.log(c.graphviz);
-  let d = await c.data;
-  console.log(d);
-});
-
-(async () => {
-  let n = new lt.Symbol("N");
-  const N = 10;
-  let a = new lt.Tensor(N).to(n);
-  let b = new lt.Tensor(N).to(n);
-  rand(a.buffer);
-  rand(b.buffer);
-  let c = a.add(b);
-  c = c.add(b);
-  const loop_tree = c.loop_tree;
-  loop_tree.annotate(loop_tree.children(-1), "unroll");
-  console.log(loop_tree.dump());
-  c.set_loop_tree(loop_tree);
-  console.log(c.hash + '.wasm');
-  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
-  let d = await c.data;
-  for (let i = 0; i < N; ++i) {
-    if (Math.abs(d[i] - (a.buffer[i] + 2 * b.buffer[i])) > 0.001) {
-      console.log("EROR", d[i]);
-    }
-  }
-  console.log(d);
-})();
-
 function cmp(a, b) {
   if (a.length != b.length) {
     return false;
@@ -108,6 +43,73 @@ function mm(a, b, m, n, k) {
   }
   return c;
 }
+
+
+//let e = (new lt.Expr(3)).add(new lt.Symbol("k").expr());
+//console.log(e);
+//console.log(e.dump());
+
+(async () => {
+  let n = new lt.Symbol("N");
+  let k = new lt.Symbol("K");
+  let no = new lt.Symbol("No");
+  let a = new lt.Tensor(10).to(n);
+  rand(a.buffer);
+  let b = new lt.Tensor(3).to(k);
+  rand(b.buffer);
+  a = a.to(no, k, [[n.expr(), no.expr().add(k.expr())]]);
+  let c = a.mul(b).sum(k);
+  console.log(c.shape);
+  const loop_tree = c.loop_tree;
+  for (let ref of loop_tree.walk()) {
+    if (loop_tree.is_loop(ref)) {
+      console.log(loop_tree.depth(ref));
+    }
+  }
+  let d = await c.data;
+  console.log("data", d);
+})();
+
+(async () => {
+  let n = new lt.Symbol("N");
+  let a = new lt.Tensor(2).to(n);
+  a.buffer[0] = 3;
+  a.buffer[1] = 2;
+  let b = new lt.Tensor(2).to(n);
+  b.set(new Float32Array([4, 9]));
+  let c = a.add(b);
+  c = c.add(b);
+  console.log(c.hash + '.wasm');
+  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
+  //console.log(c.graphviz);
+  let d = await c.data;
+  console.log(d);
+});
+
+(async () => {
+  let n = new lt.Symbol("N");
+  const N = 10;
+  let a = new lt.Tensor(N).to(n);
+  let b = new lt.Tensor(N).to(n);
+  rand(a.buffer);
+  rand(b.buffer);
+  let c = a.add(b);
+  c = c.add(b);
+  const loop_tree = c.loop_tree;
+  let roots = loop_tree.children(-1);
+  loop_tree.annotate(roots[0], "unroll");
+  console.log(loop_tree.dump());
+  c.set_loop_tree(loop_tree);
+  console.log(c.hash + '.wasm');
+  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
+  let d = await c.data;
+  for (let i = 0; i < N; ++i) {
+    if (Math.abs(d[i] - (a.buffer[i] + 2 * b.buffer[i])) > 0.001) {
+      console.log("EROR", d[i]);
+    }
+  }
+  console.log(d);
+})();
 
 (async () => {
   let [m, n, k] = lt.symbols("M N K");

@@ -113,11 +113,14 @@ LoopTree TensorImpl::schedule(
 std::vector<int64_t> TensorImpl::sizes() const {
   if (getCompilationCache().count(hash())) {
     const auto& cc = getCompilationCache().at(hash());
-    return cc.sizes;
+    sizes_ = cc.sizes;
+    cached_sizes_ = true;
   }
-  std::vector<int64_t> sizes_;
-  for (auto i = 0; i < shape().size(); ++i) {
-    sizes_.emplace_back(size(i));
+  if (!cached_sizes_) {
+    for (auto i = 0; i < shape().size(); ++i) {
+      sizes_.emplace_back(size(i));
+    }
+    cached_sizes_ = true;
   }
   return sizes_;
 }

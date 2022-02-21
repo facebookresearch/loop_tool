@@ -14,6 +14,7 @@ list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
 
 option(BUILD_WASM "Build a WebAssembly compilation target" OFF)
+option(BUILD_ES6 "Build an ES6 target in emcc" OFF)
 if (BUILD_WASM)
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm.cpp")
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
@@ -128,16 +129,24 @@ if(DEFINED EMCC_DIR)
   message("Using ${EMCC} to compile javascript bindings...")
   SET(EMCC_INCLUDE ${EMCC_DIR}/system/include)
   file(GLOB JS_SRCS ${SRC_DIR}/frontends/javascript*.cpp)
-  SET(EMCC_FLAGS -s NO_DISABLE_EXCEPTION_CATCHING -s MODULARIZE -s "EXPORT_NAME=\"createMyModule\"")
+  SET(EMCC_FLAGS -s NO_DISABLE_EXCEPTION_CATCHING -s MODULARIZE -s "EXPORT_NAME=\"createMyModule\"" -s "TOTAL_MEMORY=1073741824")
+  set(EMCC_TARGET libloop_tool.js)
+  if (BUILD_ES6)
+      SET(EMCC_FLAGS ${EMCC_FLAGS} -s EXPORT_ES6=1)
+      set(EMCC_TARGET libloop_tool.mjs)
+  endif()
   if (CMAKE_BUILD_TYPE MATCHES Debug)
     message("Running a debug build for emcc...")
-    SET(EMCC_FLAGS ${EMCC_FLAGS} -gsource-map -s ASSERTIONS=1)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+      SET(EMCC_FLAGS ${EMCC_FLAGS} -gsource-map)
+    endif()
+    SET(EMCC_FLAGS ${EMCC_FLAGS} -g -s ASSERTIONS=1)
   else()
     SET(EMCC_FLAGS ${EMCC_FLAGS} -Oz)
   endif()
   PREPEND(INC "-I" ${LIB_INCLUDE} ${LIB_PRIVATE_INCLUDE})
   add_custom_command(OUTPUT loop_tool_js_emcc
-    COMMAND ${EMCC} -I${EMCC_INCLUDE} ${INC} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o libloop_tool.js --bind
+    COMMAND ${EMCC} -I${EMCC_INCLUDE} ${INC} ${CORE_SRCS} ${JS_SRCS} ${EMCC_FLAGS} -o ${EMCC_TARGET} --bind
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     DEPENDS "${CORE_SRCS}"
     COMMENT "Compiling with emcc"

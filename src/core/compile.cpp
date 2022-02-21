@@ -944,7 +944,9 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
     for (const auto &p : tmp_sizes) {
       if (var_sizes.count(p.first)) {
         ASSERT(var_sizes.at(p.first) == tmp_sizes.at(p.first))
-            << "incompatible loop sizes for " << lt.ir.var(p.first).name();
+            << "incompatible loop sizes for " << lt.ir.var(p.first).name()
+            << " found " << tmp_sizes.at(p.first) << " expected "
+            << var_sizes.at(p.first);
         continue;
       }
       var_sizes[p.first] = tmp_sizes.at(p.first);

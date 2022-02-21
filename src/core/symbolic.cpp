@@ -483,7 +483,10 @@ bool Expr::operator==(const Expr& rhs) const {
   return rhs.op() == op() && match;
 }
 
-std::string Expr::dump(bool short_form, const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements) const {
+std::string Expr::dump(
+    bool short_form,
+    const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements)
+    const {
   std::stringstream ss;
   if (type_ == Expr::Type::value) {
     ss << value();
@@ -498,7 +501,8 @@ std::string Expr::dump(bool short_form, const std::unordered_map<Symbol, std::st
       }
     }
   } else if (op_ == Op::size) {
-    ASSERT(args().size() == 1);
+    ASSERT(args().size() == 1)
+        << "invalid size function found: " << args().size() << " arguments";
     ss << "|" << args().at(0).dump(short_form, replacements) << "|";
   } else if (op_ == Op::max) {
     ASSERT(args().size() == 2);

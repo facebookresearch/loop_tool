@@ -4,7 +4,7 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-import Module from '../build/libloop_tool.js';
+import Module from '../build/libloop_tool.mjs';
 
 const lt = await Module();
 
@@ -73,6 +73,10 @@ let cc = new CompilationCache();
 
 let Symbol = lt.Symbol;
 let Expr = lt.Expr;
+let size = lt.size;
+let expr = (...args) => { return new lt.Expr(...args); }
+let tensor = (...args) => { return new lt.Tensor(...args); }
+let symbol = (...args) => { return new lt.Symbol(...args); }
 
 function symbols(str) {
   let out = [];
@@ -80,6 +84,12 @@ function symbols(str) {
     out.push(new lt.Symbol(k));
   }
   return out;
+}
+
+function fill(val) {
+  const t = new Tensor();
+  t.buffer[0] = val;
+  return t;
 }
 
 class Tensor {
@@ -93,7 +103,7 @@ class Tensor {
       this._compute = true;
     }
     if (this._tensor === undefined) {
-      this._tensor = new lt.Tensor([...args]);
+      this._tensor = new lt.Tensor(args);
       this._compute = false;
     }
   }
@@ -155,7 +165,9 @@ class Tensor {
       this.data_ = mem_map[this._id];
       fn();
       return this.data_;
-    })();
+    })().catch(e => {
+      throw lt.getExceptionMessage(e)
+    });
   }
 
   get shape() {
@@ -194,28 +206,101 @@ class Tensor {
     return inputs;
   }
 
+  mul(t) {
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.mul(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
+  div(t) {
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.div(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
+  add(t) {
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.add(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
+  sub(t) {
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.div(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
+  minus(t) {
+    return this.sub(t);
+  }
+
+  min_reduce(...syms) {
+    let out_t = new Tensor(this._tensor.min_reduce(syms));
+    out_t._inputs = this.collect_inputs(this);
+    return out_t;
+  }
+
+  max_reduce(...syms) {
+    let out_t = new Tensor(this._tensor.max_reduce(syms));
+    out_t._inputs = this.collect_inputs(this);
+    return out_t;
+  }
+
+  min(...args) {
+    if (args[0].constructor == lt.Symbol) {
+      return this.min_reduce(...args);
+    }
+    let t = args[0];
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.min(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
+  max(...args) {
+    if (args[0].constructor == lt.Symbol) {
+      return this.max_reduce(...args);
+    }
+    let t = args[0];
+    t = t.constructor === Number ? fill(t) : t;
+    let out_t = new Tensor(this._tensor.max(t._tensor));
+    out_t._inputs = this.collect_inputs(this, t);
+    return out_t;
+  }
+
   sum(...syms) {
     let out_t = new Tensor(this._tensor.sum(syms));
     out_t._inputs = this.collect_inputs(this);
     return out_t;
   }
 
-  mul(t) {
-    let out_t = new Tensor(this._tensor.mul(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+  neg() {
+    let out_t = new Tensor(this._tensor.neg());
+    out_t._inputs = this.collect_inputs(this);
     return out_t;
   }
 
-  add(t) {
-    let out_t = new Tensor(this._tensor.add(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+  abs() {
+    let out_t = new Tensor(this._tensor.abs());
+    out_t._inputs = this.collect_inputs(this);
+    return out_t;
+  }
+
+  sqrt() {
+    let out_t = new Tensor(this._tensor.sqrt());
+    out_t._inputs = this.collect_inputs(this);
     return out_t;
   }
 
   to(...syms) {
     const l = syms.length;
     if (l && syms[l-1].constructor != lt.Symbol) {
-      let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), syms[l-1]));
+      const constraints = syms[l-1];
+      let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), constraints));
       out_t._inputs = this.collect_inputs(this);
       return out_t;
     }
@@ -229,8 +314,15 @@ class Tensor {
 };
 
 export {
+  // raw constructors
   Tensor,
   Symbol,
+  Expr,
+  // function based constructors
+  tensor,
+  fill,
+  symbol,
   symbols,
-  Expr
+  expr,
+  size
 };

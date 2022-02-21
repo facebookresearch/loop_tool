@@ -66,17 +66,40 @@ lazy::Tensor sum_impl(const lazy::Tensor &t,
   return t.sum(symbols);
 }
 
-lazy::Tensor *tensor_constructor(const std::vector<int32_t> &sv) {
+lazy::Tensor max_impl(const lazy::Tensor &t,
+                      const std::vector<lazy::Symbol> &symbols) {
+  return t.max(symbols);
+}
+
+lazy::Tensor min_impl(const lazy::Tensor &t,
+                      const std::vector<lazy::Symbol> &symbols) {
+  return t.min(symbols);
+}
+
+lazy::Tensor prod_impl(const lazy::Tensor &t,
+                       const std::vector<lazy::Symbol> &symbols) {
+  return t.prod(symbols);
+}
+
+lazy::Tensor tensor_constructor(const std::vector<int32_t> &sv) {
   std::vector<int64_t> inp;
   for (auto s : sv) {
     inp.emplace_back(s);
   }
-  return new lazy::Tensor(inp);
+  return lazy::Tensor(inp);
 }
 
 std::vector<int32_t> sizes_impl(const lazy::Tensor &t) {
   std::vector<int32_t> out;
   for (const auto &s : t.sizes()) {
+    out.emplace_back(s);
+  }
+  return out;
+}
+
+std::vector<js::val> shape_impl(const lazy::Tensor &t) {
+  std::vector<js::val> out;
+  for (const auto &s : t.shape()) {
     out.emplace_back(s);
   }
   return out;
@@ -88,18 +111,18 @@ std::string getExceptionMessage(int ptr) {
 
 std::string graphviz(const lazy::Tensor &t) { return dot(t.ir()); }
 
-emscripten::val wasm(const LoopTree &loop_tree) {
+js::val wasm(const LoopTree &loop_tree) {
   auto wc = loop_tool::WebAssemblyCompiler(loop_tree);
   auto bytes = wc.emit();
-  emscripten::val view{
-      emscripten::typed_memory_view(bytes.size(), bytes.data())};
-  auto result = emscripten::val::global("Uint8Array").new_(bytes.size());
+  js::val view{js::typed_memory_view(bytes.size(), bytes.data())};
+  auto result = js::val::global("Uint8Array").new_(bytes.size());
   // copy data from generated output to return object
   result.call<void>("set", view);
   return result;
 }
 
 lazy::Expr expr_from_sym(lazy::Symbol sym) { return lazy::Expr(sym); }
+lazy::Expr to_size_expr(lazy::Symbol sym) { return lazy::Expr::size(sym); }
 
 std::string dump_expr(lazy::Expr &e) { return e.dump(); }
 
@@ -150,20 +173,31 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("annotation", &LoopTree::annotation)
       .function("annotate", &LoopTree::annotate);
   js::class_<lazy::Tensor>("Tensor")
-      .constructor(&tensor_constructor, js::allow_raw_pointers())
+      .constructor(&tensor_constructor)
       .function("to", &to_impl)
+      .function("transpose",
+                js::select_overload<lazy::Tensor(std::vector<lazy::Symbol>)>(
+                    &lazy::Tensor::transpose))
       .function("as", &as_impl)
       .function("shape", &sizes_impl)
-      .function("symbolic_shape", &lazy::Tensor::shape)
+      .function("symbolic_shape", &shape_impl)
       .function("add", &lazy::Tensor::operator+)
       .function("sub",
                 js::select_overload<lazy::Tensor(const lazy::Tensor &) const>(
                     &lazy::Tensor::operator-))
       .function("mul", &lazy::Tensor::operator*)
       .function("div", &lazy::Tensor::operator/)
-      .function("max", &lazy::Tensor::max)
-      .function("min", &lazy::Tensor::min)
+      .function("max",
+                js::select_overload<lazy::Tensor(const lazy::Tensor &) const>(
+                    &lazy::Tensor::max))
+      .function("min",
+                js::select_overload<lazy::Tensor(const lazy::Tensor &) const>(
+                    &lazy::Tensor::min))
+      .function("sqrt", &lazy::Tensor::sqrt)
       .function("sum", &sum_impl)
+      .function("max_reduce", &max_impl)
+      .function("min_reduce", &min_impl)
+      .function("prod", &prod_impl)
       .function("neg", js::select_overload<lazy::Tensor() const>(
                            &lazy::Tensor::operator-))
       .function("abs", &lazy::Tensor::abs)
@@ -172,6 +206,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("numel", &lazy::Tensor::numel)
       .function("code", &lazy::Tensor::code)
       .function("hash", &lazy::Tensor::hash);
+  js::function("size", to_size_expr);
   js::function("split", split);
   js::function("swap", swap);
   js::function("disable_reuse", disable_reuse);

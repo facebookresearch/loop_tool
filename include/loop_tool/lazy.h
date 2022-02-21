@@ -59,6 +59,8 @@ struct TensorImpl {
   mutable bool owning_ = true;
   mutable bool force_recompute_ = false;
   std::vector<Symbol> shape_;
+  mutable bool cached_sizes_ = false;
+  mutable std::vector<int64_t> sizes_;
   std::vector<Constraint> constraints_;
   std::vector<std::shared_ptr<TensorImpl>> deps_;
 
@@ -467,7 +469,8 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  Tensor sum(const std::vector<Symbol>& reduction_vars) const {
+  Tensor reduce(Operation op, const std::vector<Symbol>& reduction_vars) const {
+    ASSERT(reduction_vars.size()) << "reduction variables required (got none)";
     std::unordered_set<int> reduction;
     for (auto rv : reduction_vars) {
       reduction.insert(rv.id());
@@ -480,8 +483,25 @@ struct Tensor {
       new_shape.emplace_back(s);
     }
     std::vector<std::shared_ptr<TensorImpl>> deps{impl_};
-    return Tensor(
-        std::make_shared<TensorImpl>(Operation::add, new_shape, deps));
+    ASSERT(new_shape.size() != shape().size())
+        << "reduction variables not over any input";
+    return Tensor(std::make_shared<TensorImpl>(op, new_shape, deps));
+  }
+
+  Tensor sum(const std::vector<Symbol>& reduction_vars) const {
+    return reduce(Operation::add, reduction_vars);
+  }
+
+  Tensor prod(const std::vector<Symbol>& reduction_vars) const {
+    return reduce(Operation::multiply, reduction_vars);
+  }
+
+  Tensor max(const std::vector<Symbol>& reduction_vars) const {
+    return reduce(Operation::max, reduction_vars);
+  }
+
+  Tensor min(const std::vector<Symbol>& reduction_vars) const {
+    return reduce(Operation::min, reduction_vars);
   }
 
   template <typename... Args>
