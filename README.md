@@ -55,13 +55,14 @@ import loop_tool_py as lt
 import numpy as np
 
 # tensor of size 128, initialized with numpy
-X = lt.Tensor(128).set(np.random.randn(128))
+X_np = np.random.randn(128)
+X = lt.Tensor(128).set(X_np)
 
 # name the dimension and then reduce over it
 N = lt.Symbol("N")
 Y = X.to(N).sum(N)
 
-assert np.allclose(Y.numpy(), np.sum(X.numpy()))
+assert np.allclose(Y.numpy(), np.sum(X_np))
 ```
 
 As a lazy linear algebra API
@@ -79,9 +80,10 @@ W.unify()
 assert Z.shape[0] == 128
 
 # tensor Z initialized later
-Z.set(np.random.randn(Z.shape[0]))
+Z_np = np.random.randn(Z.shape[0])
+Z.set(Z_np)
 
-assert np.allclose(W.numpy(), np.sum(X.numpy() * Z.numpy()))
+assert np.allclose(W.numpy(), np.sum(X_np * Z_np))
 ```
 
 As an optimization toolkit
@@ -118,16 +120,18 @@ print(W.loop_tree)
 #  for N_6' in 16 : L8
 #   %4[] <- write(%3)
 
-new_X = lt.Tensor(128).set(np.random.randn(128))
+new_X_np = np.random.randn(128)
+new_X = lt.Tensor(128).set(new_X_np)
 new_Z = lt.Tensor(K)
 new_W = (new_Z.to(N) * new_X.to(N)).sum(N)
 new_W.unify()
-new_Z.set(np.random.randn(128))
+new_Z_np = np.random.randn(128)
+new_Z.set(new_Z_np)
 
 # same compute, same loop_tree
 assert str(new_W.loop_tree) == str(W.loop_tree)
 
-assert np.allclose(new_W.numpy(), np.sum(new_X.numpy() * new_Z.numpy()))
+assert np.allclose(new_W.numpy(), np.sum(new_X_np * new_Z_np))
 ```
 
 Almost all examples above have nearly identical C++ interfaces, e.g.
