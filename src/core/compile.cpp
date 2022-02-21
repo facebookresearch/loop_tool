@@ -1070,6 +1070,10 @@ InnerFnTypeImproved Compiler::gen_reset(LoopTree::TreeRef ref) const {
         case Operation::divide:
           resets.emplace_back(alloc.mem_idx, alloc.size(), 1.0);
           break;
+        case Operation::min:
+          resets.emplace_back(alloc.mem_idx, alloc.size(),
+                              std::numeric_limits<float>::max());
+          break;
         case Operation::max:
           resets.emplace_back(alloc.mem_idx, alloc.size(),
                               -std::numeric_limits<float>::max());
@@ -1254,11 +1258,15 @@ std::string Compiler::gen_mem_node_string(LoopTree::TreeRef ref) const {
 std::string Compiler::gen_reset_string(LoopTree::TreeRef ref) const {
   std::stringstream ss;
   auto line_prefix = gen_indent(ref, 1);
-  auto value = [&](const Node &node) {
+  auto value = [&](const Node &node) -> float {
     if (node.op() == Operation::add) {
       return 0;
     } else if (node.op() == Operation::multiply) {
       return 1;
+    } else if (node.op() == Operation::min) {
+      return std::numeric_limits<float>::max();
+    } else if (node.op() == Operation::max) {
+      return -std::numeric_limits<float>::max();
     } else if (node.op() == Operation::write) {
       return 0;  // TODO fix
     } else if (node.op() == Operation::view) {
@@ -1802,6 +1810,7 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
             auto new_expr = get_expr(nr, v, false);
             for (auto &expr : base_exprs) {
               expr = expr.replace(sym, new_expr).simplify();
+              expr = expr.replace(Expr::size(sym), var_sizes.at(v)).simplify();
             }
           }
         }
@@ -1823,6 +1832,7 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
             auto new_expr = get_expr(nr, v, true);
             for (auto &expr : base_exprs) {
               expr = expr.replace(sym, new_expr).simplify();
+              expr = expr.replace(Expr::size(sym), var_sizes.at(v)).simplify();
             }
           }
         }
@@ -1959,7 +1969,7 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     auto sym = var_to_sym.count(v) ? var_to_sym.at(v) : Symbol();
     bool found_expr = false;
     for (auto i = 0; i < read_exprs.size(); ++i) {
-      const auto &e = read_exprs.at(i);
+      auto e = read_exprs.at(i);
       auto read_var = read_node.vars().at(i);
       if (read_symbols.at(i) == sym) {
         ASSERT(!found_expr);
@@ -1975,6 +1985,9 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
           << "Found two dependencies on the same variable, not yet supported";
       found_expr = true;
       const auto &read_sym = read_symbols.at(i);
+      for (const auto &sym : e.symbols()) {
+        e = e.replace(Expr::size(sym), var_sizes.at(sym_to_var.at(sym)));
+      }
       auto constraint = Constraint(read_sym, e);
       auto offset = zero(e).simplify();
       auto expr = isolate(constraint, sym).second;

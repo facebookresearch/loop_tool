@@ -169,6 +169,27 @@ Expr Expr::replace(const Expr& e, Symbol B) const {
   }
 }
 
+Expr Expr::replace(const Expr& e, int64_t c) const {
+  if (*this == e) {
+    return Expr(c);
+  }
+  switch (type()) {
+    case Expr::Type::symbol:
+    case Expr::Type::value:
+      return *this;
+    case Expr::Type::function: {
+      std::vector<Expr> new_args;
+      for (const auto& arg : args()) {
+        new_args.emplace_back(arg.replace(e, c));
+      }
+      return Expr(op(), new_args);
+    }
+    default:
+      ASSERT(0) << "couldn't process replacement!";
+      return Expr(c);
+  }
+}
+
 Expr Expr::replace(Symbol A, int64_t c) const {
   switch (type()) {
     case Expr::Type::symbol:

@@ -403,6 +403,14 @@ PYBIND11_MODULE(loop_tool_py, m) {
              }
              return t.sum(vars);
            })
+      .def("max_reduce",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<lazy::Symbol> vars;
+             for (const auto &arg : args) {
+               vars.emplace_back(py::cast<lazy::Symbol>(arg));
+             }
+             return t.max(vars);
+           })
       .def("to",
            [](lazy::Tensor &t, py::args args, const py::kwargs &kwargs) {
              std::vector<lazy::Symbol> output_shape;

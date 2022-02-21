@@ -93,6 +93,7 @@ struct Expr {
   Expr replace(Symbol A, Symbol B) const;
   Expr replace(Symbol A, Expr e) const;
   Expr replace(const Expr& e, Symbol B) const;
+  Expr replace(const Expr& e, int64_t c) const;
   Expr replace(Symbol A, int64_t c) const;
   // actually returns count
   size_t contains(Symbol s) const;
@@ -112,7 +113,9 @@ struct Expr {
   Expr reciprocal() const;
   bool operator!=(const Expr& rhs) const;
   bool operator==(const Expr& rhs) const;
-  std::string dump(bool short_form = false, const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements = {}) const;
+  std::string dump(bool short_form = false,
+                   const std::unordered_map<Symbol, std::string, Hash<Symbol>>&
+                       replacements = {}) const;
   size_t size() const;
 };
 
