@@ -399,7 +399,7 @@ Expr Expr::simplify() const {
       auto rhs = sorted_args.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
-          if (lhs.value() % rhs.value() == 0) {
+          if (rhs.value() && lhs.value() % rhs.value() == 0) {
             return Expr(lhs.value() / rhs.value());
           }
         }
@@ -552,15 +552,7 @@ std::string Expr::dump(
     }
     // we pretty print addition of negatives
     if (op_ == Op::add) {
-      if (rhs.op() == Op::negate) {
-        ss << "-";
-        rhs = rhs.args().at(0);
-      } else if (rhs.type() == Type::value && rhs.value() < 0) {
-        ss << "-";
-        rhs = Expr(-rhs.value());
-      } else {
-        ss << "+";
-      }
+      ss << "+";
     } else if (op_ == Op::multiply) {
       ss << "*";
     } else if (op_ == Op::divide) {

@@ -460,3 +460,13 @@ TEST(LazyPaddedConv) {
   // LoopTree lt(ir); std::cout << lt.dump() << "\n";
   Y.data<float>();
 }
+
+TEST(LazySplit) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol M("M"), K("K"), N("N");
+  lz::Tensor X(128);
+  X = X.as(N);
+  X.to({M, K}, lz::Constraint(N, M * lz::Expr::size(K) + K),
+       lz::Constraint(lz::Expr::size(K), lz::Expr(2)));
+  (void)X.data<float>();
+}

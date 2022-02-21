@@ -1599,7 +1599,8 @@ std::vector<int64_t> Compiler::memory_sizes() const {
     const auto &alloc = p.second;
     // don't allocate inputs and outputs
     if (alloc.mem_idx < lt.ir.inputs().size() + lt.ir.outputs().size()) {
-      memory[alloc.mem_idx] = -1;
+      memory[alloc.mem_idx] = 0;
+      continue;
     }
     size_t size = 1;
     for (auto s : alloc.sizes) {
@@ -2310,6 +2311,7 @@ struct CPUCompiled : public Compiled {
   std::vector<int64_t> intermediates;
   InnerFnTypeImproved fn;
   mutable std::vector<void *> mem;
+  mutable std::vector<int64_t> mem_sizes;
   std::shared_ptr<loop_tool::DynamicLibrary> dll;
 
   CPUCompiled(const LoopTree &lt,
@@ -2344,6 +2346,15 @@ struct CPUCompiled : public Compiled {
     }
 
     mem = compiler.allocate();
+    mem_sizes = compiler.memory_sizes();
+  }
+
+  ~CPUCompiled() {
+    for (auto i = 0; i < mem_sizes.size(); ++i) {
+      if (mem_sizes[i] > 0) {
+        free(mem[i]);
+      }
+    }
   }
 
   void run(const std::vector<void *> &memory, bool sync) const override {

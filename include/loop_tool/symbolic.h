@@ -125,6 +125,7 @@ struct Expr {
 using Constraint = std::pair<Expr, Expr>;
 
 std::vector<Constraint> unify(std::vector<Constraint> constraints);
+bool can_isolate(const Constraint& c, const Symbol& sym);
 Constraint isolate(const Constraint& c, const Symbol& sym);
 
 Expr differentiate(Expr, Symbol);
