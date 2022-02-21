@@ -399,7 +399,7 @@ Expr Expr::simplify() const {
       auto rhs = sorted_args.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
-          if (lhs.value() % rhs.value() == 0) {
+          if (rhs.value() && lhs.value() % rhs.value() == 0) {
             return Expr(lhs.value() / rhs.value());
           }
         }

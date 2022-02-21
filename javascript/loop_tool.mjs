@@ -54,7 +54,7 @@ class CompilationCache {
   loop_tree(tensor) {
     const h = tensor.hash();
     if (!(h in this.loop_tree_cache)) {
-      this.compile(tensor);
+      return tensor.loop_tree();
     }
     return this.loop_tree_cache[h];
   }
@@ -63,7 +63,6 @@ class CompilationCache {
     const h = tensor.hash();
     this.evict(h);
     this.loop_tree_cache[h] = loop_tree;
-    this.compile(tensor);
   }
 
 };
@@ -77,6 +76,7 @@ let size = lt.size;
 let expr = (...args) => { return new lt.Expr(...args); }
 let tensor = (...args) => { return new lt.Tensor(...args); }
 let symbol = (...args) => { return new lt.Symbol(...args); }
+let getExceptionMessage = lt.getExceptionMessage
 
 function symbols(str) {
   let out = [];
@@ -324,5 +324,6 @@ export {
   symbol,
   symbols,
   expr,
-  size
+  size,
+  getExceptionMessage
 };

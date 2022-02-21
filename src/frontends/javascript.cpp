@@ -122,6 +122,11 @@ js::val wasm(const LoopTree &loop_tree) {
 }
 
 lazy::Expr expr_from_sym(lazy::Symbol sym) { return lazy::Expr(sym); }
+
+lazy::Expr expr_constructor(int v) {
+  return lazy::Expr((int64_t)v);
+}
+
 lazy::Expr to_size_expr(lazy::Symbol sym) { return lazy::Expr::size(sym); }
 
 std::string dump_expr(lazy::Expr &e) { return e.dump(); }
@@ -147,7 +152,7 @@ int32_t loop_tail(const LoopTree::Loop &loop) { return loop.tail; }
 
 EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Expr>("Expr")
-      .constructor<int>()
+      .constructor(&expr_constructor)
       .function("dump", &dump_expr)
       .function("add", &lazy::Expr::operator+)
       .function("mul", &lazy::Expr::operator*)

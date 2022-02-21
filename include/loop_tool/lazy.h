@@ -146,11 +146,11 @@ struct TensorImpl {
       }
       for (auto& c : constraints) {
         c.second.walk([&](const Expr& e) {
-          if (e.type() == Expr::Type::symbol) {
-            if (sym_lhs.count(e.symbol().id()) == 0) {
-              auto isolated_constraint = isolate(c, e.symbol());
-              constraints_.emplace_back(isolated_constraint);
-            }
+          if (e.type() == Expr::Type::symbol &&
+              sym_lhs.count(e.symbol().id()) == 0 &&
+              can_isolate(c, e.symbol())) {
+                auto isolated_constraint = isolate(c, e.symbol());
+                constraints_.emplace_back(isolated_constraint);
           }
           return e;
         });
