@@ -128,6 +128,9 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints);
 bool can_isolate(const Constraint& c, const Symbol& sym);
 Constraint isolate(const Constraint& c, const Symbol& sym);
 
+std::vector<Constraint> evaluate(
+    const std::vector<Constraint>& old_constraints);
+
 Expr differentiate(Expr, Symbol);
 
 }  // namespace symbolic

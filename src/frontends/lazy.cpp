@@ -164,7 +164,8 @@ IR::NodeRef TensorImpl::resolve(
           << "unbound variable in compute " << s.name() << " (id: " << s.id()
           << ")";
       auto expr = size_constraints().at(s.id());
-      ASSERT(expr.can_evaluate()) << "can't resolve size";
+      ASSERT(expr.can_evaluate()) << "can't resolve size for sym " << s.name()
+                                  << " expr " << expr.dump();
       auto size = static_cast<int64_t>(expr.evaluate());
       std::stringstream s_name;
       s_name << s.name();
@@ -263,14 +264,10 @@ void TensorImpl::propagateConstraints(
   // TODO: change to set
   std::vector<Symbol> symbols;
   for (const auto& c : constraints_) {
-    auto collect_syms = [&](const Expr& e) {
-      if (e.type() == Expr::Type::symbol) {
-        symbols.emplace_back(e.symbol());
-      }
-      return e;
-    };
-    c.first.walk(collect_syms);
-    c.second.walk(collect_syms);
+    const auto& fs = c.first.symbols();
+    const auto& ss = c.second.symbols();
+    symbols.insert(symbols.end(), fs.begin(), fs.end());
+    symbols.insert(symbols.end(), ss.begin(), ss.end());
   }
   symbols.insert(symbols.end(), shape().begin(), shape().end());
   constraints_.clear();
@@ -298,9 +295,10 @@ void TensorImpl::unifyConstraints() {
   std::vector<Constraint> constraints;
   std::unordered_set<TensorImpl*> seen;
   collectConstraints(constraints, seen);
-  auto new_constraints = symbolic::unify(constraints);
+  auto unified_constraints = symbolic::unify(constraints);
+  auto eval_constraints = symbolic::evaluate(unified_constraints);
   seen.clear();
-  propagateConstraints(new_constraints, seen);
+  propagateConstraints(eval_constraints, seen);
 }
 
 void TensorImpl::collectSymbolMap(std::unordered_map<int, Symbol>& symbol_map,

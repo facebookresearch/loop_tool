@@ -152,6 +152,10 @@ class Tensor {
     return this._tensor.hash();
   }
 
+  get id() {
+    return this._id;
+  }
+
   get data() {
     return (async () => {
       if (this._data) {

@@ -932,6 +932,52 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
   return output_constraints;
 }
 
+std::vector<Constraint> evaluate(
+    const std::vector<Constraint>& old_constraints) {
+  std::unordered_map<Symbol, int64_t, symbolic::Hash<Symbol>> evaluated_sizes;
+  std::vector<Constraint> constraints;
+  for (const auto& c : old_constraints) {
+    constraints.emplace_back(c);
+  }
+
+  auto pass = [&]() -> bool {
+    bool changed = false;
+    // find evaluations
+    for (const auto& c : constraints) {
+      if (c.first.op() == symbolic::Op::size && c.second.can_evaluate()) {
+        ASSERT(c.first.args().size() == 1);
+        ASSERT(c.first.args().at(0).type() == Expr::Type::symbol);
+        const auto& sym = c.first.args().at(0).symbol();
+        if (evaluated_sizes.count(sym)) {
+          continue;
+        }
+        evaluated_sizes[sym] = c.second.evaluate();
+        changed = true;
+      }
+    }
+    if (!changed) {
+      return changed;
+    }
+    // replace constraints
+    for (auto& c : constraints) {
+      auto expr = c.second;
+      for (const auto& sym : expr.symbols()) {
+        if (evaluated_sizes.count(sym)) {
+          expr = expr.replace(Expr::size(sym), evaluated_sizes.at(sym));
+        }
+      }
+      c.second = expr;
+    }
+    return changed;
+  };
+
+  int limit = 1000;
+  while (pass() && (limit--) > 0)
+    ;
+
+  return constraints;
+}
+
 Expr differentiate(Expr e, Symbol sym) {
   if (!e.contains(sym)) {
     return Expr(0);
