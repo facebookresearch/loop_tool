@@ -138,8 +138,38 @@ std::vector<LoopTree::TreeRef> walk_loop_tree(const LoopTree &lt) {
   return out;
 }
 
+float get_flops(const LoopTree &lt) { return (float)flops(lt); }
+
+LoopTree split_impl(const LoopTree &lt, LoopTree::TreeRef ref, int32_t size) {
+  return split(lt, ref, size);
+}
+
 bool is_loop(const LoopTree &lt, LoopTree::TreeRef ref) {
   return lt.kind(ref) == LoopTree::LOOP;
+}
+
+std::string var_name(const LoopTree &lt, IR::VarRef v) {
+  return lt.ir.var(v).name();
+}
+
+std::string dump_node(const LoopTree &lt, IR::NodeRef n) {
+  return lt.ir.dump(n);
+}
+
+std::string node_type(const LoopTree &lt, IR::NodeRef n) {
+  return dump(lt.ir.node(n).op());
+}
+
+std::vector<IR::VarRef> node_vars(const LoopTree &lt, IR::NodeRef n) {
+  return lt.ir.node(n).vars();
+}
+
+std::vector<IR::NodeRef> node_outputs(const LoopTree &lt, IR::NodeRef n) {
+  return lt.ir.node(n).outputs();
+}
+
+std::vector<IR::NodeRef> node_inputs(const LoopTree &lt, IR::NodeRef n) {
+  return lt.ir.node(n).inputs();
 }
 
 IR::VarRef loop_var(const LoopTree::Loop &loop) { return loop.var; }
@@ -161,20 +191,33 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("expr", &expr_from_sym)
       .function("id", &lazy::Symbol::id);
   js::class_<LoopTree::Loop>("Loop")
-      .function("var", &loop_var)
+      .function("v", &loop_var)
       .function("size", &loop_size)
       .function("tail", &loop_tail);
   js::class_<LoopTree>("LoopTree")
       .function("dump", &dump_loop_tree)
       .function("wasm", &wasm)
       .function("walk", &walk_loop_tree)
+      .function("flops", &get_flops)
+      .function("next_ref", &next_ref)
+      .function("prev_ref", &previous_ref)
       .function("depth", &LoopTree::depth)
       .function("children", &LoopTree::children)
       .function("is_loop", &is_loop)
       .function("loop", &LoopTree::loop)
       .function("node", &LoopTree::node)
+      .function("node_outputs", &node_outputs)
+      .function("node_inputs", &node_inputs)
+      .function("node_vars", &node_vars)
+      .function("node_type", &node_type)
+      .function("node_s", &dump_node)
+      .function("var_name", &var_name)
       .function("annotation", &LoopTree::annotation)
-      .function("annotate", &LoopTree::annotate);
+      .function("annotate", &LoopTree::annotate)
+      .function("split", split_impl)
+      .function("swap", swap)
+      .function("disable_reuse", disable_reuse)
+      .function("enable_reuse", enable_reuse);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor)
       .function("to", &to_impl)
@@ -210,9 +253,5 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("code", &lazy::Tensor::code)
       .function("hash", &lazy::Tensor::hash);
   js::function("size", to_size_expr);
-  js::function("split", split);
-  js::function("swap", swap);
-  js::function("disable_reuse", disable_reuse);
-  js::function("enable_reuse", enable_reuse);
   js::function("getExceptionMessage", &getExceptionMessage);
 }

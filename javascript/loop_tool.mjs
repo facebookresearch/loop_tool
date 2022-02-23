@@ -8,6 +8,23 @@ import Module from '../build/libloop_tool.mjs';
 
 const lt = await Module();
 
+const Symbol = lt.Symbol;
+const Expr = lt.Expr;
+const size = lt.size;
+const expr = (...args) => { return new lt.Expr(...args); }
+const tensor = (...args) => { return new Tensor(...args); }
+const symbol = (...args) => { return new lt.Symbol(...args); }
+
+const getExceptionMessage = lt.getExceptionMessage
+
+function symbols(str) {
+  let out = [];
+  for (let k of str.split(' ')) {
+    out.push(new lt.Symbol(k));
+  }
+  return out;
+}
+
 class CompilationCache {
   constructor(max = 2000) {
     this.max = max;
@@ -70,27 +87,20 @@ class CompilationCache {
 let _tensor_id = 0;
 let cc = new CompilationCache();
 
-let Symbol = lt.Symbol;
-let Expr = lt.Expr;
-let size = lt.size;
-let expr = (...args) => { return new lt.Expr(...args); }
-let tensor = (...args) => { return new lt.Tensor(...args); }
-let symbol = (...args) => { return new lt.Symbol(...args); }
-let getExceptionMessage = lt.getExceptionMessage
-
-function symbols(str) {
-  let out = [];
-  for (let k of str.split(' ')) {
-    out.push(new lt.Symbol(k));
-  }
-  return out;
-}
-
 function fill(val) {
   const t = new Tensor();
   t.buffer[0] = val;
   return t;
 }
+
+function rand(...args) {
+  const t = new Tensor(...args);
+  for (let i = 0; i < t.buffer.length; ++i) {
+    t.buffer[i] = Math.random();
+  }
+  return t;
+}
+
 
 class Tensor {
   // either a size, an array or an lt.Tensor
@@ -137,6 +147,7 @@ class Tensor {
         continue;
       }
       let inp_d = new Float32Array(mem.buffer, offset, inp.numel);
+      inp_d.set(inp.buffer);
       offset += inp.numel * 4;
       mem_map[inp._id] = inp_d;
     }
@@ -163,9 +174,6 @@ class Tensor {
       }
 
       let [mem_map, fn] = await this.compile();
-      for (let inp of this._inputs) {
-        mem_map[inp._id].set(inp.buffer);
-      }
       this.data_ = mem_map[this._id];
       fn();
       return this.data_;
@@ -304,6 +312,9 @@ class Tensor {
     const l = syms.length;
     if (l && syms[l-1].constructor != lt.Symbol) {
       const constraints = syms[l-1];
+      if (constraints.length && constraints[0][0].constructor != lt.Expr) {
+        throw 'invalid arguments! requires to(...syms) or to(...syms, constraints[])';
+      }
       let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), constraints));
       out_t._inputs = this.collect_inputs(this);
       return out_t;
@@ -325,6 +336,7 @@ export {
   // function based constructors
   tensor,
   fill,
+  rand,
   symbol,
   symbols,
   expr,

@@ -33,8 +33,30 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
 
   ASSERT(loop.size / size > 0)
       << "attempting to split a loop of size " << loop.size << " by " << size;
-  auto new_size = loop.size / size;
-  auto new_tail = loop.size % size;
+  // collect all inner loops
+  int64_t inner_size = 0;
+  lt.walk(
+      [&](LoopTree::TreeRef iref, int) {
+        if (lt.kind(iref) == LoopTree::LOOP) {
+          return;
+        }
+        int64_t cur = 1;
+        auto p = lt.parent(iref);
+        while (p != ref) {
+          const auto& l = lt.loop(p);
+          if (l.var == loop.var) {
+            cur *= l.size;
+            cur += l.tail;
+          }
+          p = lt.parent(p);
+        }
+        inner_size = std::max(cur, inner_size);
+      },
+      ref);
+  auto new_size = (loop.size * inner_size + loop.tail) / (size * inner_size);
+  auto new_tail = (loop.size * inner_size + loop.tail) % (size * inner_size);
+  ASSERT(new_size > 0) << "invalid split size";
+
   auto split0 = std::make_pair(loop.var, IR::LoopSize{new_size, new_tail});
   auto split1 = std::make_pair(loop.var, IR::LoopSize{size, 0});
 
@@ -145,6 +167,93 @@ LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
 LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                       IR::NodeRef n) {
   return toggle_reuse(lt, loop, n, true);
+}
+
+LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
+                                bool handle_children) {
+  if (ref == -1) {
+    return ref;
+  }
+  auto children = lt.children(ref);
+  if (children.size() && handle_children) {
+    return children.at(0);
+  }
+  auto siblings = lt.children(lt.parent(ref));
+  auto idx = 0;
+  while (siblings[idx] != ref) {
+    idx++;
+  }
+  idx++;
+  if (idx < siblings.size()) {
+    return siblings.at(idx);
+  }
+  return next_ref_impl(lt, lt.parent(ref), false);
+}
+
+LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
+  return next_ref_impl(lt, ref, true);
+}
+
+LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
+  if (ref == -1) {
+    return ref;
+  }
+  auto siblings = lt.children(lt.parent(ref));
+  auto idx = 0;
+  while (siblings[idx] != ref) {
+    idx++;
+  }
+  idx--;
+  if (idx < 0) {
+    auto parent = lt.parent(ref);
+    if (parent == -1) {
+      return ref;
+    }
+    return parent;
+  }
+  auto next = siblings.at(idx);
+  auto trailing_next = next;
+  while (next != ref) {
+    trailing_next = next;
+    next = next_ref(lt, next);
+  }
+  return trailing_next;
+}
+
+int64_t flops(const LoopTree& lt) {
+  int64_t total = 0;
+  std::vector<LoopTree::Loop> running_loops;
+  auto fn = [&](const LoopTree::TreeRef& ref, int depth) {
+    running_loops.resize(depth);
+    if (lt.kind(ref) == LoopTree::LOOP) {
+      running_loops.emplace_back(lt.loop(ref));
+      return;
+    }
+    std::unordered_map<IR::VarRef, int64_t> var_sizes;
+    for (auto iter = running_loops.rbegin(); iter != running_loops.rend();
+         ++iter) {
+      if (var_sizes.count(iter->var) == 0) {
+        var_sizes[iter->var] = 1;
+      }
+      var_sizes[iter->var] *= iter->size;
+      var_sizes[iter->var] += iter->tail;
+    }
+    int64_t iters = 1;
+    for (const auto& p : var_sizes) {
+      iters *= p.second;
+    }
+    switch (lt.ir.node(lt.node(ref)).op()) {
+      case Operation::read:
+      case Operation::view:
+      case Operation::write:
+        return;
+      default:
+        break;
+    }
+    total += iters;
+  };
+  lt.walk(fn);
+  return total;
 }
 
 }  // namespace loop_tool

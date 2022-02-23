@@ -44,10 +44,31 @@ function mm(a, b, m, n, k) {
   return c;
 }
 
-
-//let e = (new lt.Expr(3)).add(new lt.Symbol("k").expr());
-//console.log(e);
-//console.log(e.dump());
+try{
+(async () => {
+  let [m, n, k] = lt.symbols("M N K");
+  let a = new lt.Tensor(100, 200).to(m, k);
+  let b = new lt.Tensor(200, 300).to(k, n);
+  rand(a.buffer);
+  rand(b.buffer);
+  let c = a.mul(b).sum(k);
+  let loop_tree = c.loop_tree;
+  console.log(loop_tree.walk().length);
+  for (let ref of loop_tree.walk()) {
+    const d = loop_tree.depth(ref);
+    if (loop_tree.is_loop(ref)) {
+      const loop = loop_tree.loop(ref);
+      const v = loop.v();
+      console.log(" ".repeat(d), "iter", loop_tree.var_name(v));
+    } else {
+      const node = loop_tree.node(ref);
+      console.log(" ".repeat(d), 'node');
+    }
+  }
+})()
+} catch(e) {
+  console.log(e);
+}
 
 (async () => {
   let n = new lt.Symbol("N");

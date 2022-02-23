@@ -15,5 +15,8 @@ LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                        IR::NodeRef n);
 LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                       IR::NodeRef n);
+LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref);
+LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref);
+int64_t flops(const LoopTree& lt);
 
 }  // namespace loop_tool
