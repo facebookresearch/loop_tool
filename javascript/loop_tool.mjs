@@ -159,6 +159,30 @@ class Tensor {
     return this.loop_tree.wasm();
   }
 
+  get flops() {
+    return this.loop_tree.flops();
+  }
+
+  benchmark_impl(ms, fn) {
+		let iters = 1;
+    let t = performance.now();
+    let d = 0;
+    do {
+      for (let i = 0; i < iters; ++i) {
+				fn();
+			}
+			d = performance.now() - t;
+      iters *= 2;
+    } while (d < ms);
+		return 1e3 * (iters - 1) / d;
+	}
+
+  async benchmark(ms=50, warmup_ms=10) {
+		const [m, fn] = await this.compile();
+    this.benchmark_impl(warmup_ms, fn);
+    return this.flops * this.benchmark_impl(ms, fn);
+	}
+
   get hash() {
     return this._tensor.hash();
   }
@@ -195,7 +219,9 @@ class Tensor {
   }
 
   get code() {
-    return this._tensor.code();
+    const regex = /void fn_[0-9]+\(/i;
+    const c = this.loop_tree.code();
+    return c.replace(regex, 'void fn(');
   }
 
   get loop_tree() {

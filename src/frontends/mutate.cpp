@@ -26,14 +26,8 @@ std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
   return node_refs;
 }
 
-LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
-  ASSERT(lt.kind(ref) == LoopTree::LOOP) << "can only split loops";
-  auto node_refs = collect_nodes(lt, ref);
+int64_t get_inner_size(const LoopTree& lt, LoopTree::TreeRef ref) {
   auto loop = lt.loop(ref);
-
-  ASSERT(loop.size / size > 0)
-      << "attempting to split a loop of size " << loop.size << " by " << size;
-  // collect all inner loops
   int64_t inner_size = 0;
   lt.walk(
       [&](LoopTree::TreeRef iref, int) {
@@ -53,6 +47,18 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
         inner_size = std::max(cur, inner_size);
       },
       ref);
+  return inner_size;
+}
+
+LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
+  ASSERT(lt.kind(ref) == LoopTree::LOOP) << "can only split loops";
+  auto node_refs = collect_nodes(lt, ref);
+  auto loop = lt.loop(ref);
+
+  ASSERT(loop.size / size > 0)
+      << "attempting to split a loop of size " << loop.size << " by " << size;
+  // collect all inner loops
+  auto inner_size = get_inner_size(lt, ref);
   auto new_size = (loop.size * inner_size + loop.tail) / (size * inner_size);
   auto new_tail = (loop.size * inner_size + loop.tail) % (size * inner_size);
   ASSERT(new_size > 0) << "invalid split size";
@@ -62,16 +68,21 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
 
   auto replace = [&](IR::NodeRef node_ref, int idx) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> new_order;
+    std::vector<std::string> new_annot;
     auto old_order = lt.ir.order(node_ref);
+    auto old_annot = lt.ir.annotations(node_ref);
     for (auto i = 0; i < old_order.size(); ++i) {
       if (i == idx) {
         new_order.emplace_back(split0);
+        new_annot.emplace_back();
         new_order.emplace_back(split1);
+        new_annot.emplace_back();
         continue;
       }
       new_order.emplace_back(old_order.at(i));
+      new_annot.emplace_back(old_annot.at(i));
     }
-    return new_order;
+    return std::make_pair(new_order, new_annot);
   };
 
   auto new_ir = lt.ir;
@@ -79,8 +90,72 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
     auto loop_order = lt.loop_order(node_ref);
     for (auto i = 0; i < loop_order.size(); ++i) {
       if (loop_order.at(i) == loop) {
-        new_ir.set_order(node_ref, replace(node_ref, i));
+        const auto& r = replace(node_ref, i);
+        new_ir.set_order(node_ref, r.first, r.second);
       }
+    }
+  }
+  return LoopTree(new_ir);
+}
+
+LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::LOOP);
+  auto loop = lt.loop(ref);
+  auto p = lt.parent(ref);
+  auto parent_loop = (p != -1) ? lt.loop(p) : lt.loop(ref);
+  while (p != -1 && parent_loop.var != loop.var) {
+    p = lt.parent(p);
+    if (p != -1) {
+      parent_loop = lt.loop(p);
+    }
+  }
+  if (p == -1) {
+    return lt;
+  }
+
+  auto inner_size = get_inner_size(lt, ref);
+  auto total_size = loop.size * inner_size + loop.tail;
+  total_size = parent_loop.size * total_size + parent_loop.tail;
+  auto new_size = total_size / inner_size;
+  auto new_tail = total_size % inner_size;
+  auto merged = std::make_pair(loop.var, IR::LoopSize{new_size, new_tail});
+
+  auto replace = [&](IR::NodeRef node_ref, int merge_idx, int del_idx) {
+    std::vector<std::pair<IR::VarRef, IR::LoopSize>> new_order;
+    std::vector<std::string> new_annot;
+    auto old_order = lt.ir.order(node_ref);
+    auto old_annot = lt.ir.annotations(node_ref);
+    for (auto i = 0; i < old_order.size(); ++i) {
+      if (i == merge_idx) {
+        new_order.emplace_back(merged);
+        new_annot.emplace_back();
+        continue;
+      } else if (i == del_idx) {
+        continue;
+      }
+      new_order.emplace_back(old_order.at(i));
+      new_annot.emplace_back(old_annot.at(i));
+    }
+    return std::make_pair(new_order, new_annot);
+  };
+
+  auto node_refs = collect_nodes(lt, p);
+  auto new_ir = lt.ir;
+  for (const auto& node_ref : node_refs) {
+    auto loop_order = lt.loop_order(node_ref);
+    int merge_idx = -1;
+    int del_idx = -1;
+    for (auto i = 0; i < loop_order.size(); ++i) {
+      auto l = loop_order.at(i);
+      if (l == parent_loop) {
+        merge_idx = i;
+      } else if (l == loop) {
+        del_idx = i;
+      }
+    }
+    if (merge_idx > -1 && del_idx > -1) {
+      const auto& r = replace(node_ref, merge_idx, del_idx);
+      new_ir.set_order(node_ref, r.first, r.second);
     }
   }
   return LoopTree(new_ir);
@@ -116,12 +191,13 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
   auto a_loop = lt.loop(a);
   auto b_loop = lt.loop(b);
   if (a_loop.var == b_loop.var) {
-    // gotta swap tail params
-    ASSERT(0) << "swapping the same var is not yet supported, resplit instead";
+    // can't swap tail params
+    ASSERT(0) << "swapping the same var is not supported, resplit instead";
   }
   auto new_ir = lt.ir;
   for (auto node_ref : node_refs) {
     auto loop_order = lt.loop_order(node_ref);
+
     auto a_idx = -1;
     auto b_idx = -1;
     for (auto i = 0; i < loop_order.size(); ++i) {
@@ -136,8 +212,10 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
       continue;
     }
     auto order = lt.ir.order(node_ref);
+    auto annotations = lt.ir.annotations(node_ref);
     std::iter_swap(order.begin() + a_idx, order.begin() + b_idx);
-    new_ir.set_order(node_ref, order);
+    std::iter_swap(annotations.begin() + a_idx, annotations.begin() + b_idx);
+    new_ir.set_order(node_ref, order, annotations);
   }
   return LoopTree(new_ir);
 }
@@ -172,7 +250,7 @@ LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
 LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
                                 bool handle_children) {
   if (ref == -1) {
-    return ref;
+    return -1;
   }
   auto children = lt.children(ref);
   if (children.size() && handle_children) {
@@ -187,11 +265,16 @@ LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
   if (idx < siblings.size()) {
     return siblings.at(idx);
   }
-  return next_ref_impl(lt, lt.parent(ref), false);
+  auto next = next_ref_impl(lt, lt.parent(ref), false);
+  if (next == -1) {
+    return -1;
+  }
+  return next;
 }
 
 LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
-  return next_ref_impl(lt, ref, true);
+  auto next = next_ref_impl(lt, ref, true);
+  return (next == -1) ? ref : next;
 }
 
 LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
@@ -254,6 +337,85 @@ int64_t flops(const LoopTree& lt) {
   };
   lt.walk(fn);
   return total;
+}
+
+LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref,
+                  std::string annot) {
+  ASSERT(lt.kind(ref) == LoopTree::LOOP);
+  auto loop = lt.loop(ref);
+  auto node_refs = collect_nodes(lt, ref);
+  auto new_ir = lt.ir;
+  for (const auto& node_ref : node_refs) {
+    auto loop_order = lt.loop_order(node_ref);
+    for (auto i = 0; i < loop_order.size(); ++i) {
+      if (loop_order.at(i) == loop) {
+        new_ir.annotate(node_ref, i, annot);
+      }
+    }
+  }
+  return LoopTree(new_ir);
+}
+
+LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
+                          const LoopTree& old_lt) {
+  if (old_lt.kind(old_ref) == LoopTree::NODE) {
+    auto node_ref = old_lt.node(old_ref);
+    if (new_lt.scheduled.count(node_ref)) {
+      return new_lt.scheduled.at(node_ref);
+    }
+    // unscheduled nodes
+    return new_lt.roots.at(0);
+  }
+  auto loop = old_lt.loop(old_ref);
+  auto count = 0;
+  auto count_shallow = 0;
+  auto version = 0;
+  auto version_shallow = 0;
+  old_lt.walk([&](LoopTree::TreeRef ref, int) {
+    if (old_lt.kind(ref) != LoopTree::LOOP) {
+      return;
+    }
+    auto old_loop = old_lt.loop(ref);
+    if (ref == old_ref) {
+      version = count;
+      version_shallow = count_shallow;
+    }
+    if (old_loop.var == loop.var) {
+      if (old_loop.var_depth == loop.var_depth) {
+        count++;
+      }
+      if (old_loop.var_depth == (loop.var_depth + 1)) {
+        count_shallow++;
+      }
+    }
+  });
+  // we want to figure out which version of var + depth we have
+
+  std::vector<LoopTree::TreeRef> new_versions;
+  std::vector<LoopTree::TreeRef> new_versions_shallow;
+  new_lt.walk([&](LoopTree::TreeRef ref, int) {
+    if (new_lt.kind(ref) != LoopTree::LOOP) {
+      return;
+    }
+    auto new_loop = new_lt.loop(ref);
+    if (new_loop.var == loop.var && new_loop.var_depth == loop.var_depth) {
+      new_versions.emplace_back(ref);
+    }
+    if (new_loop.var == loop.var &&
+        (new_loop.var_depth + 1) == loop.var_depth) {
+      new_versions_shallow.emplace_back(ref);
+    }
+  });
+  if (new_versions.size() == 0) {
+    // weird edge case
+    if (new_versions_shallow.size() == 0) {
+      return new_lt.roots.at(0);
+    }
+    auto new_idx = std::min(version, (int32_t)new_versions_shallow.size() - 1);
+    return new_versions_shallow.at(new_idx);
+  }
+  auto new_idx = std::min(version, (int32_t)new_versions.size() - 1);
+  return new_versions.at(new_idx);
 }
 
 }  // namespace loop_tool

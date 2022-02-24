@@ -246,12 +246,34 @@ class IR {
                         std::vector<std::pair<VarRef, LoopSize>> order) {
     // TODO validate order
     orders_[ref] = order;
+    annotations_[ref].clear();
+    annotations_[ref].resize(order.size());
+  }
+  inline void set_order(NodeRef ref,
+                        std::vector<std::pair<VarRef, LoopSize>> order,
+                        std::vector<std::string> annotations) {
+    // TODO validate order
+    orders_[ref] = order;
+    ASSERT(annotations.size() == order.size());
+    annotate(ref, annotations);
   }
   inline void disable_reuse(NodeRef ref, int order_ref) {
     reuse_disabled_[ref].insert(order_ref);
   }
   inline void enable_reuse(NodeRef ref, int order_ref) {
     reuse_disabled_[ref].erase(order_ref);
+  }
+
+  // annotate a specific order index
+  inline void annotate(NodeRef ref, int idx, std::string annot) {
+    annotations_[ref].at(idx) = annot;
+  }
+
+  inline void annotate(NodeRef ref, std::vector<std::string> annots) {
+    annotations_[ref] = annots;
+  }
+  inline std::vector<std::string> annotations(NodeRef ref) const {
+    return annotations_.at(ref);
   }
 
   std::string dump(NodeRef ref) const;
@@ -267,6 +289,7 @@ class IR {
   std::vector<float> priorities_;
   std::vector<std::vector<std::pair<VarRef, LoopSize>>> orders_;
   std::vector<std::unordered_set<int>> reuse_disabled_;
+  std::vector<std::vector<std::string>> annotations_;
   std::vector<NodeRef> inputs_;
   std::vector<NodeRef> outputs_;
 };
@@ -431,7 +454,7 @@ struct LoopTree {
     return nodes[ref].children;
   }
 
-  inline void annotate(TreeRef ref, std::string annot) {
+  inline void annotate_(TreeRef ref, std::string annot) {
     for (auto i = 0; i < annotations.size(); ++i) {
       const auto &annotation = annotations[i];
       if (annot == annotation) {
@@ -448,7 +471,7 @@ struct LoopTree {
     if (annot_idx > -1) {
       return annotations[annot_idx];
     }
-    return "cpu";
+    return "";
   }
 
   inline int depth(TreeRef ref) const { return tree_node(ref).depth; }

@@ -57,6 +57,7 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
   priorities_.emplace_back(0);
   orders_.emplace_back();
   reuse_disabled_.emplace_back();
+  annotations_.emplace_back();
   reset_aux(new_idx);
 
   for (const auto &idx : inputs) {
@@ -422,7 +423,8 @@ std::vector<LoopTree::Loop> LoopTree::loop_order(IR::NodeRef ref) const {
 LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   LoopTree::TreeRef ln = -1;
 
-  std::vector<std::pair<LoopTree::Loop, LoopTree::TreeRef>> available;
+  std::vector<std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string>>
+      available;
   using Iterator = typename decltype(available)::iterator;
 
   std::vector<IR::NodeRef> sorted_nodes = toposort(ir);
@@ -469,6 +471,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   for (const auto &node_ref : sorted_nodes) {
     const auto &n = ir.node(node_ref);
     auto l_order = loop_order(node_ref);
+    auto annotations = ir.annotations(node_ref);
     if (n.vars().size() != 0 && l_order.size() == 0) {
       continue;
     }
@@ -491,11 +494,12 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       const auto &loop = l_order[i];
       auto iter = std::find_if(
           available.begin(), available.end(),
-          [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
+          [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
             // same var, different splits
             // TODO audit versioning
-            return (loop.var == t.first.var) &&
-                   (loop.var_depth == t.first.var_depth) && !(t.first == loop);
+            return (loop.var == std::get<0>(t).var) &&
+                   (loop.var_depth == std::get<0>(t).var_depth) &&
+                   !(std::get<0>(t) == loop);
           });
       available.erase(iter, available.end());
     }
@@ -508,23 +512,39 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       const auto &loop = l_order[i];
       auto iter = std::find_if(
           available.begin(), available.end(),
-          [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
-            if (view_base.at(t.first.var) == view_base.at(loop.var)) {
-              return !scheduled_vars.count(t.first.var);
+          [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
+            if (view_base.at(std::get<0>(t).var) == view_base.at(loop.var)) {
+              return !scheduled_vars.count(std::get<0>(t).var);
             }
             return false;
           });
       available.erase(iter, available.end());
     }
+    // prune mismatched annotations
+    for (auto i = 0; i < l_order.size(); ++i) {
+      const auto &loop = l_order[i];
+      const auto &annot = annotations[i];
+      auto iter = std::find_if(
+          available.begin(), available.end(),
+          [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
+            // same var, different splits
+            // TODO audit versioning
+            return (loop.var == std::get<0>(t).var) &&
+                   (loop.var_depth == std::get<0>(t).var_depth) &&
+                   !(std::get<2>(t) == annot);
+          });
+      available.erase(iter, available.end());
+    }
+
     // find matched loops
     std::vector<std::pair<int, int>> reuse_candidates;
     for (auto i = 0; i < l_order.size(); ++i) {
       const auto &loop = l_order[i];
-      auto iter =
-          std::find_if(available.begin(), available.end(),
-                       [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
-                         return t.first == loop;
-                       });
+      auto iter = std::find_if(
+          available.begin(), available.end(),
+          [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
+            return std::get<0>(t) == loop;
+          });
       int offset = iter - available.begin();
       reuse_candidates.emplace_back(i, offset);
     }
@@ -546,15 +566,17 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
 
     for (; first != l_order.end(); first++) {
       LoopTree::Loop loop = *first;
-      auto parent = reuse != available.begin() ? (reuse - 1)->second : -1;
+      auto annot = annotations[first - l_order.begin()];
+      auto parent = reuse != available.begin() ? std::get<1>(*(reuse - 1)) : -1;
       LoopTree::TreeRef loc = add_loop(parent, loop);
+      annotate_(loc, annot);
       available.erase(reuse, available.end());
-      available.emplace_back(loop, loc);
+      available.emplace_back(loop, loc, annot);
       reuse = available.end();
     }
     LoopTree::TreeRef parent = -1;
     if (available.size()) {
-      parent = available.back().second;
+      parent = std::get<1>(available.back());
     }
     add_leaf(parent, node_ref);
 
@@ -570,19 +592,19 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       }
     }
 
-    auto iter =
-        std::find_if(available.begin(), available.end(),
-                     [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
-                       return reduction_vars.count(t.first.var);
-                     });
+    auto iter = std::find_if(
+        available.begin(), available.end(),
+        [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
+          return reduction_vars.count(std::get<0>(t).var);
+        });
     available.erase(iter, available.end());
 
     for (auto no_reuse : ir.not_reusable(node_ref)) {
-      auto iter =
-          std::find_if(available.begin(), available.end(),
-                       [&](std::pair<LoopTree::Loop, LoopTree::TreeRef> &t) {
-                         return t.first == l_order[no_reuse];
-                       });
+      auto iter = std::find_if(
+          available.begin(), available.end(),
+          [&](std::tuple<LoopTree::Loop, LoopTree::TreeRef, std::string> &t) {
+            return std::get<0>(t) == l_order[no_reuse];
+          });
       available.erase(iter, available.end());
     }
   }

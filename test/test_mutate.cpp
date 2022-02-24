@@ -24,9 +24,30 @@ TEST(MutateSplit) {
   std::cerr << "presplit:\n";
   std::cerr << lt.dump();
   std::cerr << '\n';
+  auto r = lt.children(lt.children(lt.roots.at(0)).at(0)).at(0);
+  lt = split(lt, r, 10);
+  std::cerr << '\n';
+  std::cerr << lt.dump();
+}
+
+TEST(MutateMerge) {
+  namespace lz = ::loop_tool::lazy;
+  auto N = lz::Symbol("n");
+  lz::Tensor A(16);
+  lz::Tensor B(16);
+  auto C = A + B;
+  auto lt = C.loop_tree();
+  std::cerr << "presplit:\n";
+  std::cerr << lt.dump();
+  std::cerr << '\n';
   auto r = lt.children(lt.roots.at(0)).at(0);
   lt = split(lt, r, 10);
   std::cerr << '\n';
+  std::cerr << lt.dump();
+  auto c = lt.children(lt.children(lt.roots.at(0)).at(0)).at(0);
+  lt = merge(lt, c);
+  std::cerr << '\n';
+  std::cerr << "postmerge:\n";
   std::cerr << lt.dump();
 }
 
@@ -59,4 +80,3 @@ TEST(MutateSwap) {
   C.set(lt);
   std::cerr << C.code();
 }
-

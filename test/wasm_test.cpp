@@ -48,7 +48,7 @@ TEST(WasmUnroll) {
   lt = split(lt, lt.roots.at(0), 2);
   lt =
       disable_reuse(lt, lt.children(lt.roots.at(0)).at(0), lt.ir.nodes().at(2));
-  lt.annotate(lt.roots.at(0), "unroll");
+  // lt.annotate(lt.roots.at(0), "unroll");
   std::cerr << "\n" << lt.dump();
   auto wc = loop_tool::WebAssemblyCompiler(lt);
   auto bytes = wc.emit();

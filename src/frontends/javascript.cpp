@@ -121,6 +121,16 @@ js::val wasm(const LoopTree &loop_tree) {
   return result;
 }
 
+std::string c_code(const LoopTree &loop_tree) {
+  auto cc = Compiler(loop_tree);
+  return cc.gen_string();
+}
+
+int32_t node_size(const LoopTree &lt, IR::NodeRef node_ref) {
+  auto wc = loop_tool::WebAssemblyCompiler(lt);
+  return wc.allocations.at(node_ref).size();
+}
+
 lazy::Expr expr_from_sym(lazy::Symbol sym) { return lazy::Expr(sym); }
 
 lazy::Expr expr_constructor(int v) { return lazy::Expr((int64_t)v); }
@@ -197,6 +207,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<LoopTree>("LoopTree")
       .function("dump", &dump_loop_tree)
       .function("wasm", &wasm)
+      .function("code", &c_code)
       .function("walk", &walk_loop_tree)
       .function("flops", &get_flops)
       .function("next_ref", &next_ref)
@@ -210,14 +221,17 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("node_inputs", &node_inputs)
       .function("node_vars", &node_vars)
       .function("node_type", &node_type)
+      .function("node_size", &node_size)
       .function("node_s", &dump_node)
       .function("var_name", &var_name)
       .function("annotation", &LoopTree::annotation)
-      .function("annotate", &LoopTree::annotate)
+      .function("annotate", &annotate)
       .function("split", split_impl)
+      .function("merge", merge)
       .function("swap", swap)
       .function("disable_reuse", disable_reuse)
-      .function("enable_reuse", enable_reuse);
+      .function("enable_reuse", enable_reuse)
+      .function("map_ref", map_ref);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor)
       .function("to", &to_impl)
@@ -250,8 +264,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("graphviz", &graphviz)
       .function("loop_tree", &lazy::Tensor::loop_tree)
       .function("numel", &lazy::Tensor::numel)
-      .function("code", &lazy::Tensor::code)
       .function("hash", &lazy::Tensor::hash);
-  js::function("size", to_size_expr);
+  js::function("size", &to_size_expr);
   js::function("getExceptionMessage", &getExceptionMessage);
 }

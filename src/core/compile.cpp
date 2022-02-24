@@ -38,6 +38,8 @@ int cpu_backend(const LoopTree &lt, LoopTree::TreeRef ref) {
     return 2;
   } else if (annot == "cpu") {
     return 1;
+  } else if (annot == "") {  // default CPU
+    return 1;
   }
   return 0;
 }

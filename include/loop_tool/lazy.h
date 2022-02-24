@@ -88,8 +88,21 @@ struct TensorImpl {
       h = symbolic::hash(h ^ p.first.hash());
       h = symbolic::hash(h ^ p.second.hash());
     }
+    std::unordered_map<symbolic::Symbol, int, symbolic::Hash<symbolic::Symbol>> unique_syms;
+    auto hash_sym = [&](const symbolic::Symbol& sym) {
+      if (!unique_syms.count(sym)) {
+        unique_syms[sym] = unique_syms.size();
+      }
+      return symbolic::hash(unique_syms.at(sym));
+    };
     for (const auto& d : deps_) {
       h = symbolic::hash(h ^ d->hash());
+      for (const auto& sym : d->shape()) {
+        h = symbolic::hash(h ^ hash_sym(sym));
+      }
+    }
+    for (const auto& sym : shape()) {
+      h = symbolic::hash(h ^ hash_sym(sym));
     }
     hash_ = h;
   }
