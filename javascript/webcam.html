@@ -1,0 +1,133 @@
+<html>
+  <head>
+    <link
+      rel="stylesheet"
+      href="//unpkg.com/@highlightjs/cdn-assets@11.4.0/styles/atom-one-dark.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/codemirror@5.56.0/lib/codemirror.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.56.0/theme/monokai.min.css"
+    />
+    <script src="//unpkg.com/codemirror@5.56.0/lib/codemirror.js"></script>
+    <script src="//unpkg.com/codemirror@5.56.0/mode/javascript/javascript.js"></script>
+		<script src="lzstring.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        height: 100%;
+        width: 100%;
+      }
+      .wrapper {
+        width: 100%;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: 1fr;
+        min-width: 0px;
+      }
+
+      .topleft {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .botleft {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      .topright {
+        grid-column: 2;
+        grid-row: 1;
+        overflow: auto;
+      }
+
+      .botright {
+        grid-column: 2;
+        grid-row: 2;
+				text-align:center;
+        overflow: auto;
+        background:black;
+      }
+      
+      #webcam video {
+        height: 100%;
+        max-width:100%;
+      }
+
+      #output_canvas {
+				object-fit: contain;
+				height: 100%;
+				width: 100%;
+        margin: 0 auto;
+      }
+      #webcam {
+        text-align: center;
+        background: black;
+      }
+			#stats {
+				position: absolute;
+				top: 0;
+				right: 0;
+			  color:white;
+        background: rgba(0,0,0,0.5);
+				padding: 4px;
+				font-family: monospace;
+			}
+      .scroll {
+        scrollbar-width: none;
+        overflow: scroll;
+        height: 100%;
+        width: 100%;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .CodeMirror {
+        height: 100%;
+      }
+			#examples {
+			position: absolute;
+      top: 0;
+      left: 50%;
+			}
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import { init } from "./webcam.mjs";
+      init();
+    </script>
+    <div class="wrapper">
+      <div class="botleft scroll hljs" id="edit">
+      </div>
+      <div class="topleft scroll">
+      <textarea id="codeeditor">loading...</textarea>
+      </div>
+      <div class="topright">
+<div id="examples">
+<button name='blank'>blank</button>
+<button name='color'>color manipulation</button>
+<button name='edge'>ridge detection</button>
+<button name='sobel'>sobel operator</button>
+</div>
+      <div id="stats"></div>
+      <div id="webcam"></div>
+      </div>
+      <div class="botright">
+      <canvas id="output_canvas"></canvas>
+      </div>
+    </div>
+  </body>
+</html>
+
+
