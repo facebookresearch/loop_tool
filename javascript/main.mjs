@@ -39,11 +39,15 @@ class Editor {
   }
 
   handle_keydown(e) {
+    console.log(e);
     if (e.code === "ArrowUp") {
       if (e.shiftKey) {
         const prev = this.lt.prev_ref(this.highlight);
         this.try_swap(this.highlight, prev);
         this.highlight = prev;
+        return;
+      } else if (e.metaKey && !this.lt.is_loop(this.highlight)) {
+        this.update_tree(this.lt.decrease_reuse(this.highlight));
         return;
       }
       this.highlight = this.lt.prev_ref(this.highlight);
@@ -54,11 +58,18 @@ class Editor {
         this.try_swap(this.highlight, next);
         this.highlight = next;
         return;
+      } else if (e.metaKey && !this.lt.is_loop(this.highlight)) {
+        this.update_tree(this.lt.increase_reuse(this.highlight));
+        return;
       }
       this.highlight = this.lt.next_ref(this.highlight);
     }
     if (e.code === "Backspace") {
       if (!this.lt.is_loop(this.highlight)) {
+        const n = this.lt.node(this.highlight);
+        if (this.lt.node_type(n) == "copy") {
+          this.update_tree(this.lt.delete_copy(this.highlight));
+        }
         return;
       }
       try {
@@ -83,8 +94,21 @@ class Editor {
         throw lt.getExceptionMessage(e);
       }
     }
+    if (e.code === "KeyB") {
+      this.changed = true;
+      this.long_bench = true;
+    }
     if (e.code === "KeyS") {
       if (!this.lt.is_loop(this.highlight)) {
+        const s = Number.parseInt(prompt("split which input?"));
+        if (!Number.isInteger(s)) {
+          return;
+        }
+        try {
+          this.update_tree(this.lt.copy_input(this.highlight, s));
+        } catch (e) {
+          throw lt.getExceptionMessage(e);
+        }
         return;
       }
       const s = Number.parseInt(prompt("split by what factor?"));
@@ -108,28 +132,42 @@ class Editor {
   }
 
   try_swap(refa, refb) {
-    if (!this.lt.is_loop(refb) || !this.lt.is_loop(refa)) {
-      return;
-    }
-    const loop = this.lt.loop(refa);
-    const next_loop = this.lt.loop(refb);
-    if (loop.v() != next_loop.v()) {
-      try {
-        this.update_tree(this.lt.swap(refa, refb));
-      } catch (e) {
-        throw lt.getExceptionMessage(e);
+    try {
+      if (!this.lt.is_loop(refb) && !this.lt.is_loop(refa)) {
+        this.update_tree(this.lt.swap_nodes(refa, refb));
+      } else if (!this.lt.is_loop(refa) && this.lt.is_loop(refb)) {
+        if (this.lt.parent(refa) == refb) { // TODO siblings
+          this.update_tree(this.lt.remove_loop(refa, refb));
+        } else {
+          this.update_tree(this.lt.add_loop(refa, refb));
+        }
+      } else if (this.lt.is_loop(refa) && this.lt.is_loop(refb)) {
+        const loop = this.lt.loop(refa);
+        const next_loop = this.lt.loop(refb);
+        if (loop.v() != next_loop.v()) {
+          this.update_tree(this.lt.swap(refa, refb));
+        }
+        loop.delete();
+        next_loop.delete();
       }
+    } catch (e) {
+      throw lt.getExceptionMessage(e);
     }
-    loop.delete();
-    next_loop.delete();
   }
 
   async bench_loop() {
     while (true) {
       if (this.changed && this.benchspan) {
-        // || (Math.random() < 0.1)) {
-        this.flops = Math.round((await this.t.benchmark()) / 1e7) / 1e2;
-        this.benchspan.textContent = `${this.flops} gflops`;
+        let bench_ms = 50;
+        let warmup_ms = 10;
+        if (this.long_bench) {
+          this.long_bench = false;
+          bench_ms = 1000;
+          warmup_ms = 500;
+        }
+        this.flops = Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
+        this.iters = Math.round(this.flops * 1e11 / this.t.flops) / 1e2;
+        this.benchspan.textContent = `${this.flops} gflops | ${this.iters} iters/sec`;
         this.changed = false;
       }
       await new Promise((resolve) => {
@@ -152,7 +190,7 @@ class Editor {
       return document.createElement("br");
     };
 
-    this.benchspan = spanGen(`${this.flops} gflops`);
+    this.benchspan = spanGen(`${this.flops} gflops | ${this.iters} iters/sec`);
     this.benchspan.style.fontWeight = "bold";
     this.benchspan.style.color = "#d19a66";
     lines.push(this.benchspan);
@@ -216,6 +254,7 @@ class Editor {
     const renderNode = (nr, sized) => {
       let out = [];
       let set = false;
+      out.push(spanGen(`%${nr} = `));
       out.push(spanGen(this.lt.node_type(nr)));
       out.push(spanGen("("));
       for (let n of this.lt.node_inputs(nr)) {
@@ -229,7 +268,8 @@ class Editor {
       out.push(spanGen(")"));
       if (sized) {
         const elems = this.lt.node_size(nr);
-        const s = spanGen(` [${elems} elem${elems > 1 ? "s" : ""}]`);
+        const is_local = this.lt.node_is_locally_stored(nr);
+        const s = spanGen(` [${elems} elem${elems > 1 ? "s" : ""}${is_local ? " (local)" : ""}]`);
         out.push(s);
       }
       return out;
@@ -292,10 +332,10 @@ class Renderer {
     this.t = t;
     // dump wasm or C
     this.wasm_mode = true;
-    this.div.addEventListener("click", () => {
-      this.wasm_mode = !this.wasm_mode;
-      this.render();
-    });
+    //this.div.addEventListener("click", () => {
+    //  this.wasm_mode = !this.wasm_mode;
+    //  this.render();
+    //});
   }
 
   async render() {
@@ -355,20 +395,20 @@ async function setup() {
   eval(editor.getValue());
   await log("hi! this is the loop_tool.js demo :^}");
   await log("");
-  await log("<<< on the left is an interactive loop optimizer");
+  await log("vvvv below is an interactive loop optimizer");
   await log("    - use the arrow keys to move around");
   await log("    - hold shift while moving to drag loops");
   await log("    - hit 's' to split the loops");
   await log("    - hit 'u' to unroll them");
   await log("");
-  await log("vvvv below is the live-generated wasm");
-  await log("    - it's benchmarked in real time ('gflops achieved')");
-  await log("    - SIMD is a work in progress");
-  await log("");
-  await log("&&&& bottom left is the frontend code (feel free to edit)");
+  await log(">>>> to the right is the frontend code (feel free to edit)");
   await log(
     "     - the repo is here: https://github.com/facebookresearch/loop_tool"
   );
+  await log("");
+  await log("vv>> bottom right is the live-generated wasm");
+  await log("    - it's benchmarked in real time ('gflops achieved')");
+  await log("    - SIMD is a work in progress");
 }
 
-export { setup }
+export { setup, Editor }

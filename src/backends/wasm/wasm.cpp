@@ -9,64 +9,164 @@ LICENSE file in the root directory of this source tree.
 using namespace loop_tool;
 using namespace symbolic;
 
-int32_t WebAssemblyCompiler::push_access_to_stack(
-    IR::NodeRef node_ref, LoopTree::TreeRef ref,
-    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
-  // grab the relevant loops
-  std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
-                     Hash<Symbol>>
-      sym_strides;
-  auto access = gen_access(node_ref, ref);
-  auto p = lt.parent(ref);
-  int32_t offset = 0;
-  while (p != access.alloc.lca) {
-    const auto& l = lt.loop(p);
-    auto sym = var_to_sym.at(l.var);
-    auto stride = inner_sizes.at(p);
-    if (unrolls.count(p)) {
-      offset += unrolls.at(p) * stride;
-    } else {
-      sym_strides[sym].emplace_back(p, stride);
+WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
+    : Compiler(lt), cg(std::make_shared<wasmblr::CodeGenerator>()) {
+  // Logic to calculate "local storage" opportunities.  This effectively means
+  // "in-register" and requires static information about things like vector
+  // lanes and which register data lives in
+  // TODO this is overly restrictive -- we can also store things in register
+  // if only their relevant vars are unrolled (and irrelevant are not).
+  auto completely_unrolled = [&](LoopTree::TreeRef ref, LoopTree::TreeRef lca) {
+    ref = lt.parent(ref);
+    while (ref != lca) {
+      if (lt.annotation(ref) != "unroll") {
+        return false;
+      }
+      ref = lt.parent(ref);
     }
-    p = lt.parent(p);
-  }
-  offset *= 4;
+    return true;
+  };
+  const auto& nodes = lt.ir.nodes();
+  for (auto i = 0; i < nodes.size(); ++i) {
+    const auto& node_ref = nodes.at(i);
+    const auto& node = lt.ir.node(node_ref);
+    // forced to use real memory in these cases
+    if (!lt.scheduled.count(node_ref) || node.op() == Operation::write) {
+      continue;
+    }
+    const auto& alloc = allocations.at(node_ref);
+    bool scheduled_consumers = true;
+    bool unrolled = true;
+    for (const auto& consumer_ref : node.outputs()) {
+      if (!lt.scheduled.count(consumer_ref)) {
+        scheduled_consumers = false;
+        break;
+      }
+      if (!completely_unrolled(lt.scheduled.at(consumer_ref), alloc.lca)) {
+        unrolled = false;
+        break;
+      }
+    }
+    // we cannot address this memory statically (will need runtime
+    // information)
+    if (!scheduled_consumers || !unrolled) {
+      continue;
+    }
 
-  // grab index equation
-  std::vector<Expr> scoped_exprs;
-  for (const auto& p : access.exprs) {
-    auto expr = p.first
-                    .walk([&](const Expr& e) {
-                      if (e.type() == Expr::Type::symbol) {
-                        if (!sym_strides.count(e.symbol())) {
-                          return Expr(0);
-                        }
-                      }
-                      return e;
-                    })
-                    .simplify();
-    scoped_exprs.emplace_back(expr);
+    const auto& peak_next = i < nodes.size() - 1 ? nodes.at(i + 1) : -1;
+    bool is_reduction = lt.ir.reduction_vars(node_ref).size();
+    if (!is_reduction && alloc.size() == 1 && node.outputs().size() == 1 &&
+        node.outputs().at(0) == peak_next) {
+      stack_storage.insert(node_ref);
+    } else {
+      local_storage.insert(node_ref);
+    }
   }
+}
+
+Expr WebAssemblyCompiler::get_scoped_expr(
+    const Compiler::Access& access) const {
+  // grab index equation
+  // std::vector<Expr> scoped_exprs;
+  // for (const auto& p : access.exprs) {
+  //  auto expr = p.first
+  //                  .walk([&](const Expr& e) {
+  //                    if (e.type() == Expr::Type::symbol) {
+  //                      if (!sym_strides.count(e.symbol())) {
+  //                        return Expr(0);
+  //                      }
+  //                    }
+  //                    return e;
+  //                  })
+  //                  .simplify();
+  //  scoped_exprs.emplace_back(expr);
+  //}
 
   Expr full_expr(0);
-  for (auto i = 0; i < scoped_exprs.size(); ++i) {
+  for (auto i = 0; i < access.scoped_exprs.size(); ++i) {
     auto stride = access.alloc.size(i + 1);
-    const auto& expr = scoped_exprs.at(i);
+    const auto& expr = access.scoped_exprs.at(i);
     full_expr = full_expr + expr * Expr(stride);
   }
   full_expr = full_expr.simplify();
+  return full_expr;
+}
+
+int64_t WebAssemblyCompiler::get_unroll_offset(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const {
+  auto access = gen_access(node_ref, ref);
+  const auto& idx_expr = get_scoped_expr(access);
+  return get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls);
+}
+
+int64_t WebAssemblyCompiler::get_unroll_offset(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref, LoopTree::TreeRef root,
+    const Expr& idx_expr,
+    const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const {
+  const auto& vars = to_set(lt.ir.node(node_ref).vars());
+  auto p = lt.parent(ref);
+  int64_t offset = 0;
+  while (p != root) {
+    auto stride = inner_sizes.at(p);
+    const auto& loop = lt.loop(p);
+    auto sym = var_to_sym.at(loop.var);
+    auto var_stride = differentiate(idx_expr, sym).simplify().evaluate();
+    if (unrolls.count(p) && vars.count(lt.loop(p).var)) {
+      offset += unrolls.at(p) * stride * var_stride;
+    }
+    p = lt.parent(p);
+  }
+  return offset;
+}
+
+// returns constant offset for all symbols
+std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                   Hash<Symbol>>
+WebAssemblyCompiler::get_symbol_strides(
+    LoopTree::TreeRef ref, LoopTree::TreeRef root,
+    const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const {
+  std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                     Hash<Symbol>>
+      sym_strides;
+  auto p = lt.parent(ref);
+  while (p != root) {
+    const auto& l = lt.loop(p);
+    auto sym = var_to_sym.at(l.var);
+    auto stride = inner_sizes.at(p);
+    sym_strides[sym].emplace_back(p, stride);
+    p = lt.parent(p);
+  }
+  return sym_strides;
+}
+
+int32_t WebAssemblyCompiler::push_access_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  auto access = gen_access(node_ref, ref);
+  // grab the relevant loops
+  auto sym_strides = get_symbol_strides(ref, access.alloc.lca, unrolls);
+  const auto& idx_expr = get_scoped_expr(access);
+  // memory needs 4x for bytes sizeof(float)
+  int32_t offset =
+      get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls) * 4;
 
   bool emitted = false;
-  for (const auto& sym : full_expr.symbols()) {
-    auto stride_expr = differentiate(full_expr, sym).simplify();
-    ASSERT(stride_expr.type() == Expr::Type::value) << "Invalid indexing expr";
-    auto stride = stride_expr.value();
+  for (const auto& sym : idx_expr.symbols()) {
+    auto stride_expr = differentiate(idx_expr, sym).simplify();
+    ASSERT(stride_expr.can_evaluate()) << "Invalid indexing expr";
+    auto stride = stride_expr.evaluate();
     if (stride == 0) {
       continue;
     }
+    // each symbol can have multiple iterators
     for (const auto& p : sym_strides.at(sym)) {
-      int32_t inner_stride = p.second * stride;
+      // float size
+      int32_t inner_stride = p.second * stride * 4;
       if (inner_stride == 0) {
+        continue;
+      }
+      if (unrolls.count(p.first)) {
         continue;
       }
       cg->local.get(iterators.at(p.first));
@@ -81,11 +181,7 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
       }
     }
   }
-  // float size
-  if (emitted) {
-    cg->i32.const_(4);
-    cg->i32.mul();
-  } else {
+  if (!emitted) {
     cg->i32.const_(0);
   }
   return offset;
@@ -97,8 +193,14 @@ void WebAssemblyCompiler::push_vector_to_stack(IR::NodeRef node_ref,
 void WebAssemblyCompiler::push_float_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
-  if (local_f32.count(node_ref)) {
-    cg->local.get(local_f32.at(node_ref));
+  if (stack_f32.count(node_ref)) {
+    // it's on the stack
+    return;
+  } else if (local_f32.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_f32.at(node_ref);
+    ASSERT(off < locals.size());
+    cg->local.get(locals.at(off));
     return;
   }
   auto offset = push_access_to_stack(node_ref, ref, unrolls);
@@ -117,13 +219,6 @@ void WebAssemblyCompiler::emit_node(
 
   if (lt.children(lt.parent(ref)).at(0) == ref) {
     emit_reset(lt.parent(ref));
-  }
-
-  int32_t store_offset = 0;
-  if (local_storage.count(node_ref)) {
-    ASSERT(local_f32.count(node_ref));
-  } else {
-    store_offset = push_access_to_stack(node_ref, ref, unrolls);
   }
 
   for (const auto& inp_ref : node.inputs()) {
@@ -162,6 +257,7 @@ void WebAssemblyCompiler::emit_node(
     case Operation::abs:
       cg->f32.abs();
       break;
+    case Operation::copy:
     case Operation::read:
     case Operation::write:
       break;
@@ -169,9 +265,17 @@ void WebAssemblyCompiler::emit_node(
       ASSERT(0) << "Can't handle op yet for wasm " << lt.ir.dump(node_ref);
   };
 
-  if (local_storage.count(node_ref)) {
-    cg->local.set(local_f32.at(node_ref));
+  if (stack_storage.count(node_ref)) {
+    // pass
+  } else if (local_storage.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_f32.at(node_ref);
+    ASSERT(off < locals.size());
+    cg->local.set(locals.at(off));
   } else {
+    cg->local.set(get_tmp_f32());
+    auto store_offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->local.get(get_tmp_f32());
     cg->f32.store(
         0, memory_locations.at(resolved_writes.at(node_ref)) + store_offset);
   }
@@ -205,17 +309,30 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
     bool needs_set = lt.ir.reduction_vars(alloc.node_ref).size() &&
                      node.op() != Operation::view;
     for (const auto& input : node.inputs()) {
+      // this is only necessary if the view has "empty" outputs
+      // which only happens if its access is bounded
       if (lt.ir.node(input).op() == Operation::view &&
           !lt.scheduled.count(input)) {
-        needs_set = true;
+        const auto& acc = gen_access(input, lt.scheduled.at(alloc.node_ref));
+        for (const auto& b : acc.bounds) {
+          if (b.first != 0 || b.second != -1) {
+            needs_set = true;
+          }
+        }
       }
     }
     if (!lt.scheduled.count(alloc.node_ref) || !needs_set) {
       continue;
     }
-    if (local_f32.count(alloc.node_ref)) {
+    if (stack_f32.count(alloc.node_ref)) {
+      std::cerr << "alloc is " << lt.ir.dump(alloc.node_ref) << "\n";
+      ASSERT(0) << "reset not implemented for stack resident memory";
       cg->f32.const_(value(node));
-      cg->local.set(local_f32.at(alloc.node_ref));
+    } else if (local_f32.count(alloc.node_ref)) {
+      for (const auto& local : local_f32.at(alloc.node_ref)) {
+        cg->f32.const_(value(node));
+        cg->local.set(local);
+      }
     } else if (local_v128.count(alloc.node_ref)) {
       ASSERT(0) << "not yet supported";
     } else {
@@ -308,13 +425,26 @@ void WebAssemblyCompiler::emit_loop(
   }
 }
 
+int32_t WebAssemblyCompiler::get_tmp_f32() const {
+  if (tmp_f32 == -1) {
+    tmp_f32 = cg->local(cg->f32);
+  }
+  return tmp_f32;
+}
+
 void WebAssemblyCompiler::emit(
     LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   if (ref == -1) {
     auto func = cg->function({}, {}, [&]() {
       for (const auto& node_ref : local_storage) {
-        local_f32[node_ref] = cg->local(cg->f32);
+        const auto& alloc = allocations.at(node_ref);
+        for (auto i = 0; i < alloc.size(); i++) {
+          local_f32[node_ref].emplace_back(cg->local(cg->f32));
+        }
+      }
+      for (const auto& node_ref : stack_storage) {
+        stack_f32.insert(node_ref);
       }
       for (auto c : lt.roots) {
         emit(c, overrides, unrolls);
@@ -330,8 +460,12 @@ void WebAssemblyCompiler::emit(
 
 std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   cg = std::move(std::make_shared<wasmblr::CodeGenerator>());
+  stack_f32.clear();
   local_f32.clear();
+  tmp_f32 = -1;
+  stack_v128.clear();
   local_v128.clear();
+  tmp_v128 = -1;
   memory_locations.clear();
   iterators.clear();
 

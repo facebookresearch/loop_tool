@@ -113,6 +113,7 @@ namespace loop_tool {
   _(write)      \
   _(read)       \
   _(view)       \
+  _(copy)       \
   _(add)        \
   _(subtract)   \
   _(multiply)   \
@@ -189,6 +190,7 @@ class IR {
                       std::unordered_map<int, IR::VarRef> sym_var_map = {});
   VarRef create_var(std::string name);
 
+  void delete_node(const NodeRef &node_ref);
   void replace_all_uses(NodeRef old_node, NodeRef new_node);
   void update_inputs(NodeRef node_ref, std::vector<NodeRef> inputs);
   // void update_outputs(NodeRef node_ref, std::vector<NodeRef> outputs);
@@ -198,10 +200,12 @@ class IR {
   std::vector<NodeRef> nodes() const;
 
   inline const Node &node(NodeRef ref) const {
+    ASSERT(!deleted_.count(ref)) << "attempting to access deleted node";
     ASSERT(ref < nodes_.size()) << "node ref '" << ref << "' not valid";
     return nodes_[ref];
   }
   inline Node &node(NodeRef ref) {
+    ASSERT(!deleted_.count(ref)) << "attempting to access deleted node";
     ASSERT(ref < nodes_.size()) << "node ref '" << ref << "' not valid";
     return nodes_[ref];
   }
@@ -246,8 +250,8 @@ class IR {
                         std::vector<std::pair<VarRef, LoopSize>> order) {
     // TODO validate order
     orders_[ref] = order;
-    annotations_[ref].clear();
-    annotations_[ref].resize(order.size());
+    loop_annotations_[ref].clear();
+    loop_annotations_[ref].resize(order.size());
   }
   inline void set_order(NodeRef ref,
                         std::vector<std::pair<VarRef, LoopSize>> order,
@@ -255,7 +259,7 @@ class IR {
     // TODO validate order
     orders_[ref] = order;
     ASSERT(annotations.size() == order.size());
-    annotate(ref, annotations);
+    annotate_loops(ref, annotations);
   }
   inline void disable_reuse(NodeRef ref, int order_ref) {
     reuse_disabled_[ref].insert(order_ref);
@@ -265,14 +269,23 @@ class IR {
   }
 
   // annotate a specific order index
-  inline void annotate(NodeRef ref, int idx, std::string annot) {
-    annotations_[ref].at(idx) = annot;
+  inline void annotate_loop(NodeRef ref, int idx, std::string annot) {
+    loop_annotations_[ref].at(idx) = annot;
   }
 
-  inline void annotate(NodeRef ref, std::vector<std::string> annots) {
-    annotations_[ref] = annots;
+  inline void annotate_loops(NodeRef ref, std::vector<std::string> annots) {
+    loop_annotations_[ref] = annots;
   }
-  inline std::vector<std::string> annotations(NodeRef ref) const {
+
+  inline std::vector<std::string> loop_annotations(NodeRef ref) const {
+    return loop_annotations_.at(ref);
+  }
+
+  inline void annotate(NodeRef ref, std::string annot) {
+    annotations_[ref] = annot;
+  }
+
+  inline std::string annotation(NodeRef ref) const {
     return annotations_.at(ref);
   }
 
@@ -284,20 +297,18 @@ class IR {
 
  private:
   std::vector<Node> nodes_;
+  std::unordered_set<NodeRef> deleted_;
   // TODO consider efficient storage for splits/merges
   std::vector<Var> vars_;
   std::vector<float> priorities_;
   std::vector<std::vector<std::pair<VarRef, LoopSize>>> orders_;
   std::vector<std::unordered_set<int>> reuse_disabled_;
-  std::vector<std::vector<std::string>> annotations_;
+  std::vector<std::vector<std::string>> loop_annotations_;
+  std::vector<std::string> annotations_;
   std::vector<NodeRef> inputs_;
   std::vector<NodeRef> outputs_;
 };
 
-// new IR is generated
-IR split_node(const IR &ir, IR::NodeRef node_ref,
-              std::vector<IR::VarRef> injected);
-IR split_var(const IR &ir, IR::VarRef v);
 std::string dot(const IR &ir);
 
 class Node {

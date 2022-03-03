@@ -97,19 +97,25 @@
       setup();
     </script>
     <div class="wrapper">
-      <div class="topleft scroll hljs" id="edit"></div>
-      <div class="botleft scroll hljs">
+      <div class="botleft scroll hljs" id="edit"></div>
+      <div class="topright scroll hljs">
+<!--const [m, n, k] = lt.symbols("m n k");
+const a = lt.rand(2).to(m);
+const c = a.sum(m);
+
+// enables interaction
+render(c);</textarea>-->
         <textarea id="codeeditor">
 const [m, n, k] = lt.symbols("m n k");
-const a = lt.tensor(128, 128).to(m, k);
-const b = lt.tensor(128, 128).to(k, n);
+const a = lt.tensor(256, 256).to(m, k);
+const b = lt.tensor(256, 256).to(k, n);
 const c = a.mul(b).sum(k);
 
 // enables interaction above
 render(c);</textarea
         >
       </div>
-      <div class="topright scroll hljs">
+      <div class="topleft scroll hljs">
         <a
           href="https://github.com/facebookresearch/loop_tool"
           target="_blank"

@@ -58,6 +58,7 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
   orders_.emplace_back();
   reuse_disabled_.emplace_back();
   annotations_.emplace_back();
+  loop_annotations_.emplace_back();
   reset_aux(new_idx);
 
   for (const auto &idx : inputs) {
@@ -66,8 +67,17 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
   return new_idx;
 }
 
+void IR::delete_node(const IR::NodeRef &node_ref) {
+  // only one case where we can easily delete the node
+  if (node_ref == nodes_.size() - 1) {
+    nodes_.erase(nodes_.begin() + node_ref);
+  } else {
+    deleted_.insert(node_ref);
+  }
+}
+
 void IR::reset_aux(IR::NodeRef node_ref) {
-  auto &n = node(node_ref);
+  ASSERT(!deleted_.count(node_ref)) << "invalid node reference";
   priorities_[node_ref] = 0;
   reuse_disabled_[node_ref].clear();
 }
@@ -98,6 +108,7 @@ void IR::update_vars(NodeRef node_ref, std::vector<VarRef> vars) {
 }
 
 std::string IR::dump(IR::NodeRef idx) const {
+  ASSERT(!deleted_.count(idx)) << "invalid node reference";
   const auto &n = node(idx);
   std::stringstream ss;
   ss << "%" << idx << "[";
@@ -229,6 +240,9 @@ std::vector<IR::VarRef> IR::vars() const {
 std::vector<IR::NodeRef> IR::nodes() const {
   std::vector<IR::NodeRef> ns;
   for (auto i = 0; i < nodes_.size(); ++i) {
+    if (deleted_.count(i)) {
+      continue;
+    }
     ns.emplace_back(i);
   }
   return ns;
@@ -240,33 +254,6 @@ void Node::replace_input(IR::NodeRef old_node, IR::NodeRef new_node) {
       n = new_node;
     }
   }
-}
-
-IR split_node(const IR &ir, IR::NodeRef node_ref,
-              std::vector<IR::VarRef> injected) {
-  IR new_ir = ir;
-  auto &node = new_ir.node(node_ref);
-  auto vs_vec = new_ir.loop_vars(node_ref);
-  std::unordered_set<IR::VarRef> vs{vs_vec.begin(), vs_vec.end()};
-  for (auto v : injected) {
-    ASSERT(vs.count(v));
-    vs.erase(v);
-  }
-  ASSERT(vs.size() > 0);
-  auto new_node_ref = new_ir.create_node(node.op(), {}, node.vars());
-  new_ir.replace_all_uses(node_ref, new_node_ref);
-  new_ir.update_vars(node_ref, injected);
-  new_ir.update_inputs(new_node_ref, {node_ref});
-  new_ir.reset_aux(node_ref);
-  new_ir.reset_aux(new_node_ref);
-  return new_ir;
-}
-
-// new IR is generated
-IR split_var(const IR &ir_, IR::VarRef v) {
-  ASSERT(0 && "not yet implemented");
-  auto ir = ir_;
-  return ir;
 }
 
 std::vector<IR::NodeRef> toposort(const IR &ir) {
@@ -471,7 +458,7 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
   for (const auto &node_ref : sorted_nodes) {
     const auto &n = ir.node(node_ref);
     auto l_order = loop_order(node_ref);
-    auto annotations = ir.annotations(node_ref);
+    auto annotations = ir.loop_annotations(node_ref);
     if (n.vars().size() != 0 && l_order.size() == 0) {
       continue;
     }
@@ -578,7 +565,9 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
     if (available.size()) {
       parent = std::get<1>(available.back());
     }
-    add_leaf(parent, node_ref);
+    auto leaf = add_leaf(parent, node_ref);
+    auto annot = ir.annotation(node_ref);
+    annotate_(leaf, annot);
 
     // remove reductions
     std::unordered_set<IR::VarRef> reduction_vars;

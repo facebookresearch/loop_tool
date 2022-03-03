@@ -50,8 +50,11 @@ class Compiler {
     Access(const Allocation &a) : alloc(a) {}
     Allocation alloc;
     // alloc (base vars) mapped to expr, max
-    std::vector<std::pair<symbolic::Expr, int64_t>> exprs;
-    // stride, offset, max
+    std::vector<symbolic::Expr> full_exprs;
+    std::vector<symbolic::Expr> scoped_exprs;
+    std::vector<std::pair<int64_t, int64_t>> bounds;
+
+    // DEPRECATED
     std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
     int64_t total_offset;
   };
@@ -98,6 +101,7 @@ class Compiler {
 
   symbolic::Expr reify_sizes(const symbolic::Expr &expr) const;
   int64_t get_expr_max(const symbolic::Expr &) const;
+  int64_t get_expr_min(const symbolic::Expr &) const;
   IdxInformation gen_idx_info(LoopTree::TreeRef ref,
                               const Compiler::Access &access) const;
   std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(

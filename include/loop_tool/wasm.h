@@ -13,60 +13,37 @@ namespace loop_tool {
 
 class WebAssemblyCompiler : public Compiler {
   mutable std::shared_ptr<wasmblr::CodeGenerator> cg;
+  std::unordered_set<IR::NodeRef> stack_storage;
   std::unordered_set<IR::NodeRef> local_storage;
-  mutable std::unordered_map<IR::NodeRef, int> local_f32;
-  mutable std::unordered_map<IR::NodeRef, int> local_v128;
+  std::unordered_set<IR::NodeRef> local_vector_storage;
+  mutable std::unordered_set<IR::NodeRef> stack_f32;
+  mutable std::unordered_set<IR::NodeRef> stack_v128;
+  mutable int32_t tmp_f32;
+  mutable int32_t tmp_v128;
+  mutable std::unordered_map<IR::NodeRef, std::vector<int>> local_f32;
+  mutable std::unordered_map<IR::NodeRef, std::vector<int>> local_v128;
   mutable std::unordered_map<LoopTree::TreeRef, int> iterators;
   mutable std::unordered_map<IR::NodeRef, int32_t> memory_locations;
 
  public:
-  WebAssemblyCompiler(const LoopTree& lt)
-      : Compiler(lt), cg(std::make_shared<wasmblr::CodeGenerator>()) {
-    // Logic to calculate "local storage" opportunities.  This effectively means
-    // "in-register" and requires static information about things like vector
-    // lanes and which register data lives in
-    // TODO this is overly restrictive -- we can also store things in register
-    // if only their relevant vars are unrolled (and irrelevant are not).
-    auto completely_unrolled = [&](LoopTree::TreeRef ref,
-                                   LoopTree::TreeRef lca) {
-      ref = lt.parent(ref);
-      while (ref != lca) {
-        if (lt.annotation(ref) != "unroll") {
-          return false;
-        }
-        ref = lt.parent(ref);
-      }
-      return true;
-    };
-    for (const auto& node_ref : lt.ir.nodes()) {
-      // forced to use real memory in these cases
-      if (!lt.scheduled.count(node_ref) ||
-          lt.ir.node(node_ref).op() == Operation::write) {
-        continue;
-      }
-      auto alloc = allocations.at(node_ref);
-      bool scheduled_consumers = true;
-      bool unrolled = true;
-      for (const auto& consumer_ref : lt.ir.node(node_ref).outputs()) {
-        if (!lt.scheduled.count(consumer_ref)) {
-          scheduled_consumers = false;
-          break;
-        }
-        if (!completely_unrolled(lt.scheduled.at(consumer_ref), alloc.lca)) {
-          unrolled = false;
-          break;
-        }
-      }
-      // we cannot address this memory statically (will need runtime
-      // information)
-      if (!scheduled_consumers || !unrolled) {
-        continue;
-      }
-      if (alloc.size() == 1) {  // for now
-        local_storage.insert(node_ref);
-      }
-    }
-  }
+  WebAssemblyCompiler(const LoopTree& lt);
+
+  int64_t get_unroll_offset(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref,
+      const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
+  int64_t get_unroll_offset(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref, LoopTree::TreeRef root,
+      const symbolic::Expr& idx_expr,
+      const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
+
+  std::unordered_map<symbolic::Symbol,
+                     std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                     symbolic::Hash<symbolic::Symbol>>
+  get_symbol_strides(
+      LoopTree::TreeRef ref, LoopTree::TreeRef root,
+      const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
+
+  symbolic::Expr get_scoped_expr(const Compiler::Access& access) const;
 
   int32_t push_access_to_stack(
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
@@ -75,6 +52,7 @@ class WebAssemblyCompiler : public Compiler {
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   void push_vector_to_stack(IR::NodeRef node_ref, LoopTree::TreeRef ref) const;
+  int32_t get_tmp_f32() const;
   void emit_vectorized_node(
       LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
@@ -88,6 +66,9 @@ class WebAssemblyCompiler : public Compiler {
             std::unordered_map<IR::VarRef, int> overrides,
             std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   std::vector<uint8_t> emit() const;
+  bool is_local(IR::NodeRef node_ref) const {
+    return local_storage.count(node_ref);
+  }
 };
 
 }  // namespace loop_tool

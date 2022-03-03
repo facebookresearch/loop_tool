@@ -81,6 +81,8 @@ lazy::Tensor prod_impl(const lazy::Tensor &t,
   return t.prod(symbols);
 }
 
+lazy::Tensor sqrt_impl(const lazy::Tensor &t) { return t.sqrt(); }
+
 lazy::Tensor tensor_constructor(const std::vector<int32_t> &sv) {
   std::vector<int64_t> inp;
   for (auto s : sv) {
@@ -129,6 +131,11 @@ std::string c_code(const LoopTree &loop_tree) {
 int32_t node_size(const LoopTree &lt, IR::NodeRef node_ref) {
   auto wc = loop_tool::WebAssemblyCompiler(lt);
   return wc.allocations.at(node_ref).size();
+}
+
+bool node_is_locally_stored(const LoopTree &lt, IR::NodeRef node_ref) {
+  auto wc = loop_tool::WebAssemblyCompiler(lt);
+  return wc.is_local(node_ref);
 }
 
 lazy::Expr expr_from_sym(lazy::Symbol sym) { return lazy::Expr(sym); }
@@ -214,6 +221,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("prev_ref", &previous_ref)
       .function("depth", &LoopTree::depth)
       .function("children", &LoopTree::children)
+      .function("parent", &LoopTree::parent)
       .function("is_loop", &is_loop)
       .function("loop", &LoopTree::loop)
       .function("node", &LoopTree::node)
@@ -222,6 +230,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("node_vars", &node_vars)
       .function("node_type", &node_type)
       .function("node_size", &node_size)
+      .function("node_is_locally_stored", &node_is_locally_stored)
       .function("node_s", &dump_node)
       .function("var_name", &var_name)
       .function("annotation", &LoopTree::annotation)
@@ -229,8 +238,15 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("split", split_impl)
       .function("merge", merge)
       .function("swap", swap)
+      .function("swap_nodes", swap_nodes)
+      .function("copy_input", copy_input)
+      .function("delete_copy", delete_copy)
+      .function("add_loop", add_loop)
+      .function("remove_loop", remove_loop)
       .function("disable_reuse", disable_reuse)
       .function("enable_reuse", enable_reuse)
+      .function("decrease_reuse", decrease_reuse)
+      .function("increase_reuse", increase_reuse)
       .function("map_ref", map_ref);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor)
@@ -253,13 +269,13 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("min",
                 js::select_overload<lazy::Tensor(const lazy::Tensor &) const>(
                     &lazy::Tensor::min))
-      .function("sqrt", &lazy::Tensor::sqrt)
       .function("sum", &sum_impl)
       .function("max_reduce", &max_impl)
       .function("min_reduce", &min_impl)
       .function("prod", &prod_impl)
       .function("neg", js::select_overload<lazy::Tensor() const>(
                            &lazy::Tensor::operator-))
+      .function("sqrt", &sqrt_impl)
       .function("abs", &lazy::Tensor::abs)
       .function("graphviz", &graphviz)
       .function("loop_tree", &lazy::Tensor::loop_tree)

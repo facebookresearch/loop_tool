@@ -945,13 +945,16 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
     }
     for (const auto &p : tmp_sizes) {
       if (var_sizes.count(p.first)) {
-        ASSERT(var_sizes.at(p.first) == tmp_sizes.at(p.first))
-            << "incompatible loop sizes for " << lt.ir.var(p.first).name()
-            << " found " << tmp_sizes.at(p.first) << " expected "
-            << var_sizes.at(p.first);
-        continue;
+        // ASSERT(var_sizes.at(p.first) == tmp_sizes.at(p.first))
+        //    << "incompatible loop sizes for " << lt.ir.var(p.first).name()
+        //    << " found " << tmp_sizes.at(p.first) << " expected "
+        //    << var_sizes.at(p.first);
+        // continue;
+        var_sizes[p.first] =
+            std::max(tmp_sizes.at(p.first), var_sizes.at(p.first));
+      } else {
+        var_sizes[p.first] = tmp_sizes.at(p.first);
       }
-      var_sizes[p.first] = tmp_sizes.at(p.first);
     }
   }
   for (const auto &v : lt.ir.vars()) {
@@ -1172,25 +1175,8 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   }
 
   bool constrained = false;
-  // access expression scoped to the allocation (TODO do this earlier)
-  std::vector<Expr> scoped_exprs;
-  for (const auto &p : acc.exprs) {
-    auto expr = p.first
-                    .walk([&](const Expr &e) {
-                      if (e.type() == Expr::Type::symbol) {
-                        if (!sym_strings.count(e.symbol())) {
-                          return Expr(0);
-                        }
-                      }
-                      return e;
-                    })
-                    .simplify();
-    scoped_exprs.emplace_back(expr);
-  }
-  for (auto i = 0; i < scoped_exprs.size(); ++i) {
-    const auto &p = acc.exprs.at(i);
-    const auto &expr = scoped_exprs.at(i);
-    if (p.second != -1 && expr != Expr(0)) {
+  for (const auto &b : acc.bounds) {
+    if (b.first != 0 || b.second != -1) {
       constrained = true;
     }
   }
@@ -1202,17 +1188,20 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   if (constrained) {
     ss << "(";
     bool constraint_added = false;
-    for (auto i = 0; i < scoped_exprs.size(); ++i) {
-      const auto &p = acc.exprs.at(i);
-      const auto &expr = scoped_exprs.at(i);
-      if (p.second == -1) {
+    for (auto i = 0; i < acc.bounds.size(); ++i) {
+      const auto &b = acc.bounds.at(i);
+      const auto &expr = acc.scoped_exprs.at(i);
+      if (b.first == 0 && b.second == -1) {
         continue;
       }
       const auto &str = expr.dump(false, sym_strings);
       if (constraint_added) {
         ss << " && ";
       }
-      ss << "((" << str << ") >= 0) && ((" << str << ") < " << p.second << ")";
+      ss << "((" << str << ") >= 0)";
+      if (b.second != -1) {
+        ss << " && ((" << str << ") < " << b.second << ")";
+      }
       constraint_added = true;
     }
     ss << " ? ";
@@ -1221,17 +1210,17 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
   if (acc.alloc.size() > 1 || is_input_output(acc.alloc.node_ref)) {
     ss << "((float*)memory[" << acc.alloc.mem_idx << "])";
     ss << "[";
-    for (auto i = 0; i < acc.exprs.size(); ++i) {
+    for (auto i = 0; i < acc.scoped_exprs.size(); ++i) {
       if (!acc.alloc.sizes.at(i)) {
         continue;
       }
-      const auto &expr = scoped_exprs.at(i);
+      const auto &expr = acc.scoped_exprs.at(i);
       ss << (expr * Expr(acc.alloc.size(i + 1))).dump(false, sym_strings);
-      if (i != acc.exprs.size() - 1) {
+      if (i != acc.scoped_exprs.size() - 1) {
         ss << "+";
       }
     }
-    if (acc.exprs.size() == 0) {
+    if (acc.scoped_exprs.size() == 0) {
       ss << "0";
     }
     ss << "]";
@@ -1642,7 +1631,7 @@ Compiler::Allocation Compiler::gen_alloc(IR::NodeRef node_ref) const {
   const auto &node = lt.ir.node(node_ref);
   if (!lt.scheduled.count(node_ref)) {
     std::vector<int64_t> sizes;
-    if (node.op() == Operation::read || node.op() == Operation::write) {
+    if (node.op() == Operation::write || node.op() == Operation::read) {
       for (auto v : node.vars()) {
         sizes.emplace_back(var_sizes.at(v));
       }
@@ -1878,6 +1867,22 @@ int64_t Compiler::get_expr_max(const Expr &expr) const {
   return max.value() + 1;
 }
 
+int64_t Compiler::get_expr_min(const Expr &expr) const {
+  auto no_size = reify_sizes(expr);
+  auto min = no_size
+                 .walk([&](const Expr &e) {
+                   if (e.type() == Expr::Type::symbol) {
+                     return Expr(0);
+                   }
+                   return e;
+                 })
+                 .simplify();
+  ASSERT(min.type() == Expr::Type::value)
+      << "Couldn't derive explicit lower bound for expr " << expr.dump()
+      << " (simplified to " << min.dump() << ")";
+  return min.value();
+}
+
 Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
                                       LoopTree::TreeRef ref) const {
   auto read_node_ref = resolved_reads.at(node_ref);
@@ -1911,33 +1916,6 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
     const auto &e = read_exprs.at(i);
   }
 
-  auto zero = [&](const symbolic::Expr &expr) {
-    auto sized = expr.walk([&](const symbolic::Expr &e) {
-                       if (e.op() == symbolic::Op::size) {
-                         auto arg = e.args().at(0);
-                         if (arg.type() == Expr::Type::symbol) {
-                           auto s = var_sizes.at(sym_to_var.at(arg.symbol()));
-                           return Expr(s);
-                         }
-                       }
-                       return e;
-                     })
-                     .simplify();
-    return sized
-        .walk([&](const symbolic::Expr &e) {
-          if (e.type() == Expr::Type::symbol) {
-            return Expr(0);
-          }
-          return e;
-        })
-        .simplify();
-    auto out = expr;
-    for (auto s : expr.symbols()) {
-      out = out.replace(s, 0).simplify();
-    }
-    return out;
-  };
-
   ASSERT(alloc.sizes.size() == read_exprs.size());
   auto stride_at = [&](int idx) {
     int64_t stride = alloc.sizes.at(idx) > 0 ? 1 : 0;
@@ -1949,14 +1927,19 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
   };
 
   Access access(alloc);
-  Expr idx_expr(0);
-  for (auto i = 0; i < read_exprs.size(); ++i) {
-    auto stride = stride_at(i);
-    idx_expr = idx_expr + read_exprs.at(i) * Expr(stride);
+
+  std::unordered_set<Symbol, Hash<Symbol>> sym_in_scope;
+  auto p = lt.parent(ref);
+  while (p != alloc.lca) {
+    const auto &l = lt.loop(p);
+    auto sym = var_to_sym.at(l.var);
+    sym_in_scope.insert(sym);
+    p = lt.parent(p);
   }
-  access.total_offset = zero(idx_expr).value();
+
   for (auto i = 0; i < read_exprs.size(); ++i) {
     const auto &expr = reify_sizes(read_exprs.at(i));
+    auto min = get_expr_min(expr);
     auto max = get_expr_max(expr);
     if (max <= alloc.sizes.at(i)) {
       max = -1;  // this means we don't need to check anything
@@ -1964,49 +1947,24 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
       max = alloc.sizes.at(i);
       ASSERT(max > 0);
     }
-    access.exprs.emplace_back(expr, max);
+    access.full_exprs.emplace_back(expr);
+    access.bounds.emplace_back(min, max);
   }
 
-  for (auto v : vars) {
-    // NB: ok to generate a fake symbol, we only use it for lookup
-    auto sym = var_to_sym.count(v) ? var_to_sym.at(v) : Symbol();
-    bool found_expr = false;
-    for (auto i = 0; i < read_exprs.size(); ++i) {
-      auto e = read_exprs.at(i);
-      auto read_var = read_node.vars().at(i);
-      if (read_symbols.at(i) == sym) {
-        ASSERT(!found_expr);
-        auto stride = stride_at(i);
-        access.vars[v] = std::make_tuple(stride, 0, -1);
-        found_expr = true;
-        continue;
-      }
-      if (!e.contains(sym)) {
-        continue;
-      }
-      ASSERT(!found_expr)
-          << "Found two dependencies on the same variable, not yet supported";
-      found_expr = true;
-      const auto &read_sym = read_symbols.at(i);
-      for (const auto &sym : e.symbols()) {
-        e = e.replace(Expr::size(sym), var_sizes.at(sym_to_var.at(sym)));
-      }
-      auto constraint = Constraint(read_sym, e);
-      auto offset = zero(e).simplify();
-      auto expr = isolate(constraint, sym).second;
-      auto stride = differentiate(e, sym) * Expr(stride_at(i)).simplify();
-      auto max = var_sizes.at(read_var);
-      auto v_max = var_sizes.at(v);
-      if (max >= v_max) {
-        max = -1;
-      }
-      if (stride.type() != Expr::Type::value ||
-          offset.type() != Expr::Type::value) {
-        continue;
-      }
-      access.vars[v] = std::make_tuple(stride.value(), offset.value(), max);
-    }
+  for (const auto &full_expr : access.full_exprs) {
+    auto expr = full_expr
+                    .walk([&](const Expr &e) {
+                      if (e.type() == Expr::Type::symbol) {
+                        if (!sym_in_scope.count(e.symbol())) {
+                          return Expr(0);
+                        }
+                      }
+                      return e;
+                    })
+                    .simplify();
+    access.scoped_exprs.emplace_back(expr);
   }
+
   return access;
 }
 

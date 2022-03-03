@@ -40,15 +40,15 @@ std::vector<Expr> Index(const Args&... args) {
   return std::vector<Expr>{Expr(args)...};
 }
 
-struct CachedCompilation {
-  std::shared_ptr<Compiled> compilation;
+struct CachedLowered {
   IR ir;
   LoopTree loop_tree;
   int64_t output_size;
   std::vector<int64_t> sizes;
 };
 
-std::unordered_map<size_t, CachedCompilation>& getCompilationCache();
+std::unordered_map<size_t, std::shared_ptr<Compiled>>& getCompilationCache();
+std::unordered_map<size_t, CachedLowered>& getLoweredCache();
 
 // wrapped by shared ptr for convenience
 struct TensorImpl {
@@ -59,7 +59,6 @@ struct TensorImpl {
   mutable bool owning_ = true;
   mutable bool force_recompute_ = false;
   std::vector<Symbol> shape_;
-  mutable bool cached_sizes_ = false;
   mutable std::vector<int64_t> sizes_;
   std::vector<Constraint> constraints_;
   std::vector<std::shared_ptr<TensorImpl>> deps_;
@@ -88,7 +87,8 @@ struct TensorImpl {
       h = symbolic::hash(h ^ p.first.hash());
       h = symbolic::hash(h ^ p.second.hash());
     }
-    std::unordered_map<symbolic::Symbol, int, symbolic::Hash<symbolic::Symbol>> unique_syms;
+    std::unordered_map<symbolic::Symbol, int, symbolic::Hash<symbolic::Symbol>>
+        unique_syms;
     auto hash_sym = [&](const symbolic::Symbol& sym) {
       if (!unique_syms.count(sym)) {
         unique_syms[sym] = unique_syms.size();
@@ -188,6 +188,7 @@ struct TensorImpl {
   void unifyConstraints();
   void unify();
   void populateCompilationCache();
+  void populateLoweredCache();
   std::unique_ptr<Compiled> backend_compile(const LoopTree& lt);
 
   std::vector<void*> getInputBuffers(
@@ -223,9 +224,10 @@ struct TensorImpl {
       const_cast<TensorImpl*>(this)->populateCompilationCache();
     }
     auto& cc = getCompilationCache().at(hash());
+    auto& lowered = getLoweredCache().at(hash());
 
     if (owning_) {
-      memory_ = alloc(sizeof(float) * cc.output_size);
+      memory_ = alloc(sizeof(float) * lowered.output_size);
     } else {
       ASSERT(memory_.address);
     }
@@ -233,7 +235,7 @@ struct TensorImpl {
     std::unordered_set<const TensorImpl*> seen;
     auto buffers = getInputBuffers(seen);
     buffers.emplace_back(memory_.address);
-    cc.compilation->run(buffers, true);
+    cc->run(buffers, true);
     return static_cast<T*>(memory_.address);
   };
 
@@ -256,9 +258,9 @@ struct TensorImpl {
 
   inline IR ir() const {
     auto h = hash();
-    if (getCompilationCache().count(h)) {
-      auto& cc = getCompilationCache().at(h);
-      return cc.ir;
+    if (getLoweredCache().count(h)) {
+      auto& lowered = getLoweredCache().at(h);
+      return lowered.ir;
     }
     auto ll = lower();
     return schedule(ll.first, ll.second).ir;
@@ -266,9 +268,9 @@ struct TensorImpl {
 
   inline LoopTree loop_tree() const {
     auto h = hash();
-    if (getCompilationCache().count(h)) {
-      auto& cc = getCompilationCache().at(h);
-      return cc.loop_tree;
+    if (getLoweredCache().count(h)) {
+      auto& lowered = getLoweredCache().at(h);
+      return lowered.loop_tree;
     }
     auto ll = lower();
     return schedule(ll.first, ll.second);
@@ -287,26 +289,22 @@ struct TensorImpl {
 
   inline void set(const IR& ir) {
     auto h = hash();
-
-    if (!getCompilationCache().count(h)) {
-      compile();
+    if (!getLoweredCache().count(h)) {
+      const_cast<TensorImpl*>(this)->populateLoweredCache();
     }
-    auto& cc = getCompilationCache().at(h);
+    auto& lowered = getLoweredCache().at(h);
     LoopTree loop_tree(ir);
-    auto new_cc = backend_compile(loop_tree);
-    cc = CachedCompilation{std::move(new_cc), ir, loop_tree, cc.output_size,
-                           cc.sizes};
+    lowered = CachedLowered{ir, loop_tree, lowered.output_size, lowered.sizes};
   }
 
   inline void set(const LoopTree& loop_tree) {
     auto h = hash();
-    if (!getCompilationCache().count(h)) {
-      compile();
+    if (!getLoweredCache().count(h)) {
+      const_cast<TensorImpl*>(this)->populateLoweredCache();
     }
-    auto& cc = getCompilationCache().at(h);
-    auto new_cc = backend_compile(loop_tree);
-    cc = CachedCompilation{std::move(new_cc), loop_tree.ir, loop_tree,
-                           cc.output_size, cc.sizes};
+    auto& lowered = getLoweredCache().at(h);
+    lowered = CachedLowered{loop_tree.ir, loop_tree, lowered.output_size,
+                            lowered.sizes};
   }
 
   inline std::shared_ptr<Compiled> compiled() {
@@ -315,7 +313,7 @@ struct TensorImpl {
       compile();
     }
     auto& cc = getCompilationCache().at(h);
-    return cc.compilation;
+    return cc;
   }
 
   LoopTree schedule(
@@ -597,8 +595,8 @@ struct Tensor {
   inline std::vector<int64_t> sizes() const { return impl_->sizes(); }
   inline size_t numel() const {
     size_t total = 1;
-    for (auto i = 0; i < shape().size(); ++i) {
-      total *= size(i);
+    for (auto s : sizes()) {
+      total *= s;
     }
     return total;
   }

@@ -199,3 +199,22 @@ async function benchmark(fn, warmup = 100, iters = 10000) {
   }
 
 })();
+
+(async () => {
+  let m = lt.symbol("m");
+  let a = lt.rand(128).to(m);
+  let b = a.sum(m);
+  const d = new Float32Array(1);
+  d.set(await b.data);
+  let tree = b.loop_tree;
+  const roots = tree.children(-1);
+  let new_tree = tree.annotate(roots[0], "unroll");
+  tree.delete();
+  tree = new_tree;
+  b.set_loop_tree(tree);
+  const e = new Float32Array(1);
+  console.log(b.data);
+  e.set(await b.data);
+  console.log("diff", d, e);
+})();
+

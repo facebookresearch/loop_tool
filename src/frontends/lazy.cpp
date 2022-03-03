@@ -8,9 +8,15 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 namespace lazy {
 
-std::unordered_map<size_t, CachedCompilation>& getCompilationCache() {
-  static std::unordered_map<size_t, CachedCompilation> compilation_cache_;
+std::unordered_map<size_t, std::shared_ptr<Compiled>>& getCompilationCache() {
+  static std::unordered_map<size_t, std::shared_ptr<Compiled>>
+      compilation_cache_;
   return compilation_cache_;
+}
+
+std::unordered_map<size_t, CachedLowered>& getLoweredCache() {
+  static std::unordered_map<size_t, CachedLowered> lowered_cache_;
+  return lowered_cache_;
 }
 
 void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
@@ -111,18 +117,12 @@ LoopTree TensorImpl::schedule(
 }
 
 std::vector<int64_t> TensorImpl::sizes() const {
-  if (getCompilationCache().count(hash())) {
-    const auto& cc = getCompilationCache().at(hash());
-    sizes_ = cc.sizes;
-    cached_sizes_ = true;
+  auto h = hash();
+  if (!getLoweredCache().count(h)) {
+    const_cast<TensorImpl*>(this)->populateLoweredCache();
   }
-  if (!cached_sizes_) {
-    for (auto i = 0; i < shape().size(); ++i) {
-      sizes_.emplace_back(size(i));
-    }
-    cached_sizes_ = true;
-  }
-  return sizes_;
+  auto& lowered = getLoweredCache().at(h);
+  return lowered.sizes;
 }
 
 int64_t TensorImpl::size(int dim) const {
@@ -220,6 +220,9 @@ IR::NodeRef TensorImpl::resolve(
     case Operation::divide:
       node_ref = ir.create_node(Operation::divide, node_deps, vars);
       break;
+    case Operation::min:
+      node_ref = ir.create_node(Operation::min, node_deps, vars);
+      break;
     case Operation::max:
       node_ref = ir.create_node(Operation::max, node_deps, vars);
       break;
@@ -228,6 +231,9 @@ IR::NodeRef TensorImpl::resolve(
       break;
     case Operation::sqrt:
       node_ref = ir.create_node(Operation::sqrt, node_deps, vars);
+      break;
+    case Operation::abs:
+      node_ref = ir.create_node(Operation::abs, node_deps, vars);
       break;
     case Operation::reciprocal:
       node_ref = ir.create_node(Operation::reciprocal, node_deps, vars);
@@ -384,7 +390,7 @@ std::unique_ptr<Compiled> TensorImpl::backend_compile(
   return getDefaultBackend()->compile(loop_tree, parallel, -1);
 }
 
-void TensorImpl::populateCompilationCache() {
+void TensorImpl::populateLoweredCache() {
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, int64_t>> var_map;
   std::tie(ir, var_map) = lower();
@@ -396,9 +402,14 @@ void TensorImpl::populateCompilationCache() {
     size *= size_;
     sizes.emplace_back(size_);
   }
+  getLoweredCache().emplace(hash(), CachedLowered{ir, loop_tree, size, sizes});
+}
+
+void TensorImpl::populateCompilationCache() {
+  populateLoweredCache();
+  auto loop_tree = getLoweredCache().at(hash()).loop_tree;
   auto cc = backend_compile(loop_tree);
-  getCompilationCache().emplace(
-      hash(), CachedCompilation{std::move(cc), ir, loop_tree, size, sizes});
+  getCompilationCache().emplace(hash(), std::move(cc));
 }
 
 }  // namespace lazy

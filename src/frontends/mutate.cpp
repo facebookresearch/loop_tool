@@ -11,6 +11,56 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+IR split_node(const IR& ir, IR::NodeRef node_ref,
+              std::vector<IR::VarRef> injected) {
+  IR new_ir = ir;
+  auto& node = new_ir.node(node_ref);
+  auto vs_vec = new_ir.loop_vars(node_ref);
+  std::unordered_set<IR::VarRef> vs{vs_vec.begin(), vs_vec.end()};
+  for (auto v : injected) {
+    ASSERT(vs.count(v));
+    vs.erase(v);
+  }
+  ASSERT(vs.size() > 0);
+  auto new_node_ref = new_ir.create_node(node.op(), {}, node.vars());
+  new_ir.replace_all_uses(node_ref, new_node_ref);
+  new_ir.update_vars(node_ref, injected);
+  new_ir.update_inputs(new_node_ref, {node_ref});
+  new_ir.reset_aux(node_ref);
+  new_ir.reset_aux(new_node_ref);
+  return new_ir;
+}
+
+IR duplicate_input(const IR& ir, IR::NodeRef node_ref, int idx) {
+  IR new_ir = ir;
+  auto& node = new_ir.node(node_ref);
+  ASSERT(node.inputs().size() > idx) << "cannot get input at index " << idx;
+  auto inp_ref = node.inputs().at(idx);
+  auto& inp_node = new_ir.node(inp_ref);
+  auto new_node_ref = new_ir.create_node(Operation::copy, {}, inp_node.vars());
+  new_ir.set_order(new_node_ref, new_ir.order(node_ref),
+                   new_ir.loop_annotations(node_ref));
+  new_ir.replace_all_uses(inp_ref, new_node_ref);
+  new_ir.update_inputs(new_node_ref, {inp_ref});
+  return new_ir;
+}
+
+IR remove_copy(const IR& ir, IR::NodeRef node_ref) {
+  IR new_ir = ir;
+  auto& node = new_ir.node(node_ref);
+  ASSERT(node.op() == Operation::copy);
+  auto inp_ref = node.inputs().at(0);
+  new_ir.replace_all_uses(node_ref, inp_ref);
+  return new_ir;
+}
+
+// new IR is generated
+IR split_var(const IR& ir_, IR::VarRef v) {
+  ASSERT(0 && "not yet implemented");
+  auto ir = ir_;
+  return ir;
+}
+
 std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
                                        LoopTree::TreeRef ref) {
   ASSERT(lt.kind(ref) == LoopTree::LOOP)
@@ -70,7 +120,7 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> new_order;
     std::vector<std::string> new_annot;
     auto old_order = lt.ir.order(node_ref);
-    auto old_annot = lt.ir.annotations(node_ref);
+    auto old_annot = lt.ir.loop_annotations(node_ref);
     for (auto i = 0; i < old_order.size(); ++i) {
       if (i == idx) {
         new_order.emplace_back(split0);
@@ -124,7 +174,7 @@ LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> new_order;
     std::vector<std::string> new_annot;
     auto old_order = lt.ir.order(node_ref);
-    auto old_annot = lt.ir.annotations(node_ref);
+    auto old_annot = lt.ir.loop_annotations(node_ref);
     for (auto i = 0; i < old_order.size(); ++i) {
       if (i == merge_idx) {
         new_order.emplace_back(merged);
@@ -158,6 +208,83 @@ LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
       new_ir.set_order(node_ref, r.first, r.second);
     }
   }
+  return LoopTree(new_ir);
+}
+
+LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  ASSERT(idx >= 0) << "cannot use negatively indexed input";
+  auto new_ir = duplicate_input(lt.ir, node_ref, idx);
+  return LoopTree(new_ir);
+}
+
+LoopTree delete_copy(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  auto new_ir = remove_copy(lt.ir, node_ref);
+  return LoopTree(new_ir);
+}
+
+// update the priority of nodes so that they're topologically swapped
+LoopTree swap_nodes(const LoopTree& lt, LoopTree::TreeRef a,
+                    LoopTree::TreeRef b) {
+  ASSERT(lt.kind(a) == LoopTree::NODE);
+  ASSERT(lt.kind(b) == LoopTree::NODE);
+  auto a_nr = lt.node(a);
+  auto b_nr = lt.node(b);
+  auto new_ir = lt.ir;
+  auto p_a = new_ir.priority(a_nr);
+  auto p_b = new_ir.priority(b_nr);
+  if (p_a == p_b) {
+    p_a = p_b + 0.1;
+  }
+  new_ir.set_priority(a_nr, p_b);
+  new_ir.set_priority(b_nr, p_a);
+  return LoopTree(new_ir);
+}
+
+// this isn't always safe in the case of view operations
+LoopTree remove_loop(const LoopTree& lt, LoopTree::TreeRef ref,
+                     LoopTree::TreeRef rem) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  ASSERT(lt.kind(rem) == LoopTree::LOOP);
+  auto node_ref = lt.node(ref);
+  auto loop = lt.loop(rem);
+  const auto& node = lt.ir.node(node_ref);
+  if (node.op() != Operation::view) {
+    auto needed_vars = to_set(lt.ir.loop_vars(node_ref));
+    ASSERT(!needed_vars.count(loop.var))
+        << "attempting to deschedule a necessary loop";
+  }
+  auto loop_order = lt.loop_order(node_ref);
+  auto idx = -1;
+  for (auto i = 0; i < loop_order.size(); ++i) {
+    if (loop_order.at(i) == loop) {
+      idx = i;
+    }
+  }
+  auto new_ir = lt.ir;
+  if (idx >= 0) {
+    auto order = new_ir.order(node_ref);
+    order.erase(order.begin() + idx);
+    new_ir.set_order(node_ref, order);
+  }
+  return LoopTree(new_ir);
+}
+
+LoopTree add_loop(const LoopTree& lt, LoopTree::TreeRef ref,
+                  LoopTree::TreeRef add) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  ASSERT(lt.kind(add) == LoopTree::LOOP);
+  auto node_ref = lt.node(ref);
+  auto loop = lt.loop(add);
+  ASSERT(lt.ir.reduction_vars(node_ref).size() == 0)
+      << "cannot add orthogonal inner loop to reduction";
+  auto new_ir = lt.ir;
+  auto order = new_ir.order(node_ref);
+  order.emplace_back(loop.var, IR::LoopSize{loop.size, loop.tail});
+  new_ir.set_order(node_ref, order);
   return LoopTree(new_ir);
 }
 
@@ -212,10 +339,11 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
       continue;
     }
     auto order = lt.ir.order(node_ref);
-    auto annotations = lt.ir.annotations(node_ref);
+    auto loop_annotations = lt.ir.loop_annotations(node_ref);
     std::iter_swap(order.begin() + a_idx, order.begin() + b_idx);
-    std::iter_swap(annotations.begin() + a_idx, annotations.begin() + b_idx);
-    new_ir.set_order(node_ref, order, annotations);
+    std::iter_swap(loop_annotations.begin() + a_idx,
+                   loop_annotations.begin() + b_idx);
+    new_ir.set_order(node_ref, order, loop_annotations);
   }
   return LoopTree(new_ir);
 }
@@ -237,6 +365,7 @@ LoopTree toggle_reuse(const LoopTree& lt, LoopTree::TreeRef ref, IR::NodeRef n,
   }
   return LoopTree(new_ir);
 }
+
 LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                        IR::NodeRef n) {
   return toggle_reuse(lt, loop, n, false);
@@ -245,6 +374,40 @@ LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
 LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                       IR::NodeRef n) {
   return toggle_reuse(lt, loop, n, true);
+}
+
+LoopTree decrease_reuse(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  auto new_ir = lt.ir;
+  const auto& not_reusable = new_ir.not_reusable(node_ref);
+  const auto& order = new_ir.order(node_ref);
+  if (not_reusable.size()) {
+    for (auto i = 0; i < order.size() - 1; ++i) {
+      if (not_reusable.count(i + 1)) {
+        new_ir.disable_reuse(node_ref, i);
+        break;
+      }
+    }
+  } else {
+    new_ir.disable_reuse(node_ref, order.size() - 1);
+  }
+  return LoopTree(new_ir);
+}
+
+LoopTree increase_reuse(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  auto new_ir = lt.ir;
+  const auto& not_reusable = new_ir.not_reusable(node_ref);
+  const auto& order = new_ir.order(node_ref);
+  for (auto i = 0; i < order.size(); ++i) {
+    if (not_reusable.count(i)) {
+      new_ir.enable_reuse(node_ref, i);
+      break;
+    }
+  }
+  return LoopTree(new_ir);
 }
 
 LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
@@ -326,9 +489,10 @@ int64_t flops(const LoopTree& lt) {
       iters *= p.second;
     }
     switch (lt.ir.node(lt.node(ref)).op()) {
+      case Operation::copy:
       case Operation::read:
-      case Operation::view:
       case Operation::write:
+      case Operation::view:
         return;
       default:
         break;
@@ -341,15 +505,19 @@ int64_t flops(const LoopTree& lt) {
 
 LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref,
                   std::string annot) {
-  ASSERT(lt.kind(ref) == LoopTree::LOOP);
+  auto new_ir = lt.ir;
+  if (lt.kind(ref) == LoopTree::NODE) {
+    auto node_ref = lt.node(ref);
+    new_ir.annotate(node_ref, annot);
+    return LoopTree(new_ir);
+  }
   auto loop = lt.loop(ref);
   auto node_refs = collect_nodes(lt, ref);
-  auto new_ir = lt.ir;
   for (const auto& node_ref : node_refs) {
     auto loop_order = lt.loop_order(node_ref);
     for (auto i = 0; i < loop_order.size(); ++i) {
       if (loop_order.at(i) == loop) {
-        new_ir.annotate(node_ref, i, annot);
+        new_ir.annotate_loop(node_ref, i, annot);
       }
     }
   }
