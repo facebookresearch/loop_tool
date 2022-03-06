@@ -4,34 +4,73 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
-import Module from '../build/libloop_tool.mjs';
+import Module from "../build/libloop_tool.mjs";
 
 const lt = await Module();
+
+let live_tensors = [];
+let live_symbols = [];
+let live_exprs = [];
+
+function clear_heap() {
+  for (let s of live_symbols) {
+    try {
+      s.delete();
+    } catch (e) {}
+  }
+  for (let t of live_tensors) {
+    try {
+      t.delete();
+    } catch (e) {}
+  }
+  for (let e of live_exprs) {
+    try {
+      e.delete();
+    } catch (e) {}
+  }
+
+  live_tensors = [];
+  live_symbols = [];
+  live_exprs = [];
+}
 
 const Symbol = lt.Symbol;
 const Expr = lt.Expr;
 const size = lt.size;
-const expr = (...args) => { return new lt.Expr(...args); }
-const tensor = (...args) => { return new Tensor(...args); }
-const symbol = (...args) => { return new lt.Symbol(...args); }
 
-const getExceptionMessage = lt.getExceptionMessage
+const tensor = (...args) => {
+  return new Tensor(...args);
+};
+
+const expr = (...args) => {
+  const e = new lt.Expr(...args);
+  live_exprs.push(e);
+  return e;
+};
+
+const symbol = (...args) => {
+  const sym = new lt.Symbol(...args);
+  live_symbols.push(sym);
+  return sym;
+};
+
+const getExceptionMessage = lt.getExceptionMessage;
 
 function symbols(str) {
   let out = [];
-  for (let k of str.split(' ')) {
-    out.push(new lt.Symbol(k));
+  for (let k of str.split(" ")) {
+    out.push(symbol(k));
   }
   return out;
 }
 
 class CompilationCache {
-  constructor(max = 2000) {
+  constructor(max = 200) {
     this.max = max;
     this.hash_list = [];
     this.loop_tree_cache = {};
     this.instance_cache = {};
-  };
+  }
 
   async compile(tensor) {
     const h = tensor.hash();
@@ -45,13 +84,14 @@ class CompilationCache {
     this.hash_list.push(h);
 
     if (!(h in this.loop_tree_cache)) {
-      this.loop_tree_cache[h] = tensor.loop_tree();
+			this.loop_tree_cache[h] = tensor.loop_tree();
     }
     const loop_tree = this.loop_tree_cache[h];
-    const m = await WebAssembly.compile(loop_tree.wasm()).catch(e => {
+		const wasm = loop_tree.wasm();
+    const m = await WebAssembly.compile(wasm).catch((e) => {
       throw e;
     });
-    const instance = await WebAssembly.instantiate(m, {}).catch(e => {
+    const instance = await WebAssembly.instantiate(m, {}).catch((e) => {
       throw e;
     });
     this.instance_cache[h] = [instance.exports.mem, instance.exports.fn];
@@ -65,6 +105,7 @@ class CompilationCache {
     }
     this.hash_list = this.hash_list.splice(idx, 1);
     delete this.instance_cache[h];
+    this.loop_tree_cache[h].delete();
     delete this.loop_tree_cache[h];
   }
 
@@ -81,8 +122,7 @@ class CompilationCache {
     this.evict(h);
     this.loop_tree_cache[h] = loop_tree;
   }
-
-};
+}
 
 let _tensor_id = 0;
 let cc = new CompilationCache();
@@ -101,9 +141,9 @@ function rand(...args) {
   return t;
 }
 
-function convolve(x, w, spatial_dims, window_dims, stride=1) {
+function convolve(x, w, spatial_dims, window_dims, stride = 1) {
   if (spatial_dims.length != window_dims.length) {
-    throw 'invalid call to conv: mismatched dim length';
+    throw "invalid call to conv: mismatched dim length";
   }
   const new_spatial = [];
   const constraints = [];
@@ -112,14 +152,17 @@ function convolve(x, w, spatial_dims, window_dims, stride=1) {
     const k = window_dims[i];
     const new_dim = new Symbol(dim.name() + "o");
     new_spatial.push(new_dim);
-    constraints.push([dim.expr(), new_dim.expr().mul(expr(stride)).add(k.expr())]);
+    constraints.push([
+      dim.expr(),
+      new_dim.expr().mul(expr(stride)).add(k.expr()),
+    ]);
   }
 
   const outer_dims = [];
   const reduction_dims = [...window_dims];
-  const x_ids = x.symbolic_shape.map(d=>d.id());
-  const spatial_ids = spatial_dims.map(d=>d.id());
-  const window_ids = window_dims.map(d=>d.id());
+  const x_ids = x.symbolic_shape.map((d) => d.id());
+  const spatial_ids = spatial_dims.map((d) => d.id());
+  const window_ids = window_dims.map((d) => d.id());
 
   for (let dim of x.symbolic_shape) {
     if (spatial_ids.includes(dim.id())) {
@@ -131,7 +174,7 @@ function convolve(x, w, spatial_dims, window_dims, stride=1) {
   for (let dim of w.symbolic_shape) {
     if (window_ids.includes(dim.id())) {
       if (x_ids.includes(dim.id())) {
-        throw `invalid window dim: ${dim.name()}`
+        throw `invalid window dim: ${dim.name()}`;
       }
       continue;
     }
@@ -142,7 +185,12 @@ function convolve(x, w, spatial_dims, window_dims, stride=1) {
     outer_dims.push(dim);
   }
 
-  const im2col = x.to(...outer_dims, ...new_spatial, ...window_dims, constraints);
+  const im2col = x.to(
+    ...outer_dims,
+    ...new_spatial,
+    ...window_dims,
+    constraints
+  );
   return im2col.mul(w).sum(...reduction_dims);
 }
 
@@ -160,18 +208,20 @@ function maxpool(x, spatial_dims, k) {
     const new_k = symbol(dim.name() + "k");
     new_dims.push(new_dim);
     window_dims.push(new_k);
-    const c = new_dim.expr().mul(expr(k)).add(new_k.expr());
+    const c = new_dim.expr().add(new_k.expr());
     constraints.push([dim.expr(), c]);
-    constraints.push([size(new_k), expr(k)])
+    constraints.push([size(new_k), expr(k)]);
   }
-  const spatial_ids = spatial_dims.map(d=>d.id());
+  const spatial_ids = spatial_dims.map((d) => d.id());
   for (let dim of x.symbolic_shape) {
     if (spatial_ids.includes(dim.id())) {
       continue;
     }
     outer_dims.push(dim);
   }
-  return x.to(...outer_dims, ...new_dims, ...window_dims, constraints).max(...window_dims);
+  return x
+    .to(...outer_dims, ...new_dims, ...window_dims, constraints)
+    .max(...window_dims);
 }
 
 function avgpool(x, spatial_dims, k) {
@@ -179,28 +229,32 @@ function avgpool(x, spatial_dims, k) {
   const outer_dims = [];
   const new_dims = [];
   const window_dims = [];
-  console.log("K IS", k, x.symbolic_shape);
-  let d = fill(1 / (k*k));
+  let div = 1;
+  for (let i = 0; i < spatial_dims.length; ++i) {
+    div *= k;
+  }
+  let d = fill(1 / div);
   x = x.mul(d);
   for (let dim of spatial_dims) {
     const new_dim = symbol(dim.name() + "a");
     const new_k = symbol(dim.name() + "k");
     new_dims.push(new_dim);
     window_dims.push(new_k);
-    const c = new_dim.expr().mul(expr(k)).add(new_k.expr());
+    const c = new_dim.expr().add(new_k.expr());
     constraints.push([dim.expr(), c]);
-    constraints.push([size(new_k), expr(k)])
+    constraints.push([size(new_k), expr(k)]);
   }
-  const spatial_ids = spatial_dims.map(d=>d.id());
+  const spatial_ids = spatial_dims.map((d) => d.id());
   for (let dim of x.symbolic_shape) {
     if (spatial_ids.includes(dim.id())) {
       continue;
     }
     outer_dims.push(dim);
   }
-  return [x.to(...outer_dims, ...new_dims, ...window_dims, constraints).sum(...window_dims), d];
+  return x
+    .to(...outer_dims, ...new_dims, ...window_dims, constraints)
+    .sum(...window_dims);
 }
-
 
 class Tensor {
   // either a size, an array or an lt.Tensor
@@ -214,6 +268,7 @@ class Tensor {
     }
     if (this._tensor === undefined) {
       this._tensor = new lt.Tensor(args);
+      live_tensors.push(this._tensor);
       this._compute = false;
     }
   }
@@ -233,7 +288,9 @@ class Tensor {
       throw "Cannot set buffer of compute tensor";
     }
     if (new_data.length != this._tensor.numel()) {
-      throw `Cannot set buffer to size ${new_data.length}, expected ${this._tensor.numel()}`;
+      throw `Cannot set buffer to size ${
+        new_data.length
+      }, expected ${this._tensor.numel()}`;
     }
     this._data = new_data;
   }
@@ -254,8 +311,8 @@ class Tensor {
       }
       mem_map[this._id] = new Float32Array(mem.buffer, offset, this.numel);
       return [mem_map, fn];
-    } catch(e) {
-			throw e;
+    } catch (e) {
+      throw e;
     }
   }
 
@@ -268,28 +325,28 @@ class Tensor {
   }
 
   benchmark_impl(ms, fn) {
-		let iters = 1;
+    let iters = 1;
     let t = performance.now();
     let d = 0;
     do {
       for (let i = 0; i < iters; ++i) {
-				fn();
-			}
-			d = performance.now() - t;
+        fn();
+      }
+      d = performance.now() - t;
       iters *= 2;
     } while (d < ms);
-		return 1e3 * (iters - 1) / d;
-	}
+    return (1e3 * (iters - 1)) / d;
+  }
 
-  async benchmark(ms=50, warmup_ms=10) {
+  async benchmark(ms = 50, warmup_ms = 10) {
     try {
       const [m, fn] = await this.compile();
       this.benchmark_impl(warmup_ms, fn);
       return this.flops * this.benchmark_impl(ms, fn);
-    } catch(e) {
+    } catch (e) {
       throw lt.getExceptionMessage(e);
     }
-	}
+  }
 
   get hash() {
     return this._tensor.hash();
@@ -308,7 +365,7 @@ class Tensor {
       this.data_ = mem_map[this._id];
       fn();
       return this.data_;
-    })().catch(e => {
+    })().catch((e) => {
       throw e;
     });
   }
@@ -328,7 +385,7 @@ class Tensor {
   get code() {
     const regex = /void fn_[0-9]+\(/i;
     const c = this.loop_tree.code();
-    return c.replace(regex, 'void fn(');
+    return c.replace(regex, "void fn(");
   }
 
   get loop_tree() {
@@ -339,6 +396,14 @@ class Tensor {
     cc.set_loop_tree(this._tensor, loop_tree);
     this.data_ = null;
   }
+
+	optimize() {
+		const loop_tree = this.loop_tree;
+		const reuse_loop_tree = loop_tree.maximize_reuse();
+		const unroll_loop_tree = reuse_loop_tree.unroll_inner_loops(64);
+		reuse_loop_tree.delete();
+		this.set_loop_tree(unroll_loop_tree);
+	}
 
   collect_inputs(...ts) {
     let inputs = [];
@@ -444,10 +509,10 @@ class Tensor {
 
   to(...syms) {
     const l = syms.length;
-    if (l && syms[l-1].constructor != lt.Symbol) {
-      const constraints = syms[l-1];
+    if (l && syms[l - 1].constructor != lt.Symbol) {
+      const constraints = syms[l - 1];
       if (constraints.length && constraints[0][0].constructor != lt.Expr) {
-        throw 'invalid arguments! requires to(...syms) or to(...syms, constraints[])';
+        throw "invalid arguments! requires to(...syms) or to(...syms, constraints[])";
       }
       let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), constraints));
       out_t._inputs = this.collect_inputs(this);
@@ -458,15 +523,15 @@ class Tensor {
   }
 
   transpose(...syms) {
-		let out_t = new Tensor(this._tensor.transpose(syms));
-		out_t._inputs = this.collect_inputs(this);
-		return out_t;
-	}
+    let out_t = new Tensor(this._tensor.transpose(syms));
+    out_t._inputs = this.collect_inputs(this);
+    return out_t;
+  }
 
   get numel() {
     return this._tensor.numel();
   }
-};
+}
 
 export {
   // raw constructors
@@ -477,7 +542,7 @@ export {
   tensor,
   fill,
   rand,
-	convolve,
+  convolve,
   maxpool,
   avgpool,
   relu,
@@ -485,5 +550,6 @@ export {
   symbols,
   expr,
   size,
-  getExceptionMessage
+  getExceptionMessage,
+  clear_heap,
 };

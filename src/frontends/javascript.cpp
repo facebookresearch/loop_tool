@@ -200,7 +200,11 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .constructor(&expr_constructor)
       .function("dump", &dump_expr)
       .function("add", &lazy::Expr::operator+)
+      .function("sub",
+                js::select_overload<lazy::Expr(const lazy::Expr &) const>(
+                    &lazy::Expr::operator-))
       .function("mul", &lazy::Expr::operator*)
+      .function("div", &lazy::Expr::operator/)
       .function("hash", &lazy::Symbol::hash);
   js::class_<lazy::Symbol>("Symbol")
       .constructor<std::string>()
@@ -247,6 +251,8 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("enable_reuse", enable_reuse)
       .function("decrease_reuse", decrease_reuse)
       .function("increase_reuse", increase_reuse)
+      .function("maximize_reuse", maximize_reuse)
+      .function("unroll_inner_loops", unroll_inner_loops)
       .function("map_ref", map_ref);
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor)

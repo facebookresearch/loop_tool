@@ -524,6 +524,32 @@ LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref,
   return LoopTree(new_ir);
 }
 
+LoopTree annotate(
+    const LoopTree& lt,
+    std::unordered_map<LoopTree::TreeRef, std::string> annotations) {
+  auto new_ir = lt.ir;
+  for (const auto& p : annotations) {
+    auto ref = p.first;
+    auto annot = p.second;
+    if (lt.kind(ref) == LoopTree::NODE) {
+      auto node_ref = lt.node(ref);
+      new_ir.annotate(node_ref, annot);
+      return LoopTree(new_ir);
+    }
+    auto loop = lt.loop(ref);
+    auto node_refs = collect_nodes(lt, ref);
+    for (const auto& node_ref : node_refs) {
+      auto loop_order = lt.loop_order(node_ref);
+      for (auto i = 0; i < loop_order.size(); ++i) {
+        if (loop_order.at(i) == loop) {
+          new_ir.annotate_loop(node_ref, i, annot);
+        }
+      }
+    }
+  }
+  return LoopTree(new_ir);
+}
+
 LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
                           const LoopTree& old_lt) {
   if (old_lt.kind(old_ref) == LoopTree::NODE) {
@@ -584,6 +610,68 @@ LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
   }
   auto new_idx = std::min(version, (int32_t)new_versions.size() - 1);
   return new_versions.at(new_idx);
+}
+
+LoopTree maximize_reuse(const LoopTree& lt) {
+  auto ir = lt.ir;
+
+  // This is a naive weighting mechanism
+  // we're going to put all reduction vars inward
+  std::unordered_map<IR::VarRef, float> weight;
+  for (const auto& node_ref : ir.nodes()) {
+    const auto& vars = ir.node(node_ref).vars();
+    auto pw_vars = to_set(ir.pointwise_vars(node_ref));
+    auto reduction_vars = to_set(ir.reduction_vars(node_ref));
+    for (auto i = 0; i < vars.size(); ++i) {
+      const auto& v = vars.at(i);
+      if (pw_vars.count(v)) {
+        weight[v] += 1;
+      } else if (reduction_vars.count(v)) {
+        weight[v] -= 1;
+      }
+    }
+  }
+
+  for (const auto& node_ref : ir.nodes()) {
+    auto order = ir.order(node_ref);
+    std::stable_sort(order.begin(), order.end(),
+                     [&](const std::pair<IR::VarRef, IR::LoopSize>& a,
+                         const std::pair<IR::VarRef, IR::LoopSize>& b) {
+                       return weight[a.first] > weight[b.first];
+                     });
+    ir.set_order(node_ref, order);
+  }
+
+  return LoopTree(ir);
+}
+
+LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount) {
+  std::unordered_map<LoopTree::TreeRef, std::string> annotations;
+  std::vector<LoopTree::TreeRef> no_unroll_above;
+  for (const auto& node_ref : lt.ir.nodes()) {
+    if (!lt.scheduled.count(node_ref)) {
+      continue;
+    }
+    auto ref = lt.scheduled.at(node_ref);
+    auto p = lt.parent(ref);
+    int64_t size = (p != -1) ? lt.loop(p).size : 1;
+    while (p != -1 && size < unroll_amount) {
+      annotations[p] = "unroll";
+      p = lt.parent(p);
+      size *= (p != -1) ? lt.loop(p).size : 1;
+    }
+    no_unroll_above.emplace_back(p);
+  }
+  for (auto p : no_unroll_above) {
+    while (p != -1) {
+      if (annotations.count(p)) {
+        annotations.erase(p);
+      }
+      p = lt.parent(p);
+    }
+  }
+
+  return annotate(lt, annotations);
 }
 
 }  // namespace loop_tool

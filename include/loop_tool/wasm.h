@@ -51,8 +51,11 @@ class WebAssemblyCompiler : public Compiler {
   void push_float_to_stack(
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
-  void push_vector_to_stack(IR::NodeRef node_ref, LoopTree::TreeRef ref) const;
+  void push_vector_to_stack(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref,
+      std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   int32_t get_tmp_f32() const;
+  bool needs_reset(IR::NodeRef node_ref) const;
   void emit_vectorized_node(
       LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;

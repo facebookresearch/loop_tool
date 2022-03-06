@@ -39,4 +39,7 @@ LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref, std::string annot);
 LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
                           const LoopTree& old_lt);
 
+LoopTree maximize_reuse(const LoopTree& lt);
+LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount);
+
 }  // namespace loop_tool

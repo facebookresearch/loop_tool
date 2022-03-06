@@ -125,7 +125,6 @@ class Editor {
 
   update_tree(new_lt) {
     this.highlight = new_lt.map_ref(this.highlight, this.lt);
-    this.lt.delete();
     this.lt = new_lt;
     this.t.set_loop_tree(this.lt);
     this.changed = true;
@@ -136,7 +135,8 @@ class Editor {
       if (!this.lt.is_loop(refb) && !this.lt.is_loop(refa)) {
         this.update_tree(this.lt.swap_nodes(refa, refb));
       } else if (!this.lt.is_loop(refa) && this.lt.is_loop(refb)) {
-        if (this.lt.parent(refa) == refb) { // TODO siblings
+        if (this.lt.parent(refa) == refb) {
+          // TODO siblings
           this.update_tree(this.lt.remove_loop(refa, refb));
         } else {
           this.update_tree(this.lt.add_loop(refa, refb));
@@ -165,8 +165,9 @@ class Editor {
           bench_ms = 1000;
           warmup_ms = 500;
         }
-        this.flops = Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
-        this.iters = Math.round(this.flops * 1e11 / this.t.flops) / 1e2;
+        this.flops =
+          Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
+        this.iters = Math.round((this.flops * 1e11) / this.t.flops) / 1e2;
         this.benchspan.textContent = `${this.flops} gflops | ${this.iters} iters/sec`;
         this.changed = false;
       }
@@ -269,7 +270,9 @@ class Editor {
       if (sized) {
         const elems = this.lt.node_size(nr);
         const is_local = this.lt.node_is_locally_stored(nr);
-        const s = spanGen(` [${elems} elem${elems > 1 ? "s" : ""}${is_local ? " (local)" : ""}]`);
+        const s = spanGen(
+          ` [${elems} elem${elems > 1 ? "s" : ""}${is_local ? " (local)" : ""}]`
+        );
         out.push(s);
       }
       return out;
@@ -411,4 +414,4 @@ async function setup() {
   await log("    - SIMD is a work in progress");
 }
 
-export { setup, Editor }
+export { setup, Editor };

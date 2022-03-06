@@ -54,9 +54,8 @@ WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
     }
 
     const auto& peak_next = i < nodes.size() - 1 ? nodes.at(i + 1) : -1;
-    bool is_reduction = lt.ir.reduction_vars(node_ref).size();
-    if (!is_reduction && alloc.size() == 1 && node.outputs().size() == 1 &&
-        node.outputs().at(0) == peak_next) {
+    if (!needs_reset(alloc.node_ref) && alloc.size() == 1 &&
+        node.outputs().size() == 1 && node.outputs().at(0) == peak_next) {
       stack_storage.insert(node_ref);
     } else {
       local_storage.insert(node_ref);
@@ -66,22 +65,6 @@ WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
 
 Expr WebAssemblyCompiler::get_scoped_expr(
     const Compiler::Access& access) const {
-  // grab index equation
-  // std::vector<Expr> scoped_exprs;
-  // for (const auto& p : access.exprs) {
-  //  auto expr = p.first
-  //                  .walk([&](const Expr& e) {
-  //                    if (e.type() == Expr::Type::symbol) {
-  //                      if (!sym_strides.count(e.symbol())) {
-  //                        return Expr(0);
-  //                      }
-  //                    }
-  //                    return e;
-  //                  })
-  //                  .simplify();
-  //  scoped_exprs.emplace_back(expr);
-  //}
-
   Expr full_expr(0);
   for (auto i = 0; i < access.scoped_exprs.size(); ++i) {
     auto stride = access.alloc.size(i + 1);
@@ -187,8 +170,13 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
   return offset;
 }
 
-void WebAssemblyCompiler::push_vector_to_stack(IR::NodeRef node_ref,
-                                               LoopTree::TreeRef ref) const {}
+void WebAssemblyCompiler::push_vector_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  // auto p = lt.parent(ref);
+  // auto loop = lt.loop(p);
+  // if (stack_v128.count(node_ref) &&
+}
 
 void WebAssemblyCompiler::push_float_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
@@ -209,7 +197,15 @@ void WebAssemblyCompiler::push_float_to_stack(
 
 void WebAssemblyCompiler::emit_vectorized_node(
     LoopTree::TreeRef ref,
-    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {}
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  const auto& parent = lt.parent(ref);
+  if (!unrolls.count(parent)) {
+    std::cerr << "Warning: cannot emit vectorized node unless unrolled";
+    return emit_node(ref, unrolls);
+  }
+  const auto& node_ref = lt.node(ref);
+  const auto off = get_unroll_offset(node_ref, ref, unrolls);
+}
 
 void WebAssemblyCompiler::emit_node(
     LoopTree::TreeRef ref,
@@ -281,6 +277,26 @@ void WebAssemblyCompiler::emit_node(
   }
 }
 
+bool WebAssemblyCompiler::needs_reset(IR::NodeRef node_ref) const {
+  const auto& node = lt.ir.node(node_ref);
+  bool needs_set =
+      lt.ir.reduction_vars(node_ref).size() && node.op() != Operation::view;
+  for (const auto& input : node.inputs()) {
+    // this is only necessary if the view has "empty" outputs
+    // which only happens if its access is bounded
+    if (lt.ir.node(input).op() == Operation::view &&
+        !lt.scheduled.count(input)) {
+      const auto& acc = gen_access(input, lt.scheduled.at(node_ref));
+      for (const auto& b : acc.bounds) {
+        if (b.first != 0 || b.second != -1) {
+          needs_set = true;
+        }
+      }
+    }
+  }
+  return needs_set;
+}
+
 void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
   auto value = [&](const Node& node) -> float {
     if (node.op() == Operation::add) {
@@ -306,28 +322,11 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
     }
 
     const auto& node = lt.ir.node(alloc.node_ref);
-    bool needs_set = lt.ir.reduction_vars(alloc.node_ref).size() &&
-                     node.op() != Operation::view;
-    for (const auto& input : node.inputs()) {
-      // this is only necessary if the view has "empty" outputs
-      // which only happens if its access is bounded
-      if (lt.ir.node(input).op() == Operation::view &&
-          !lt.scheduled.count(input)) {
-        const auto& acc = gen_access(input, lt.scheduled.at(alloc.node_ref));
-        for (const auto& b : acc.bounds) {
-          if (b.first != 0 || b.second != -1) {
-            needs_set = true;
-          }
-        }
-      }
-    }
-    if (!lt.scheduled.count(alloc.node_ref) || !needs_set) {
+    if (!lt.scheduled.count(alloc.node_ref) || !needs_reset(alloc.node_ref)) {
       continue;
     }
     if (stack_f32.count(alloc.node_ref)) {
-      std::cerr << "alloc is " << lt.ir.dump(alloc.node_ref) << "\n";
-      ASSERT(0) << "reset not implemented for stack resident memory";
-      cg->f32.const_(value(node));
+      ASSERT(0) << "reset not possible for stack resident memory";
     } else if (local_f32.count(alloc.node_ref)) {
       for (const auto& local : local_f32.at(alloc.node_ref)) {
         cg->f32.const_(value(node));
