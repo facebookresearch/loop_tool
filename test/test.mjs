@@ -44,29 +44,29 @@ function mm(a, b, m, n, k) {
   return c;
 }
 
-try{
-(async () => {
-  let [m, n, k] = lt.symbols("M N K");
-  let a = new lt.Tensor(100, 200).to(m, k);
-  let b = new lt.Tensor(200, 300).to(k, n);
-  rand(a.buffer);
-  rand(b.buffer);
-  let c = a.mul(b).sum(k);
-  let loop_tree = c.loop_tree;
-  console.log(loop_tree.walk().length);
-  for (let ref of loop_tree.walk()) {
-    const d = loop_tree.depth(ref);
-    if (loop_tree.is_loop(ref)) {
-      const loop = loop_tree.loop(ref);
-      const v = loop.v();
-      console.log(" ".repeat(d), "iter", loop_tree.var_name(v));
-    } else {
-      const node = loop_tree.node(ref);
-      console.log(" ".repeat(d), 'node');
+try {
+  (async () => {
+    let [m, n, k] = lt.symbols("M N K");
+    let a = new lt.Tensor(100, 200).to(m, k);
+    let b = new lt.Tensor(200, 300).to(k, n);
+    rand(a.buffer);
+    rand(b.buffer);
+    let c = a.mul(b).sum(k);
+    let loop_tree = c.loop_tree;
+    console.log(loop_tree.walk().length);
+    for (let ref of loop_tree.walk()) {
+      const d = loop_tree.depth(ref);
+      if (loop_tree.is_loop(ref)) {
+        const loop = loop_tree.loop(ref);
+        const v = loop.v();
+        console.log(" ".repeat(d), "iter", loop_tree.var_name(v));
+      } else {
+        const node = loop_tree.node(ref);
+        console.log(" ".repeat(d), 'node');
+      }
     }
-  }
-})()
-} catch(e) {
+  })()
+} catch (e) {
   console.log(e);
 }
 
@@ -78,7 +78,9 @@ try{
   rand(a.buffer);
   let b = new lt.Tensor(3).to(k);
   rand(b.buffer);
-  a = a.to(no, k, [[n.expr(), no.expr().add(k.expr())]]);
+  a = a.to(no, k, [
+    [n.expr(), no.expr().add(k.expr())]
+  ]);
   let c = a.mul(b).sum(k);
   console.log(c.shape);
   const loop_tree = c.loop_tree;
@@ -101,7 +103,7 @@ try{
   let c = a.add(b);
   c = c.add(b);
   console.log(c.hash + '.wasm');
-  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
+  fs.writeFile(c.hash + '.wasm', c.wasm, _ => {});
   //console.log(c.graphviz);
   let d = await c.data;
   console.log(d);
@@ -122,7 +124,7 @@ try{
   console.log(loop_tree.dump());
   c.set_loop_tree(loop_tree);
   console.log(c.hash + '.wasm');
-  fs.writeFile(c.hash + '.wasm', c.wasm, _=>{});
+  fs.writeFile(c.hash + '.wasm', c.wasm, _ => {});
   let d = await c.data;
   for (let i = 0; i < N; ++i) {
     if (Math.abs(d[i] - (a.buffer[i] + 2 * b.buffer[i])) > 0.001) {
@@ -209,12 +211,10 @@ async function benchmark(fn, warmup = 100, iters = 10000) {
   let tree = b.loop_tree;
   const roots = tree.children(-1);
   let new_tree = tree.annotate(roots[0], "unroll");
-  tree.delete();
-  tree = new_tree;
-  b.set_loop_tree(tree);
+  new_tree;
+  b.set_loop_tree(new_tree);
   const e = new Float32Array(1);
   console.log(b.data);
   e.set(await b.data);
   console.log("diff", d, e);
 })();
-

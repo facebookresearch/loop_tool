@@ -61,6 +61,21 @@ IR split_var(const IR& ir_, IR::VarRef v) {
   return ir;
 }
 
+IR swap_vars(const IR& ir_, IR::NodeRef node_ref, IR::VarRef a, IR::VarRef b) {
+  auto ir = ir_;
+  auto& node = ir.node(node_ref);
+  ASSERT(a != b) << "cannot swap var with itself";
+  auto& vars = node.vars();
+  auto a_idx = std::find(vars.begin(), vars.end(), a);
+  ASSERT(a_idx != vars.end()) << "cannot find var " << ir.var(a).name()
+                              << " in node " << ir.dump(node_ref);
+  auto b_idx = std::find(vars.begin(), vars.end(), b);
+  ASSERT(b_idx != vars.end()) << "cannot find var " << ir.var(b).name()
+                              << " in node " << ir.dump(node_ref);
+  std::iter_swap(a_idx, b_idx);
+  return ir;
+}
+
 std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
                                        LoopTree::TreeRef ref) {
   ASSERT(lt.kind(ref) == LoopTree::LOOP)
@@ -242,6 +257,11 @@ LoopTree swap_nodes(const LoopTree& lt, LoopTree::TreeRef a,
   new_ir.set_priority(a_nr, p_b);
   new_ir.set_priority(b_nr, p_a);
   return LoopTree(new_ir);
+}
+
+LoopTree swap_vars(const LoopTree& lt, IR::NodeRef node_ref, IR::VarRef a,
+                   IR::VarRef b) {
+  return LoopTree(swap_vars(lt.ir, node_ref, a, b));
 }
 
 // this isn't always safe in the case of view operations

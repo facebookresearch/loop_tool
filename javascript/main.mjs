@@ -38,6 +38,114 @@ class Editor {
     this.bench_loop();
   }
 
+  get_vars() {
+    if (this.lt.is_loop(this.highlight)) {
+      return [];
+    }
+    let out = [];
+    const node = this.lt.node(this.highlight);
+    out.push(this.lt.node_vars(node));
+    const inputs = this.lt.node_inputs(node);
+    for (let inp of inputs) {
+      out.push(this.lt.node_vars(inp));
+    }
+    return out;
+  }
+
+  prev_var() {
+    const vars = this.get_vars();
+    if (!this.var_highlight) {
+      return;
+    }
+    let {
+      val_idx,
+      var_idx
+    } = this.var_highlight;
+    if (var_idx == 0) {
+      if (val_idx == 0) {
+        return;
+      }
+      val_idx = val_idx - 1;
+      var_idx = vars[val_idx].length - 1;
+      this.var_highlight = {
+        val_idx: val_idx,
+        var_idx: var_idx
+      };
+    } else {
+      this.var_highlight = {
+        val_idx: val_idx,
+        var_idx: var_idx - 1
+      };
+    }
+  }
+
+  swap_prev_var() {
+    const vars = this.get_vars();
+    if (!this.var_highlight) {
+      return;
+    }
+    let {
+      val_idx,
+      var_idx
+    } = this.var_highlight;
+    if (var_idx == 0) {
+      return;
+    }
+    let n = this.lt.node(this.highlight);
+    if (val_idx != 0) {
+      n = this.lt.node_inputs(n)[val_idx - 1];
+    }
+    const a = vars[val_idx][var_idx];
+    const b = vars[val_idx][var_idx - 1];
+    this.update_tree(this.lt.swap_vars(n, a, b));
+  }
+
+  next_var() {
+    const vars = this.get_vars();
+    if (!this.var_highlight) {
+      return;
+    }
+    const {
+      val_idx,
+      var_idx
+    } = this.var_highlight;
+    if (vars[val_idx].length - 1 == var_idx) {
+      if (vars.length - 1 == val_idx) {
+        return;
+      }
+      this.var_highlight = {
+        val_idx: val_idx + 1,
+        var_idx: 0
+      };
+    } else {
+      this.var_highlight = {
+        val_idx: val_idx,
+        var_idx: var_idx + 1
+      };
+    }
+  }
+
+  swap_next_var() {
+    const vars = this.get_vars();
+    if (!this.var_highlight) {
+      return;
+    }
+    let {
+      val_idx,
+      var_idx
+    } = this.var_highlight;
+    if (var_idx == vars[val_idx].length - 1) {
+      return;
+    }
+    let n = this.lt.node(this.highlight);
+    if (val_idx != 0) {
+      n = this.lt.node_inputs(n)[val_idx - 1];
+    }
+    const a = vars[val_idx][var_idx];
+    const b = vars[val_idx][var_idx + 1];
+    this.update_tree(this.lt.swap_vars(n, a, b));
+  }
+
   handle_keydown(e) {
     console.log(e);
     if (e.code === "ArrowUp") {
@@ -46,11 +154,12 @@ class Editor {
         this.try_swap(this.highlight, prev);
         this.highlight = prev;
         return;
-      } else if (e.metaKey && !this.lt.is_loop(this.highlight)) {
+      } else if ((e.metaKey || e.ctrlKey) && !this.lt.is_loop(this.highlight)) {
         this.update_tree(this.lt.decrease_reuse(this.highlight));
         return;
       }
       this.highlight = this.lt.prev_ref(this.highlight);
+      this.var_highlight = null;
     }
     if (e.code === "ArrowDown") {
       if (e.shiftKey) {
@@ -58,11 +167,42 @@ class Editor {
         this.try_swap(this.highlight, next);
         this.highlight = next;
         return;
-      } else if (e.metaKey && !this.lt.is_loop(this.highlight)) {
+      } else if ((e.metaKey || e.ctrlKey) && !this.lt.is_loop(this.highlight)) {
         this.update_tree(this.lt.increase_reuse(this.highlight));
         return;
       }
       this.highlight = this.lt.next_ref(this.highlight);
+      this.var_highlight = null;
+    }
+    if (e.code === "ArrowLeft") {
+      if (!this.var_highlight) {
+        return;
+      }
+      if (e.shiftKey) {
+        this.swap_prev_var();
+      }
+      this.prev_var();
+    }
+
+    if (e.code === "ArrowRight") {
+      if (!this.var_highlight) {
+        return;
+      }
+      if (e.shiftKey) {
+        this.swap_next_var();
+      }
+      this.next_var();
+    }
+    if (e.code == "Enter") {
+      if (!this.lt.is_loop(this.highlight)) {
+        const vars = this.get_vars();
+        if (vars.length) {
+          this.var_highlight = {
+            val_idx: 0,
+            var_idx: 0
+          };
+        }
+      }
     }
     if (e.code === "Backspace") {
       if (!this.lt.is_loop(this.highlight)) {
@@ -74,6 +214,22 @@ class Editor {
       }
       try {
         this.update_tree(this.lt.merge(this.highlight));
+      } catch (e) {
+        throw lt.getExceptionMessage(e);
+      }
+    }
+    if (e.code === "KeyV") {
+      if (!this.lt.is_loop(this.highlight)) {
+        return;
+      }
+      let annot = this.lt.annotation(this.highlight);
+      if (annot === "vectorize") {
+        annot = "";
+      } else {
+        annot = "vectorize";
+      }
+      try {
+        this.update_tree(this.lt.annotate(this.highlight, annot));
       } catch (e) {
         throw lt.getExceptionMessage(e);
       }
@@ -165,11 +321,15 @@ class Editor {
           bench_ms = 1000;
           warmup_ms = 500;
         }
-        this.flops =
-          Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
-        this.iters = Math.round((this.flops * 1e11) / this.t.flops) / 1e2;
-        this.benchspan.textContent = `${this.flops} gflops | ${this.iters} iters/sec`;
-        this.changed = false;
+        try {
+          this.flops =
+            Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
+          this.iters = Math.round((this.flops * 1e11) / this.t.flops) / 1e2;
+          this.benchspan.textContent = `${this.flops} gflops | ${this.iters} iters/sec`;
+          this.changed = false;
+        } catch (e) {
+          this.benchspan.textContent = '[[cannot run]]';
+        }
       }
       await new Promise((resolve) => {
         requestAnimationFrame(resolve);
@@ -211,6 +371,7 @@ class Editor {
         this.colors = this.colors.slice(1);
         return c;
       }
+
       function randomChannel(brightness) {
         const r = 255 - brightness;
         const n = 0 | (Math.random() * r + brightness);
@@ -225,7 +386,7 @@ class Editor {
       );
     };
 
-    const renderVar = (v) => {
+    const renderVar = (v, h) => {
       const s = spanGen(this.lt.var_name(v).split("_")[0]);
       if (v == highlighted_var) {
         s.style.fontWeight = "bold";
@@ -234,44 +395,63 @@ class Editor {
         this.pallette[v] = randomColor(80);
       }
       s.style.color = this.pallette[v];
+      if (h) {
+        s.style.background = '#333333';
+      }
       return s;
     };
-    const renderValue = (n) => {
+    const renderValue = (n, hi) => {
       let out = [];
       out.push(spanGen("%" + n + "["));
       const vs = this.lt.node_vars(n);
       let set = false;
+      let i = 0;
       for (let v of vs) {
         if (set) {
           out.push(spanGen(", "));
         } else {
           set = true;
         }
-        out.push(renderVar(v));
+        out.push(renderVar(v, hi == i));
+        i++;
       }
       out.push(spanGen("]"));
       return out;
     };
-    const renderNode = (nr, sized) => {
+    const renderNode = (nr, highlighted) => {
       let out = [];
       let set = false;
-      out.push(spanGen(`%${nr} = `));
+      let hi = -1;
+      const hi_idx = highlighted && this.var_highlight ? this.var_highlight.val_idx : -1;
+      if (hi_idx == 0) {
+        hi = this.var_highlight.var_idx;
+      }
+      out = out.concat(renderValue(nr, hi));
+      out.push(spanGen(` = `));
       out.push(spanGen(this.lt.node_type(nr)));
       out.push(spanGen("("));
+      let val_idx = 1;
       for (let n of this.lt.node_inputs(nr)) {
         if (set) {
           out.push(spanGen(", "));
         } else {
           set = true;
         }
-        out = out.concat(renderValue(n));
+        if (val_idx == hi_idx) {
+          hi = this.var_highlight.var_idx;
+        } else {
+          hi = -1;
+        }
+        out = out.concat(renderValue(n, hi));
+        val_idx++;
       }
       out.push(spanGen(")"));
-      if (sized) {
+      if (highlighted) {
         const elems = this.lt.node_size(nr);
-        const is_local = this.lt.node_is_locally_stored(nr);
+        let attr = this.lt.node_attributes(nr);
+        attr = attr.length ? ` (${attr})` : '';
         const s = spanGen(
-          ` [${elems} elem${elems > 1 ? "s" : ""}${is_local ? " (local)" : ""}]`
+          ` [${elems} elem${elems > 1 ? "s" : ""}${attr}]`
         );
         out.push(s);
       }
@@ -348,8 +528,12 @@ class Renderer {
     } else {
       const mod = this.wabt.readWasm(this.t.wasm, {
         readDebugNames: true,
+        simd: true,
       });
-      text = mod.toText({ foldExprs: false, inlineExport: false });
+      text = mod.toText({
+        foldExprs: false,
+        inlineExport: false
+      });
     }
     this.code_elem.textContent = text;
     this.code_elem.innerHTML = hljs.highlight(text, {
@@ -377,10 +561,12 @@ async function setup() {
     tabSize: 2,
     mode: "javascript",
   });
-  editor.on("change", function () {
+  editor.on("change", function() {
     try {
       eval(editor.getValue());
-    } catch (e) {}
+    } catch (e) {
+      console.log(e);
+    }
   });
 
   window.addEventListener("keydown", (e) => {
@@ -414,4 +600,8 @@ async function setup() {
   await log("    - SIMD is a work in progress");
 }
 
-export { setup, Editor };
+export {
+  setup,
+  Editor,
+  Renderer
+};

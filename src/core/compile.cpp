@@ -874,9 +874,9 @@ size_t getCount() {
 
 Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
   count = getCount();
-  std::vector<LoopTree::TreeRef> reverse_order;
-  lt.walk([&](LoopTree::TreeRef ref, int) { reverse_order.emplace_back(ref); });
-  std::reverse(reverse_order.begin(), reverse_order.end());
+  // std::vector<LoopTree::TreeRef> reverse_order;
+  // lt.walk([&](LoopTree::TreeRef ref, int) { reverse_order.emplace_back(ref);
+  // }); std::reverse(reverse_order.begin(), reverse_order.end());
 
   std::unordered_map<IR::VarRef, int64_t> cur_sizes;
   std::unordered_set<LoopTree::TreeRef> traversed;
@@ -971,25 +971,34 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
         << "size could not be deduced for var " << lt.ir.var(v).name();
   }
 
-  for (auto &ref : reverse_order) {
-    if (lt.kind(ref) == LoopTree::NODE) {
-      cur_sizes.clear();
+  // loops we've accounted for
+  std::unordered_set<LoopTree::TreeRef> seen;
+  for (const auto &n : lt.ir.nodes()) {
+    if (!lt.scheduled.count(n)) {
       continue;
     }
-    auto loop = lt.loop(ref);
-    auto inner_size = cur_sizes.count(loop.var) ? cur_sizes.at(loop.var) : 1;
-    if (inner_sizes.count(ref)) {
-      ASSERT(inner_sizes.at(ref) == inner_size);
+    auto ref = lt.scheduled.at(n);
+    auto p = lt.parent(ref);
+    if (seen.count(p)) {
       continue;
     }
-
-    inner_sizes[ref] = inner_size;
-    int64_t var_size = loop.size * inner_size + loop.tail;
-    cur_sizes[loop.var] = var_size;
-    if (var_sizes.count(loop.var)) {
-      var_size = std::max(var_sizes.at(loop.var), var_size);
+    seen.insert(p);
+    std::unordered_map<IR::VarRef, int64_t> cur_sizes;
+    while (p != -1) {
+      auto loop = lt.loop(p);
+      auto inner_size = cur_sizes.count(loop.var) ? cur_sizes.at(loop.var) : 1;
+      if (inner_sizes.count(p)) {
+        inner_size = std::max(inner_size, inner_sizes.at(p));
+      }
+      inner_sizes[p] = inner_size;
+      int64_t var_size = loop.size * inner_size + loop.tail;
+      cur_sizes[loop.var] = var_size;
+      if (var_sizes.count(loop.var)) {
+        var_size = std::max(var_sizes.at(loop.var), var_size);
+      }
+      var_sizes[loop.var] = var_size;
+      p = lt.parent(p);
     }
-    var_sizes[loop.var] = var_size;
   }
 
   // gen_alloc only works after we get var_sizes

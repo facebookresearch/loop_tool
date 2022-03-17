@@ -1,0 +1,171 @@
+<link
+  rel="stylesheet"
+  href="//unpkg.com/@highlightjs/cdn-assets@11.4.0/styles/atom-one-dark.min.css"
+/>
+<script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/highlight.min.js"></script>
+<script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/languages/wasm.min.js"></script>
+<script src="https://unpkg.com/wabt@1.0.16/index.js"></script>
+<style>
+#output {
+  overflow: scroll;
+}
+
+.wrapper {
+  height: 50vh;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-auto-rows: 1fr;
+}
+.left {
+  grid-column: 1;
+  grid-row: 1;
+  height: 100%;
+  overflow: scroll;
+}
+.right {
+  grid-column: 2;
+  grid-row: 1;
+  height: 100%;
+  overflow: scroll;
+}
+</style>
+<div id="loop_edit"></div>
+<div class="wrapper">
+  <pre class="left" id="output"></pre>
+  <div class="right" id="wasm"></div>
+</div>
+<script type="module">
+import * as lt from "./loop_tool.mjs";
+import * as util from "./main.mjs";
+
+function log(...args) {
+  const str = args.join(" ");
+  const log_pre = document.querySelector('#output');
+  log_pre.appendChild(document.createTextNode(str));
+  log_pre.appendChild(document.createElement('br'));
+  log_pre.scrollTop = log_pre.scrollHeight;
+}
+
+const SIZE = 128;
+function test_mm(x,y) {
+  return x.mul(y).sum(y.symbolic_shape[0])
+}
+function ref_mm(xd, yd, out, M, N, K) {
+  for (let m = 0; m < M; ++m) {
+    for (let n = 0; n < N; ++n) {
+      for (let k = 0; k < K; ++k) {
+        out[m *N + n] += xd[m * K + k] * yd[k * N + n];
+      }
+    }
+  }
+}
+
+function gen_mm() {
+  const [m, n, k] = lt.symbols("m n k")
+  const x = lt.tensor(SIZE, SIZE).to(m, k)
+  const y = lt.tensor(SIZE, SIZE).to(k, n)
+  const z = lt.tensor(SIZE).to(n)
+  const x_ref = new Float32Array(SIZE * SIZE);
+  const y_ref = new Float32Array(SIZE * SIZE);
+  const z_ref = new Float32Array(SIZE);
+  const out_ref = new Float32Array(SIZE * SIZE);
+  for (let i = 0; i < SIZE * SIZE; ++i) {
+    x_ref[i] = Math.random() * 10;
+    y_ref[i] = Math.random() * 10;
+    z_ref[i % SIZE] = Math.random() * 10;
+  }
+  x.set(x_ref)
+  y.set(y_ref)
+  z.set(z_ref)
+  return [x, y, z, x_ref, y_ref, z_ref, out_ref];
+}
+
+// padded conv reference
+function ref_conv(x, w, o, ci, co, hw, k, pad) {
+  const hwo = hw - k + 1;
+  for (let h = 0; h < hwo; ++h) {
+    for (let w = 0; w < hwo; ++w) {
+      for (let kh = 0; kh < k; ++kh) {
+        for (let kw = 0; kw < k; ++kw) {
+          for (let c = 0; c < ci; ++c) {
+            for (let m = 0; m < co; ++m) {
+              const a = x[(h + kh) * hw * ci + (w + kw) * ci + c]
+              const b = w[kh * k * ci * co + kw * ci * co + c * co + m];
+              o[h * hwo * co + w * co + m] += a * b;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function gen_conv(hw, pad) {
+  const [h, w, kh, kw, ci, co] = lt.symbols("h w kh kw ci co");
+  const X = lt.tensor(hw, hw, 64).to(h, w, ci);
+  const W = lt.tensor(3, 3, 64, 64).to(kh, kw, ci, co);
+  const X_ref = new Float32Array(hw * hw * 64);
+  const W_ref = new Float32Array(3 * 3 * 64 * 64);
+  const out_ref = new Float32Array((14 + pad) * (14 + pad) * 64);
+  for (let i = 0; i < X_ref.length; ++i) {
+    X_ref[i] = Math.random() * 10;
+  }
+  for (let i = 0; i < W_ref.length; ++i) {
+    W_ref[i] = Math.random() * 10;
+  }
+  X.set(X_ref)
+  W.set(W_ref)
+  return [X, W, X_ref, W_ref, out_ref];
+}
+
+function test_conv(X, W) {
+  const [h, w, ci] = X.symbolic_shape;
+  const [kh, kw, _, co] = W.symbolic_shape;
+  return lt.convolve(X, W, [h, w], [kh, kw]);
+}
+
+let r = null;
+async function test() {
+  //const [x, y, z, x_ref, y_ref, z_ref, out_ref] = gen_mm();
+  //const w = test_mm(x,y);
+  //ref_mm(x_ref, y_ref, out_ref, SIZE, SIZE, SIZE);
+  //const d = await w.data
+  const pad = 0;
+  const hw = 8;
+  const [X, W, X_ref, W_ref, out_ref] = gen_conv(hw, pad);
+  const ci = 64;
+  const co = 64;
+  const k = 3;
+  ref_conv(X_ref, W_ref, out_ref, ci, co, hw, k, pad);
+  const w = test_conv(X, W, pad);
+  const d = await w.data;
+
+  let error = false;
+  for (let i = 0; i < out_ref.length; ++i) {
+    if (Math.abs(d[i] - out_ref[i]) > 0.001 * Math.abs(out_ref[i])) {
+      log(`error found ${d[i]} @ idx ${i}, expected ${out_ref[i]}`)
+      error = true
+      break
+    }
+  }
+  if (!error) {
+    log("pass")
+  }
+  r.render();
+}
+
+const pad = 0;
+const hw = 8;
+const [X, W, X_ref, W_ref, out_ref] = gen_conv(hw, pad);
+const w = test_conv(X, W, pad);
+const loop_editor = new util.Editor(document.querySelector("#loop_edit"), w, test)
+let wabt = WabtModule();
+r = new util.Renderer(document.getElementById("wasm"), wabt, w);
+
+loop_editor.render();
+window.addEventListener("keydown", (e) => {
+  e.preventDefault();
+  loop_editor.handle_keydown(e);
+  loop_editor.render();
+});
+</script>

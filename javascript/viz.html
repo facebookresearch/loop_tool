@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>loop_tool demo</title>
+    <script src="//d3js.org/d3.v5.min.js"></script>
+    <script src="https://unpkg.com/@hpcc-js/wasm@0.3.11/dist/index.min.js"></script>
+    <script src="https://unpkg.com/d3-graphviz@3.0.5/build/d3-graphviz.js"></script>
+    <script src="https://unpkg.com/wabt@1.0.16/index.js"></script>
+    <link
+      rel="stylesheet"
+      href="//unpkg.com/@highlightjs/cdn-assets@11.4.0/styles/atom-one-dark.min.css"
+    />
+    <script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/highlight.min.js"></script>
+    <script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/languages/wasm.min.js"></script>
+    <script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/languages/c.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/codemirror@5.56.0/lib/codemirror.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.56.0/theme/monokai.min.css"
+    />
+    <script src="//unpkg.com/codemirror@5.56.0/lib/codemirror.js"></script>
+    <script src="//unpkg.com/codemirror@5.56.0/mode/javascript/javascript.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        height: 100%;
+        width: 100%;
+      }
+
+      pre {
+        margin: 0;
+        padding: 10px;
+      }
+
+      .scroll {
+        scrollbar-width: none;
+        overflow: scroll;
+        height: 100%;
+        width: 100%;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .wrapper {
+        width: 100%;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: 1fr;
+        min-width: 0px;
+      }
+
+      .topleft {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .botleft {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      .topright {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .botright {
+        grid-column: 2;
+        grid-row: 2;
+      }
+
+      #codeeditor {
+        font-family: monospace;
+        height: 100%;
+        width: 100%;
+      }
+
+      .CodeMirror {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import { setup } from "./main.mjs";
+
+      setup();
+    </script>
+    <div class="wrapper">
+      <div class="botleft scroll hljs" id="edit"></div>
+      <div class="topright scroll hljs">
+        <!--const [m, n, k] = lt.symbols("m n k");
+const a = lt.rand(2).to(m);
+const c = a.sum(m);
+
+// enables interaction
+render(c);</textarea>-->
+        <textarea id="codeeditor">
+const [m, n, k] = lt.symbols("m n k");
+const a = lt.tensor(256, 256).to(m, k);
+const b = lt.tensor(256, 256).to(k, n);
+const c = a.mul(b).sum(k);
+
+// enables interaction above
+// render(c);
+const [h, w, kh, kw, ci, co] = lt.symbols("h w kh kw ci co");
+const X = lt.tensor(16, 16, 64).to(h, w, ci);
+const W = lt.tensor(3, 3, 64, 64).to(kh, kw, ci, co);
+const Y = lt.convolve(X, W, [h, w], [kh, kw]);
+
+// enables interaction above
+render(Y);
+</textarea>
+      </div>
+      <div class="topleft scroll hljs">
+        <a
+          href="https://github.com/facebookresearch/loop_tool"
+          target="_blank"
+          style="font-family: monospace; color: white; float: right"
+          >[[source repo]]</a
+        >
+        <a
+          href="webcam.html"
+          target="_blank"
+          style="font-family: monospace; color: white; float: right"
+          >[[webcam demo]]</a
+        >
+        <pre id="output"></pre>
+      </div>
+      <div class="botright scroll hljs" id="display"></div>
+    </div>
+  </body>
+</html>

@@ -349,8 +349,9 @@ class Node {
     return sym_var_map_.count(sym.id());
   }
 
-  const Operation &op() const { return op_; }
-  const std::vector<IR::VarRef> &vars() const { return vars_; }
+  inline const Operation &op() const { return op_; }
+  inline const std::vector<IR::VarRef> &vars() const { return vars_; }
+  inline std::vector<IR::VarRef> &vars() { return vars_; }
 
  private:
   Operation op_;

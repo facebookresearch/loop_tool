@@ -84,10 +84,11 @@ class CompilationCache {
     this.hash_list.push(h);
 
     if (!(h in this.loop_tree_cache)) {
-			this.loop_tree_cache[h] = tensor.loop_tree();
+      this.loop_tree_cache[h] = tensor.loop_tree();
     }
     const loop_tree = this.loop_tree_cache[h];
-		const wasm = loop_tree.wasm();
+    const wasm = loop_tree.wasm();
+    console.log(wasm);
     const m = await WebAssembly.compile(wasm).catch((e) => {
       throw e;
     });
@@ -182,7 +183,6 @@ function convolve(x, w, spatial_dims, window_dims, stride = 1) {
       reduction_dims.push(dim);
       continue;
     }
-    outer_dims.push(dim);
   }
 
   const im2col = x.to(
@@ -397,13 +397,13 @@ class Tensor {
     this.data_ = null;
   }
 
-	optimize() {
-		const loop_tree = this.loop_tree;
-		const reuse_loop_tree = loop_tree.maximize_reuse();
-		const unroll_loop_tree = reuse_loop_tree.unroll_inner_loops(64);
-		reuse_loop_tree.delete();
-		this.set_loop_tree(unroll_loop_tree);
-	}
+  optimize() {
+    const loop_tree = this.loop_tree;
+    const reuse_loop_tree = loop_tree.maximize_reuse();
+    const unroll_loop_tree = reuse_loop_tree.unroll_inner_loops(64);
+    reuse_loop_tree.delete();
+    this.set_loop_tree(unroll_loop_tree);
+  }
 
   collect_inputs(...ts) {
     let inputs = [];

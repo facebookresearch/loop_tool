@@ -133,9 +133,25 @@ int32_t node_size(const LoopTree &lt, IR::NodeRef node_ref) {
   return wc.allocations.at(node_ref).size();
 }
 
-bool node_is_locally_stored(const LoopTree &lt, IR::NodeRef node_ref) {
+std::string node_attributes(const LoopTree &lt, IR::NodeRef node_ref) {
+  std::stringstream ss;
   auto wc = loop_tool::WebAssemblyCompiler(lt);
-  return wc.is_local(node_ref);
+  if (wc.is_local(node_ref)) {
+    ss << "local";
+  }
+  if (wc.is_on_stack(node_ref)) {
+    ss << "stack";
+  }
+  if (wc.is_vector_stored(node_ref)) {
+    auto var_name = lt.ir.var(wc.vector_storage_dim(node_ref)).name();
+    ss << ", vectorized";
+    auto var_sym_name = var_name.substr(0, var_name.find("_"));
+    ss << " over " << var_sym_name;
+    if (wc.is_broadcast(node_ref)) {
+      ss << ", broadcast";
+    }
+  }
+  return ss.str();
 }
 
 lazy::Expr expr_from_sym(lazy::Symbol sym) { return lazy::Expr(sym); }
@@ -234,7 +250,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("node_vars", &node_vars)
       .function("node_type", &node_type)
       .function("node_size", &node_size)
-      .function("node_is_locally_stored", &node_is_locally_stored)
+      .function("node_attributes", &node_attributes)
       .function("node_s", &dump_node)
       .function("var_name", &var_name)
       .function("annotation", &LoopTree::annotation)
@@ -243,6 +259,10 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("merge", merge)
       .function("swap", swap)
       .function("swap_nodes", swap_nodes)
+      .function(
+          "swap_vars",
+          js::select_overload<LoopTree(const LoopTree &, IR::NodeRef,
+                                       IR::VarRef, IR::VarRef)>(swap_vars))
       .function("copy_input", copy_input)
       .function("delete_copy", delete_copy)
       .function("add_loop", add_loop)

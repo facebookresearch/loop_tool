@@ -16,16 +16,30 @@ WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
   // lanes and which register data lives in
   // TODO this is overly restrictive -- we can also store things in register
   // if only their relevant vars are unrolled (and irrelevant are not).
-  auto completely_unrolled = [&](LoopTree::TreeRef ref, LoopTree::TreeRef lca) {
+  auto completely_unrolled = [&](LoopTree::TreeRef ref, LoopTree::TreeRef lca,
+                                 const std::unordered_set<IR::VarRef>& vars) {
     ref = lt.parent(ref);
     while (ref != lca) {
-      if (lt.annotation(ref) != "unroll") {
+      const auto& annot = lt.annotation(ref);
+      const auto& loop = lt.loop(ref);
+      if (vars.count(loop.var) && (annot != "unroll") &&
+          (annot != "vectorize")) {
         return false;
       }
       ref = lt.parent(ref);
     }
     return true;
   };
+
+  lt.walk([&](LoopTree::TreeRef ref, int depth) {
+    if (lt.kind(ref) == LoopTree::NODE) {
+      return;
+    }
+    if (should_vectorize(ref)) {
+      vectorized_loops.insert(ref);
+    }
+  });
+
   const auto& nodes = lt.ir.nodes();
   for (auto i = 0; i < nodes.size(); ++i) {
     const auto& node_ref = nodes.at(i);
@@ -36,27 +50,36 @@ WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
     }
     const auto& alloc = allocations.at(node_ref);
     bool scheduled_consumers = true;
-    bool unrolled = true;
+    auto ref = lt.scheduled.at(node_ref);
+    auto vars = to_set(node.vars());
+    bool unrolled = completely_unrolled(ref, alloc.lca, vars);
     for (const auto& consumer_ref : node.outputs()) {
       if (!lt.scheduled.count(consumer_ref)) {
         scheduled_consumers = false;
         break;
       }
-      if (!completely_unrolled(lt.scheduled.at(consumer_ref), alloc.lca)) {
+      if (!completely_unrolled(lt.scheduled.at(consumer_ref), alloc.lca,
+                               vars)) {
         unrolled = false;
         break;
       }
     }
     // we cannot address this memory statically (will need runtime
     // information)
-    if (!scheduled_consumers || !unrolled) {
+    if (!scheduled_consumers || (!unrolled && alloc.size() > 1)) {
       continue;
     }
 
-    const auto& peak_next = i < nodes.size() - 1 ? nodes.at(i + 1) : -1;
-    if (!needs_reset(alloc.node_ref) && alloc.size() == 1 &&
-        node.outputs().size() == 1 && node.outputs().at(0) == peak_next) {
+    auto store_on_stack = should_store_stack(node_ref);
+    auto vectorized_dim = should_store_vectorized_dim(node_ref);
+    auto store_vector = (vectorized_dim != -1);
+
+    if (store_on_stack && store_vector) {
+      stack_vector_storage[node_ref] = vectorized_dim;
+    } else if (store_on_stack) {
       stack_storage.insert(node_ref);
+    } else if (store_vector) {
+      local_vector_storage[node_ref] = vectorized_dim;
     } else {
       local_storage.insert(node_ref);
     }
@@ -127,9 +150,9 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   auto access = gen_access(node_ref, ref);
+  const auto& idx_expr = get_scoped_expr(access);
   // grab the relevant loops
   auto sym_strides = get_symbol_strides(ref, access.alloc.lca, unrolls);
-  const auto& idx_expr = get_scoped_expr(access);
   // memory needs 4x for bytes sizeof(float)
   int32_t offset =
       get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls) * 4;
@@ -170,29 +193,159 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
   return offset;
 }
 
-void WebAssemblyCompiler::push_vector_to_stack(
-    IR::NodeRef node_ref, LoopTree::TreeRef ref,
-    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
-  // auto p = lt.parent(ref);
-  // auto loop = lt.loop(p);
-  // if (stack_v128.count(node_ref) &&
-}
-
 void WebAssemblyCompiler::push_float_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
-    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
-  if (stack_f32.count(node_ref)) {
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
+    bool force_memory_load) const {
+  if (!force_memory_load && stack_f32.count(node_ref)) {
     // it's on the stack
-    return;
-  } else if (local_f32.count(node_ref)) {
+  } else if (!force_memory_load && local_f32.count(node_ref)) {
     const auto off = get_unroll_offset(node_ref, ref, unrolls);
     const auto& locals = local_f32.at(node_ref);
     ASSERT(off < locals.size());
     cg->local.get(locals.at(off));
-    return;
+  } else if (!force_memory_load && local_v128.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_v128.at(node_ref);
+    const auto& var = local_vector_storage.at(node_ref);
+    const auto& vs = lt.ir.node(node_ref).vars();
+    auto broadcast = !(vs.size() && vs.back() == var);
+    if (broadcast) {
+      ASSERT((off) < locals.size());
+      cg->local.get(locals.at(off));
+      cg->v128.f32x4_extract_lane(0);
+    } else {
+      ASSERT((off / 4) < locals.size());
+      cg->local.get(locals.at(off / 4));
+      cg->v128.f32x4_extract_lane(off % 4);
+    }
+  } else if (!force_memory_load && stack_v128.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    ASSERT(off < 4);
+    cg->v128.f32x4_extract_lane(off);
+  } else {
+    auto offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->f32.load(0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
   }
-  auto offset = push_access_to_stack(node_ref, ref, unrolls);
-  cg->f32.load(0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
+}
+
+void WebAssemblyCompiler::store_float_from_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  if (stack_storage.count(node_ref)) {
+    // pass
+  } else if (local_storage.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_f32.at(node_ref);
+    ASSERT(off < locals.size());
+    cg->local.set(locals.at(off));
+    // TODO these both assume broadcast (incorrectly)
+  } else if (stack_vector_storage.count(node_ref)) {
+    cg->v128.f32x4_splat();
+  } else if (local_vector_storage.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_v128.at(node_ref);
+    const auto& var = local_vector_storage.at(node_ref);
+    const auto& vs = lt.ir.node(node_ref).vars();
+    auto broadcast = !(vs.size() && vs.back() == var);
+    if (broadcast) {
+      ASSERT(off < locals.size());
+      cg->v128.f32x4_splat();
+      cg->local.set(locals.at(off));
+    } else {
+      ASSERT((off / 4) < locals.size());
+      cg->local.set(get_tmp_f32());
+      cg->local.get(locals.at(off / 4));
+      cg->local.get(get_tmp_f32());
+      cg->v128.f32x4_replace_lane(off % 4);
+      cg->local.set(locals.at(off / 4));
+    }
+  } else {
+    cg->local.set(get_tmp_f32());
+    auto store_offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->local.get(get_tmp_f32());
+    cg->f32.store(
+        0, memory_locations.at(resolved_writes.at(node_ref)) + store_offset);
+  }
+}
+
+void WebAssemblyCompiler::store_vector_from_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
+    IR::VarRef dim) const {
+  if (stack_vector_storage.count(node_ref)) {
+    // pass
+  } else if (local_vector_storage.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_v128.at(node_ref);
+    const auto& var = local_vector_storage.at(node_ref);
+    const auto& vs = lt.ir.node(node_ref).vars();
+    auto broadcast = !(vs.size() && vs.back() == var);
+    if (broadcast) {
+      ASSERT((off) < locals.size());
+      cg->local.set(locals.at(off));
+    } else {
+      ASSERT((off / 4) < locals.size());
+      cg->local.set(locals.at(off / 4));
+    }
+  } else {
+    cg->local.set(get_tmp_v128());
+    auto store_offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->local.get(get_tmp_v128());
+    cg->v128.store(
+        0, memory_locations.at(resolved_writes.at(node_ref)) + store_offset);
+  }
+}
+
+void WebAssemblyCompiler::push_vector_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls, IR::VarRef dim,
+    bool force_memory_load) const {
+  const auto& vars = to_set(lt.ir.node(node_ref).vars());
+  bool broadcast = !vars.count(dim);
+  ASSERT(broadcast || lt.ir.node(node_ref).vars().back() == dim)
+      << "gather not yet implemented";
+  if (!force_memory_load && stack_f32.count(node_ref)) {
+    ASSERT(broadcast) << "cannot vector load from f32 on stack";
+  }
+  if (!force_memory_load && stack_v128.count(node_ref)) {
+    return;
+  } else if (!force_memory_load && local_v128.count(node_ref)) {
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_v128.at(node_ref);
+    const auto& var = local_vector_storage.at(node_ref);
+    const auto& vs = lt.ir.node(node_ref).vars();
+    auto broadcast = !(vs.size() && vs.back() == var);
+    if (broadcast) {
+      ASSERT(off < locals.size());
+      cg->local.get(locals.at(off));
+    } else {
+      ASSERT((off / 4) < locals.size());
+      cg->local.get(locals.at(off / 4));
+    }
+  } else if (!force_memory_load && local_f32.count(node_ref)) {
+    ASSERT(0) << "TODO lane based vector load (gather) from locals";
+    auto parent_loop = lt.parent(ref);
+    auto base_unroll = unrolls.at(parent_loop);
+    for (auto lane = 0; lane < 4; ++lane) {
+      unrolls[parent_loop] = base_unroll + lane;
+      const auto off = get_unroll_offset(node_ref, ref, unrolls);
+      const auto& locals = local_f32.at(node_ref);
+      ASSERT(off < locals.size());
+      cg->local.get(locals.at(off));
+    }
+  } else if (broadcast &&
+             (stack_f32.count(node_ref) || local_f32.count(node_ref))) {
+    push_float_to_stack(node_ref, ref, unrolls, force_memory_load);
+    cg->v128.f32x4_splat();
+  } else if (broadcast) {
+    auto offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->v128.load32_splat(
+        0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
+  } else {  // load directly from memory
+    auto offset = push_access_to_stack(node_ref, ref, unrolls);
+    cg->v128.load(0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
+  }
 }
 
 void WebAssemblyCompiler::emit_vectorized_node(
@@ -200,11 +353,105 @@ void WebAssemblyCompiler::emit_vectorized_node(
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   const auto& parent = lt.parent(ref);
   if (!unrolls.count(parent)) {
-    std::cerr << "Warning: cannot emit vectorized node unless unrolled";
     return emit_node(ref, unrolls);
   }
+  // ASSERT(parent != -1) << "cannot vectorize a root node";
+  // ASSERT(ref != -1) << "cannot vectorize the root node";
+  const auto& loop = lt.loop(parent);
   const auto& node_ref = lt.node(ref);
-  const auto off = get_unroll_offset(node_ref, ref, unrolls);
+  const auto& node = lt.ir.node(node_ref);
+  if (lt.children(lt.parent(ref)).at(0) == ref) {
+    emit_reset(lt.parent(ref));
+  }
+
+  for (const auto& inp_ref : node.inputs()) {
+    push_vector_to_stack(inp_ref, ref, unrolls, loop.var);
+  }
+  bool is_reduction = lt.ir.reduction_vars(node_ref).size();
+  if (is_reduction) {
+    push_vector_to_stack(node_ref, ref, unrolls, loop.var);
+  }
+  if (node.op() == Operation::read) {
+    push_vector_to_stack(node_ref, ref, unrolls, loop.var, true);
+  }
+
+  switch (node.op()) {
+    case Operation::add:
+      cg->v128.f32x4_add();
+      break;
+    case Operation::subtract:
+      cg->v128.f32x4_sub();
+      break;
+    case Operation::multiply:
+      cg->v128.f32x4_mul();
+      break;
+    case Operation::divide:
+      cg->v128.f32x4_div();
+      break;
+    case Operation::sqrt:
+      cg->v128.f32x4_sqrt();
+      break;
+    case Operation::min:
+      cg->v128.f32x4_min();
+      break;
+    case Operation::max:
+      cg->v128.f32x4_max();
+      break;
+    case Operation::negate:
+      cg->v128.f32x4_neg();
+      break;
+    case Operation::abs:
+      cg->v128.f32x4_abs();
+      break;
+    case Operation::copy:
+    case Operation::read:
+    case Operation::write:
+      break;
+    default:
+      ASSERT(0) << "Can't handle op yet for wasm " << lt.ir.dump(node_ref);
+  };
+
+  store_vector_from_stack(node_ref, ref, unrolls, loop.var);
+}
+
+void WebAssemblyCompiler::emit_vectorized_loop(
+    LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  const auto& loop = lt.loop(ref);
+  ASSERT(loop.size > -1);
+  ASSERT(loop.tail > -1);
+  int size = loop.size;
+  int tail = loop.tail;
+
+  // if there's an override, take it
+  if (overrides.count(loop.var)) {
+    auto override_size = overrides.at(loop.var);
+    auto inner_size = inner_sizes.at(ref);
+    size = override_size / inner_size;
+    tail = override_size % inner_size;
+    overrides.erase(loop.var);
+  }
+
+  ASSERT(tail == 0) << "invalid vectorization scheme proposed";
+
+  // generate any resets
+  if (lt.children(lt.parent(ref)).at(0) == ref) {
+    emit_reset(lt.parent(ref));
+  }
+
+  if (size == 4) {     // genuine vectorization
+    unrolls[ref] = 0;  // to get "push_access_to_stack" working cleanly
+    for (auto c : lt.children(ref)) {
+      emit_vectorized_node(c, unrolls);
+    }
+  } else {  // unrolled version
+    for (auto i = 0; i < size; ++i) {
+      unrolls[ref] = i;
+      for (auto c : lt.children(ref)) {
+        emit(c, overrides, unrolls);
+      }
+    }
+  }
 }
 
 void WebAssemblyCompiler::emit_node(
@@ -221,8 +468,11 @@ void WebAssemblyCompiler::emit_node(
     push_float_to_stack(inp_ref, ref, unrolls);
   }
   bool is_reduction = lt.ir.reduction_vars(node_ref).size();
-  if (is_reduction || node.op() == Operation::read) {
+  if (is_reduction) {
     push_float_to_stack(node_ref, ref, unrolls);
+  }
+  if (node.op() == Operation::read) {
+    push_float_to_stack(node_ref, ref, unrolls, true);
   }
 
   switch (node.op()) {
@@ -261,20 +511,7 @@ void WebAssemblyCompiler::emit_node(
       ASSERT(0) << "Can't handle op yet for wasm " << lt.ir.dump(node_ref);
   };
 
-  if (stack_storage.count(node_ref)) {
-    // pass
-  } else if (local_storage.count(node_ref)) {
-    const auto off = get_unroll_offset(node_ref, ref, unrolls);
-    const auto& locals = local_f32.at(node_ref);
-    ASSERT(off < locals.size());
-    cg->local.set(locals.at(off));
-  } else {
-    cg->local.set(get_tmp_f32());
-    auto store_offset = push_access_to_stack(node_ref, ref, unrolls);
-    cg->local.get(get_tmp_f32());
-    cg->f32.store(
-        0, memory_locations.at(resolved_writes.at(node_ref)) + store_offset);
-  }
+  store_float_from_stack(node_ref, ref, unrolls);
 }
 
 bool WebAssemblyCompiler::needs_reset(IR::NodeRef node_ref) const {
@@ -333,7 +570,11 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
         cg->local.set(local);
       }
     } else if (local_v128.count(alloc.node_ref)) {
-      ASSERT(0) << "not yet supported";
+      for (const auto& local : local_v128.at(alloc.node_ref)) {
+        cg->f32.const_(value(node));
+        cg->v128.f32x4_splat();
+        cg->local.set(local);
+      }
     } else {
       auto iter = cg->local(cg->i32);
       cg->i32.const_(0);
@@ -356,9 +597,105 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
   }
 }
 
+// loops need to be exactly 4 wide
+// inputs/outputs need to be fully (4 wide) addressable
+bool WebAssemblyCompiler::should_vectorize(LoopTree::TreeRef ref) const {
+  // we can only vectorize unrolled size 4 loops composed of compute nodes
+  if (lt.kind(ref) != LoopTree::LOOP) {
+    return false;
+  }
+  if (lt.annotation(ref) != "vectorize") {
+    return false;
+  }
+  auto loop = lt.loop(ref);
+  if (loop.size != 4 || loop.tail != 0) {
+    return false;
+  }
+  // check if the children are all "nodes" rather than nested loops
+  auto children = lt.children(ref);
+  for (auto c : children) {
+    if (lt.kind(c) == LoopTree::LOOP) {
+      return false;
+    }
+    auto node_ref = lt.node(c);
+    const auto& node = lt.ir.node(node_ref);
+    // TODO deal with view logic in vectorized way
+    if (node.op() == Operation::view) {
+      return false;
+    }
+    // TODO We can't vectorize reductions (for now)
+    for (auto v : lt.ir.reduction_vars(node_ref)) {
+      if (v == loop.var) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool WebAssemblyCompiler::should_store_stack(IR::NodeRef node_ref) const {
+  if (!lt.scheduled.count(node_ref)) {
+    return false;
+  }
+  const auto& node = lt.ir.node(node_ref);
+  if (node.outputs().size() != 1) {
+    return false;
+  }
+  auto consumer = node.outputs().at(0);
+  if (!lt.scheduled.count(consumer)) {
+    return false;
+  }
+  auto ref = lt.scheduled.at(node_ref);
+  auto consumer_ref = lt.scheduled.at(consumer);
+  const auto& children = lt.children(lt.parent(consumer_ref));
+  bool valid = false;
+  for (auto i = 1; i < children.size(); ++i) {
+    if (children.at(i) == consumer_ref) {
+      if (children.at(i - 1) != ref) {
+        return false;
+      } else {
+        valid = true;
+      }
+    }
+  }
+  return valid;
+}
+
+// inputs to a vectorized loop should store to a vector register if possible
+IR::VarRef WebAssemblyCompiler::should_store_vectorized_dim(
+    IR::NodeRef node_ref) const {
+  // assume that we should only store vectorized if all consumers are vectorized
+  const auto& node = lt.ir.node(node_ref);
+  if (node.outputs().size() == 0) {
+    return false;
+  }
+  IR::VarRef vectorized_var = -1;
+  for (auto o : node.outputs()) {
+    if (!lt.scheduled.count(o)) {
+      return -1;
+    }
+    auto o_ref = lt.parent(lt.scheduled.at(o));
+    if (!vectorized_loops.count(o_ref)) {
+      return -1;
+    }
+    if (vectorized_var == -1) {
+      // guaranteed valid because loop is vectorized
+      vectorized_var = lt.loop(o_ref).var;
+    } else if (vectorized_var != lt.loop(lt.parent(o_ref)).var) {
+      return -1;  // multiple vars to vectorize over
+    }
+  }
+  return vectorized_var;
+}
+
 void WebAssemblyCompiler::emit_loop(
     LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  if (vectorized_loops.count(ref)) {
+    emit_vectorized_loop(ref, overrides, unrolls);
+    return;
+  }
+
   const auto& loop = lt.loop(ref);
   ASSERT(loop.size > -1);
   ASSERT(loop.tail > -1);
@@ -379,18 +716,15 @@ void WebAssemblyCompiler::emit_loop(
     emit_reset(lt.parent(ref));
   }
 
-  // three cases
-  if (false && size == 4 && lt.children(ref).size() == 1 &&
-      lt.annotation(ref) == "unroll") {  // 1. vectorized
-    emit_vectorized_node(ref, unrolls);
-  } else if (lt.annotation(ref) == "unroll") {  // 2. unrolled loop
+  // two cases
+  if (lt.annotation(ref) == "unroll" || size == 1) {  // 1. unrolled loop
     for (auto i = 0; i < size; ++i) {
       unrolls[ref] = i;
       for (auto c : lt.children(ref)) {
         emit(c, overrides, unrolls);
       }
     }
-  } else {  // 3. default loop
+  } else {  // 2. default loop
     // generate any loop header logic
     auto iter = cg->local(cg->i32);
     iterators[ref] = iter;
@@ -417,6 +751,9 @@ void WebAssemblyCompiler::emit_loop(
   // generate any tail logic
   if (tail > 0) {
     overrides[loop.var] = tail;
+    if (lt.annotation(ref) == "unroll" || size == 1) {
+      unrolls[ref] = size;
+    }
     // value is now fixed
     for (auto c : lt.children(ref)) {
       emit(c, overrides, unrolls);
@@ -429,6 +766,13 @@ int32_t WebAssemblyCompiler::get_tmp_f32() const {
     tmp_f32 = cg->local(cg->f32);
   }
   return tmp_f32;
+}
+
+int32_t WebAssemblyCompiler::get_tmp_v128() const {
+  if (tmp_v128 == -1) {
+    tmp_v128 = cg->local(cg->v128);
+  }
+  return tmp_v128;
 }
 
 void WebAssemblyCompiler::emit(
@@ -444,6 +788,21 @@ void WebAssemblyCompiler::emit(
       }
       for (const auto& node_ref : stack_storage) {
         stack_f32.insert(node_ref);
+      }
+      for (const auto& p : local_vector_storage) {
+        const auto& node_ref = p.first;
+        const auto& var = p.second;
+        const auto& alloc = allocations.at(node_ref);
+        const auto& vs = lt.ir.node(node_ref).vars();
+        auto broadcast = !(vs.size() && vs.back() == var);
+        auto num = broadcast ? alloc.size() : ((alloc.size() + 3) / 4);
+        for (auto i = 0; i < num; i++) {
+          local_v128[node_ref].emplace_back(cg->local(cg->v128));
+        }
+      }
+      for (const auto& p : stack_vector_storage) {
+        auto node_ref = p.first;
+        stack_v128.insert(node_ref);
       }
       for (auto c : lt.roots) {
         emit(c, overrides, unrolls);

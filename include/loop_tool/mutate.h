@@ -12,6 +12,7 @@ namespace loop_tool {
 IR split_node(const IR& ir, IR::NodeRef node_ref,
               std::vector<IR::VarRef> injected);
 IR split_var(const IR& ir, IR::VarRef v);
+IR swap_vars(const IR& ir, IR::NodeRef node_ref, IR::VarRef a, IR::VarRef b);
 
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 // merges upward
@@ -25,6 +26,8 @@ LoopTree remove_loop(const LoopTree& lt, LoopTree::TreeRef ref,
                      LoopTree::TreeRef rem);
 LoopTree swap_nodes(const LoopTree& lt, LoopTree::TreeRef a,
                     LoopTree::TreeRef b);
+LoopTree swap_vars(const LoopTree& lt, IR::NodeRef node_ref, IR::VarRef a,
+                   IR::VarRef b);
 LoopTree disable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
                        IR::NodeRef n);
 LoopTree enable_reuse(const LoopTree& lt, LoopTree::TreeRef loop,
