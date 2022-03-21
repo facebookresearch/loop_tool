@@ -16,96 +16,6 @@ LICENSE file in the root directory of this source tree.
 #include "error.h"
 #include "symbolic.h"
 
-/*
-  Intermediate represention is a DAG
-
-  Two nodes: value, compute -- their placement in the loop tree matters
-  For value nodes there are three annotations:
-    read, write, view -- they all contain index information
-
-  This DAG is then realized into a Tree
-
-  Branches annotated by (variable, size) pair
-  Leafs contain either value or compute nodes
-
-  Invariants:
-    - var \in ancestors \all var \in vars(leaf)
-    - \all{var, leaf} \prod {size(loop) \in ancestor(leaf) | var \in loop}  ==
-  size(var)
-
-  transpose:
-
-  for a in 128 by 30:
-    for b in 11:
-      for a' in 30 by 7:
-        for a" in 7:
-          B[b, a] = A[a, b]
-
-
-  Transforms:
-  (all splits implicitly mergeable)
-   DFG transforms:
-    split var
-    swap var
-    split (clone?) value
-   Loop tree transforms (annotations on DFG):
-    split loop for leaf (tiling etc)
-    set loop order of leaf (reordering)
-    set loop exclusivity of leaf (force writes to memory)
-    set execution priority of leaf (toposort priority)
-
-  DFG -> tree algo
-  1. prioritized toposort
-  2. emit loop order of first leaf, saving availability
-    availability = all (var,size) pairs - (reduction vars + exclusive loops)
-  3. get next leaf
-    a. get loop in order
-    b. if loop is available and no later loops are available before it, reuse it
-    c. else update availability
-    d. go to a
-    this maximally reuses loops
-
-  Example 1:
-
-  for A
-    for B
-      for C
-        for D
-      for E
-
-  available = A, B, E
-  leaf order = A, B, C
-
-  for A
-    for B
-      for C
-        for D
-      for E
-      for C
-        leaf
-
-  Example 2:
-
-  for A
-    for B
-      for C
-        for D
-      for E
-
-  available = A, B, E
-  leaf order = A, C, B
-
-  for A
-    for B
-      for C
-        for D
-      for E
-    for C
-      for B
-        leaf
-
-*/
-
 namespace loop_tool {
 
 #define OPS(_)  \
@@ -177,8 +87,8 @@ class IR {
  public:
   IR() {}
   // For code clarity
-  using NodeRef = int;
-  using VarRef = int;
+  using NodeRef = int32_t;
+  using VarRef = int32_t;
   struct LoopSize {
     int64_t size;
     int64_t tail;
@@ -193,7 +103,6 @@ class IR {
   void delete_node(const NodeRef &node_ref);
   void replace_all_uses(NodeRef old_node, NodeRef new_node);
   void update_inputs(NodeRef node_ref, std::vector<NodeRef> inputs);
-  // void update_outputs(NodeRef node_ref, std::vector<NodeRef> outputs);
   void update_vars(NodeRef node_ref, std::vector<VarRef> vars);
 
   std::vector<VarRef> vars() const;
@@ -220,7 +129,6 @@ class IR {
   }
 
   inline float priority(NodeRef ref) const { return priorities_[ref]; }
-  // order (int,int)[] - first = var, second = size (possibly -1)
   inline const std::vector<std::pair<VarRef, LoopSize>> &order(
       NodeRef ref) const {
     return orders_[ref];
@@ -294,6 +202,7 @@ class IR {
   std::vector<VarRef> reduction_vars(NodeRef ref) const;
   std::vector<VarRef> loop_vars(NodeRef ref) const;
   std::vector<VarRef> all_vars(NodeRef ref) const;
+  void reify_deletions();
 
  private:
   std::vector<Node> nodes_;
@@ -352,6 +261,7 @@ class Node {
   inline const Operation &op() const { return op_; }
   inline const std::vector<IR::VarRef> &vars() const { return vars_; }
   inline std::vector<IR::VarRef> &vars() { return vars_; }
+  void remap_refs(const std::unordered_map<IR::NodeRef, IR::NodeRef> &);
 
  private:
   Operation op_;

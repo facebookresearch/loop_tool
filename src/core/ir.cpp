@@ -70,8 +70,10 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
 void IR::delete_node(const IR::NodeRef &node_ref) {
   // only one case where we can easily delete the node
   if (node_ref == nodes_.size() - 1) {
+    std::cerr << "deleting node reified " << node_ref << "\n";
     nodes_.erase(nodes_.begin() + node_ref);
   } else {
+    std::cerr << "deleting\n";
     deleted_.insert(node_ref);
   }
 }
@@ -248,10 +250,57 @@ std::vector<IR::NodeRef> IR::nodes() const {
   return ns;
 }
 
+void IR::reify_deletions() {
+  // remap old nodes to new node refs
+  std::unordered_map<IR::NodeRef, IR::NodeRef> remap;
+  int32_t real_nr = 0;
+  for (const auto &nr : nodes()) {
+    remap[nr] = real_nr;
+    real_nr++;
+  }
+  for (auto nr : nodes()) {
+    node(nr).remap_refs(remap);
+  }
+  for (auto &nr : inputs_) {
+    if (remap.count(nr)) {
+      nr = remap.at(nr);
+    }
+  }
+  for (auto &nr : outputs_) {
+    if (remap.count(nr)) {
+      nr = remap.at(nr);
+    }
+  }
+  std::vector<Node> new_nodes;
+  for (auto i = 0; i < nodes_.size(); ++i) {
+    if (deleted_.count(i)) {
+      std::cerr << "skipping " << i << "\n";
+      continue;
+    }
+    new_nodes.emplace_back(nodes_.at(i));
+  }
+  nodes_ = new_nodes;
+  deleted_.clear();
+}
+
 void Node::replace_input(IR::NodeRef old_node, IR::NodeRef new_node) {
   for (auto &n : inputs_) {
     if (n == old_node) {
       n = new_node;
+    }
+  }
+}
+
+void Node::remap_refs(
+    const std::unordered_map<IR::NodeRef, IR::NodeRef> &remap) {
+  for (auto &nr : inputs_) {
+    if (remap.count(nr)) {
+      nr = remap.at(nr);
+    }
+  }
+  for (auto &nr : outputs_) {
+    if (remap.count(nr)) {
+      nr = remap.at(nr);
     }
   }
 }

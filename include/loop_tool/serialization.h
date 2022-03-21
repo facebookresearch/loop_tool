@@ -6,12 +6,11 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
-#include "backend.h"
-#include "compile.h"
-#include "hardware.h"
-#include "ir.h"
-#include "serialization.h"
-#include "tensor.h"
-// default frontends
-#include "lazy.h"
-#include "mutate.h"
+#include <loop_tool/loop_tool.h>
+
+namespace loop_tool {
+
+std::string serialize(const IR& ir);
+IR deserialize(const std::string& str);
+
+}  // namespace loop_tool

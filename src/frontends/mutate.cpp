@@ -51,6 +51,7 @@ IR remove_copy(const IR& ir, IR::NodeRef node_ref) {
   ASSERT(node.op() == Operation::copy);
   auto inp_ref = node.inputs().at(0);
   new_ir.replace_all_uses(node_ref, inp_ref);
+  new_ir.delete_node(node_ref);
   return new_ir;
 }
 
