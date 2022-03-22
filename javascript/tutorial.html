@@ -60,7 +60,7 @@ body {
   grid-row: 1;
 }
 .lt_interactive_right {
-  grid-column: 4/5;
+  grid-column: 4/6;
   grid-row: 1;
 }
 .scroll {
@@ -85,7 +85,6 @@ function make_interactive(elem) {
   const js = elem.textContent;
   elem.innerHTML = '';
   elem.setAttribute('tabindex', '0');
-console.log(js);
   const t = eval(js);
   const loop_div = document.createElement('div');
   loop_div.classList.toggle('lt_interactive_left');

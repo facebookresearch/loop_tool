@@ -147,7 +147,6 @@ class Editor {
   }
 
   handle_keydown(e) {
-    console.log(e);
     if (e.code === "ArrowUp") {
       if (e.shiftKey) {
         const prev = this.lt.prev_ref(this.highlight);
@@ -551,14 +550,18 @@ class Renderer {
     if (!this.wasm_mode) {
       text = this.t.code;
     } else {
-      const mod = this.wabt.readWasm(this.t.wasm, {
-        readDebugNames: true,
-        simd: true,
-      });
-      text = mod.toText({
-        foldExprs: false,
-        inlineExport: false
-      });
+      try {
+        const mod = this.wabt.readWasm(this.t.wasm, {
+          readDebugNames: true,
+          simd: true,
+        });
+        text = mod.toText({
+          foldExprs: false,
+          inlineExport: false
+        });
+      } catch(e) {
+        text = lt.getExceptionMessage(e);
+      }
     }
     this.code_elem.textContent = text;
     this.code_elem.innerHTML = hljs.highlight(text, {

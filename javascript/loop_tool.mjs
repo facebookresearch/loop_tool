@@ -89,7 +89,6 @@ class CompilationCache {
     }
     const loop_tree = this.loop_tree_cache[h];
     const wasm = loop_tree.wasm();
-    console.log(wasm);
     const m = await WebAssembly.compile(wasm).catch((e) => {
       throw e;
     });
@@ -121,7 +120,9 @@ class CompilationCache {
 
   set_loop_tree(tensor, loop_tree) {
     const h = tensor.hash();
-    this.evict(h);
+    if (this.loop_tree_cache[h] !== loop_tree) {
+      this.evict(h);
+    }
     this.loop_tree_cache[h] = loop_tree;
   }
 }
