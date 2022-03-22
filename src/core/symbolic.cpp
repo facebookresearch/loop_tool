@@ -16,12 +16,12 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 namespace symbolic {
 
-const int Symbol::getNewId() {
-  static int symbol_count_ = 0;
+const int32_t Symbol::getNewId() {
+  static int32_t symbol_count_ = 0;
   return symbol_count_++;
 }
 
-const int Symbol::id() const { return id_; }
+const int32_t Symbol::id() const { return id_; }
 size_t Symbol::hash() const { return symbolic::hash(id_); }
 bool Symbol::operator==(const Symbol& s) const { return s.id() == id_; }
 bool Symbol::operator!=(const Symbol& s) const { return !(s.id() == id_); }

@@ -123,3 +123,34 @@ TEST(SerializationDeletedNodes) {
   }
   ASSERT(max_diff < 0.01) << "got diff of " << max_diff;
 }
+
+TEST(SerializationConv) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol N("N"), N_o("N_o"), K("K");
+  lz::Tensor A(N);
+  lz::Tensor W(K);
+  lz::Tensor X = A.to({N_o, K}, lz::Constraint(N, lz::Expr(2) * N_o + K));
+  auto Y = (X * W).sum(K);
+  Y.bind(nullptr, {8});  // we can infer the size of A from this
+  W.bind(nullptr, {3});
+  float A_data[17] = {0};
+  A.bind(A_data, {17});
+  for (auto i = 0; i < 10; ++i) {
+    A.data<float>()[i] = 1;
+  }
+  for (auto i = 0; i < 3; ++i) {
+    W.data<float>()[i] = 1;
+  }
+
+  auto dot_before = dot(Y.ir());
+  std::cerr << dot_before;
+  auto ir = Y.ir();
+  auto s = lt::serialize(ir);
+  std::cerr << s << "\n";
+  auto ir_d = lt::deserialize(s);
+  auto dot_after = dot(ir_d);
+  std::cerr << dot_after << "\n";
+  ASSERT(dot_before == dot_after);
+  Y.set(ir_d);
+  ASSERT(Y.data<float>()[3] == 3);
+}

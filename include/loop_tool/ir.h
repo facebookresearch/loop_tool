@@ -257,6 +257,9 @@ class Node {
   inline bool has_sym(symbolic::Symbol sym) const {
     return sym_var_map_.count(sym.id());
   }
+  inline const std::unordered_map<int, IR::VarRef> &sym_to_var() const {
+    return sym_var_map_;
+  }
 
   inline const Operation &op() const { return op_; }
   inline const std::vector<IR::VarRef> &vars() const { return vars_; }

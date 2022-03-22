@@ -46,12 +46,12 @@ struct Expr;
 struct Symbol {
   // TODO replace with smaller construct
   std::string name_;
-  int id_ = -1;
+  int32_t id_ = -1;
   Symbol() : id_(getNewId()), name_("X") {}
   Symbol(std::string name) : id_(getNewId()), name_(name) {}
   Symbol(const Symbol& s) : id_(s.id_), name_(s.name_) {}
-  static const int getNewId();
-  const int id() const;
+  static const int32_t getNewId();
+  const int32_t id() const;
   size_t hash() const;
   bool operator==(const Symbol& s) const;
   bool operator!=(const Symbol& s) const;
