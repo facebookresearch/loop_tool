@@ -254,6 +254,30 @@ class Editor {
       this.changed = true;
       this.long_bench = true;
     }
+    if (e.code == "KeyW") {
+      const a = document.createElement("a");
+      const data = this.t.serialize_loop_tree();
+      const file = new Blob([data], {
+        type: 'text/plain'
+      });
+      a.href = URL.createObjectURL(file);
+      a.download = 'tensor.lt';
+      a.click();
+    }
+    if (e.code == "KeyR") {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.readAsText(file, 'UTF-8');
+        reader.onload = readerEvent => {
+          const content = readerEvent.target.result;
+          this.update_tree(lt.deserialize(content));
+        }
+      }
+      input.click();
+    }
     if (e.code === "KeyS") {
       if (!this.lt.is_loop(this.highlight)) {
         const s = Number.parseInt(prompt("split which input?"));
@@ -322,6 +346,7 @@ class Editor {
           warmup_ms = 500;
         }
         try {
+          this.update_tree(this.lt);
           this.flops =
             Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
           this.iters = Math.round((this.flops * 1e11) / this.t.flops) / 1e2;

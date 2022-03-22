@@ -163,6 +163,10 @@ lazy::Expr to_size_expr(lazy::Symbol sym) { return lazy::Expr::size(sym); }
 std::string dump_expr(lazy::Expr &e) { return e.dump(); }
 
 std::string dump_loop_tree(const LoopTree &lt) { return lt.dump(); }
+std::string serialize_loop_tree(const LoopTree &lt) { return serialize(lt.ir); }
+LoopTree deserialize_loop_tree(const std::string &s) {
+  return LoopTree(deserialize(s));
+}
 
 std::vector<LoopTree::TreeRef> walk_loop_tree(const LoopTree &lt) {
   std::vector<LoopTree::TreeRef> out;
@@ -233,6 +237,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("tail", &loop_tail);
   js::class_<LoopTree>("LoopTree")
       .function("dump", &dump_loop_tree)
+      .function("serialize", &serialize_loop_tree)
       .function("wasm", &wasm)
       .function("code", &c_code)
       .function("walk", &walk_loop_tree)
@@ -308,5 +313,6 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("numel", &lazy::Tensor::numel)
       .function("hash", &lazy::Tensor::hash);
   js::function("size", &to_size_expr);
+  js::function("deserialize", &deserialize_loop_tree);
   js::function("getExceptionMessage", &getExceptionMessage);
 }

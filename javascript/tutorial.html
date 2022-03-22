@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<link
+  rel="stylesheet"
+  href="//unpkg.com/@highlightjs/cdn-assets@11.4.0/styles/atom-one-dark.min.css"
+/>
+<script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/highlight.min.js"></script>
+<script src="//unpkg.com/@highlightjs/cdn-assets@11.4.0/languages/wasm.min.js"></script>
+<script src="https://unpkg.com/wabt@1.0.16/index.js"></script>
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  word-break: break-word;
+}
+a {
+  text-decoration: none;
+  color: #4955ff;
+}
+a:visited {
+  color: #8129ff;
+}
+img {
+  max-width: 100%;
+}
+h1 {
+  font-size: 1.7em;
+}
+h2 {
+  font-size: 1.4em;
+}
+h3 {
+  font-size: 1.2em;
+}
+body {
+  padding: 5%;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.lt_interactive {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-auto-rows: 1fr;
+  min-height: 180px;
+  height: 25vh;
+  margin: 5px;
+  padding: 5px;
+  background:#282c34;
+  color: #abb2bf;
+}
+.lt_interactive_left {
+  grid-column: 1/4;
+  grid-row: 1;
+}
+.lt_interactive_right {
+  grid-column: 4/5;
+  grid-row: 1;
+}
+.scroll {
+  scrollbar-width: none;
+  overflow: scroll;
+  height: 100%;
+  width: 100%;
+}
+.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+</style>
+
+<script type="module">
+import * as lt from "./loop_tool.mjs";
+import * as util from "./main.mjs";
+
+let wabt = WabtModule();
+
+function make_interactive(elem) {
+  const js = elem.textContent;
+  elem.innerHTML = '';
+  elem.setAttribute('tabindex', '0');
+console.log(js);
+  const t = eval(js);
+  const loop_div = document.createElement('div');
+  loop_div.classList.toggle('lt_interactive_left');
+  loop_div.classList.toggle('scroll');
+  const wasm_div = document.createElement('div');
+  wasm_div.classList.toggle('lt_interactive_right');
+  wasm_div.classList.toggle('scroll');
+  elem.appendChild(loop_div);
+  elem.appendChild(wasm_div);
+  const wasm_render = new util.Renderer(wasm_div, wabt, t);
+  const loop_editor = new util.Editor(loop_div, t, () => {
+    wasm_render.render();
+  });
+  loop_editor.render();
+  elem.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    loop_editor.handle_keydown(e);
+    loop_editor.render();
+  });
+}
+
+for (let elem of document.querySelectorAll('.lt_interactive')) {
+  make_interactive(elem);
+}
+</script>
+
+<body>
+
+<h1>
+Intro
+</h1>
+
+Starting with a basic matmul, we do blah blah blah....
+<br>
+<br>
+<div class="lt_interactive">
+const SIZE = 128;
+const [m, n, k] = lt.symbols("m n k");
+const x = lt.tensor(SIZE, SIZE).to(m, k);
+const y = lt.tensor(SIZE, SIZE).to(k, n);
+const z = x.mul(y).sum(k);
+z.load_loop_tree(`v:m_0
+v:k_2
+v:n_1
+n:2::0,1,:::0:::::
+n:2::1,2,:::0:::::
+n:7:0,1,:0,1,2,:::0:0;128;0,2;128;0,1;128;0,::,,,::
+n:5:2,:0,2,:::0:0;128;0,2;128;0,1;128;0,::,,,::
+n:1:3,:0,2,:::0:0;128;0,2;128;0,::,,::
+i:0,1,
+o:4,`);
+z
+</div>
+
+<br>
+but we can always unroll! that lets us do blah blah....
+<br>
+<br>
+
+<div class="lt_interactive">
+const SIZE = 128;
+const [m, n, k] = lt.symbols("m n k");
+const x = lt.tensor(SIZE, SIZE).to(m, k);
+const y = lt.tensor(SIZE, SIZE).to(k, n);
+const z = x.mul(y).sum(k);
+z.load_loop_tree(`v:m_83
+v:k_85
+v:n_84
+n:2::0,1,:::0:::::
+n:2::1,2,:::0:::::
+n:7:0,1,:0,1,2,:::0:0;32;0,2;32;0,1;128;0,0;4;0,2;4;0,::,,,unroll,unroll,::
+n:5:2,:0,2,:::0:0;32;0,2;32;0,1;128;0,0;4;0,2;4;0,::,,,unroll,unroll,::
+n:1:3,:0,2,:::0:0;32;0,2;32;0,0;4;0,2;4;0,::,,unroll,unroll,::
+i:0,1,
+o:4,`);
+z
+</div>
+
+</body>
+</html>

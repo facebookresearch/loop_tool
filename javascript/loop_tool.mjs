@@ -37,6 +37,7 @@ function clear_heap() {
 const Symbol = lt.Symbol;
 const Expr = lt.Expr;
 const size = lt.size;
+const deserialize = lt.deserialize;
 
 const tensor = (...args) => {
   return new Tensor(...args);
@@ -324,6 +325,14 @@ class Tensor {
     return this.loop_tree.flops();
   }
 
+  serialize_loop_tree() {
+    return this.loop_tree.serialize();
+  }
+
+  load_loop_tree(s) {
+    this.set_loop_tree(lt.deserialize(s));
+  }
+
   benchmark_impl(ms, fn) {
     let iters = 1;
     let t = performance.now();
@@ -550,6 +559,7 @@ export {
   symbols,
   expr,
   size,
+  deserialize,
   getExceptionMessage,
   clear_heap,
 };
