@@ -23,6 +23,7 @@ class Editor {
     this.benchspan = null;
     this.callback = callback;
     this.lt = t.loop_tree;
+    this.serialized_lt = this.lt.serialize();
     this.colors = [
       "#56B6C2",
       "#E06C75",
@@ -147,6 +148,7 @@ class Editor {
   }
 
   handle_keydown(e) {
+    this.update_tree(lt.deserialize(this.serialized_lt), true);
     if (e.code === "ArrowUp") {
       if (e.shiftKey) {
         const prev = this.lt.prev_ref(this.highlight);
@@ -302,11 +304,19 @@ class Editor {
     }
   }
 
-  update_tree(new_lt) {
-    this.highlight = new_lt.map_ref(this.highlight, this.lt);
+  update_tree(new_lt, refresh) {
+    try {
+      this.highlight = new_lt.map_ref(this.highlight, this.lt);
+    } catch {
+      this.lt = lt.deserialize(this.serialized_lt);
+      this.highlight = new_lt.map_ref(this.highlight, this.lt);
+    }
     this.lt = new_lt;
     this.t.set_loop_tree(this.lt);
-    this.changed = true;
+    this.serialized_lt = this.lt.serialize();
+    if (!refresh) {
+      this.changed = true;
+    }
   }
 
   try_swap(refa, refb) {
@@ -345,7 +355,7 @@ class Editor {
           warmup_ms = 500;
         }
         try {
-          this.update_tree(this.lt);
+          this.update_tree(lt.deserialize(this.serialized_lt));
           this.flops =
             Math.round((await this.t.benchmark(bench_ms, warmup_ms)) / 1e7) / 1e2;
           this.iters = Math.round((this.flops * 1e11) / this.t.flops) / 1e2;
@@ -559,7 +569,7 @@ class Renderer {
           foldExprs: false,
           inlineExport: false
         });
-      } catch(e) {
+      } catch (e) {
         text = lt.getExceptionMessage(e);
       }
     }
