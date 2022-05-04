@@ -1,4 +1,4 @@
-import * as lt from "./loop_tool.mjs";
+import * as lt from "./build/loop_tool.mjs";
 window.lt = lt;
 
 async function log(...args) {
@@ -14,14 +14,20 @@ async function log(...args) {
 
 class Editor {
   constructor(div, t, callback = null) {
-    div.innerHTML = "";
+    this.main_div = div;
+    console.log(this.main_div)
+    this.main_div.innerHTML = "";
+    this.main_div.setAttribute('tabindex', '0');
+    this.main_div.addEventListener("keydown", this.handle_keydown.bind(this));
+
     this.div = document.createElement("pre");
-    div.appendChild(this.div);
-    this.t = t;
+    this.div.style.margin = '0px';
+    this.main_div.appendChild(this.div);
     this.changed = true;
     this.flops = 0;
     this.benchspan = null;
     this.callback = callback;
+    this.t = t;
     this.lt = t.loop_tree;
     this.serialized_lt = this.lt.serialize();
     this.colors = [
@@ -148,6 +154,11 @@ class Editor {
   }
 
   handle_keydown(e) {
+      e.preventDefault();
+      this.handle_keydown_impl(e);
+      this.render();
+  }
+  handle_keydown_impl(e) {
     this.update_tree(lt.deserialize(this.serialized_lt), true);
     if (e.code === "ArrowUp") {
       if (e.shiftKey) {
@@ -344,8 +355,16 @@ class Editor {
     }
   }
 
+  kill() {
+    this.killed = true;
+    this.main_div.replaceWith(this.main_div.cloneNode(true));
+  }
+
   async bench_loop() {
     while (true) {
+      if (this.killed) {
+        return;
+      }
       if (this.changed && this.benchspan) {
         let bench_ms = 50;
         let warmup_ms = 10;
@@ -541,6 +560,7 @@ class Renderer {
     this.div = div;
     this.div.innerHTML = "";
     const pre = document.createElement("pre");
+    pre.style.margin = '0px';
     this.code_elem = document.createElement("code");
     pre.appendChild(this.code_elem);
     this.div.appendChild(pre);
@@ -607,18 +627,6 @@ async function setup() {
     }
   });
 
-  window.addEventListener("keydown", (e) => {
-    if (editor.hasFocus()) {
-      return;
-    }
-    if (!loop_editor) {
-      return;
-    }
-    e.preventDefault();
-    loop_editor.handle_keydown(e);
-    loop_editor.render();
-  });
-
   eval(editor.getValue());
   await log("hi! this is the loop_tool.js demo :^}");
   await log("");
@@ -641,5 +649,6 @@ async function setup() {
 export {
   setup,
   Editor,
-  Renderer
+  Renderer,
+  log
 };

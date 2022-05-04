@@ -288,7 +288,19 @@ void WebAssemblyCompiler::store_vector_from_stack(
       ASSERT((off / 4) < locals.size());
       cg->local.set(locals.at(off / 4));
     }
+  } else if (local_storage.count(node_ref)) {
+    // get associated lanes
+    const auto off = get_unroll_offset(node_ref, ref, unrolls);
+    const auto& locals = local_f32.at(node_ref);
+    ASSERT(off + 3 < locals.size());
+    cg->local.set(get_tmp_v128());
+    for (auto i = 0; i < 4; ++i) {
+      cg->local.get(get_tmp_v128());
+      cg->v128.f32x4_extract_lane(i);
+      cg->local.set(locals.at(off + i));
+    }
   } else {
+    ASSERT(!stack_storage.count(node_ref));
     cg->local.set(get_tmp_v128());
     auto store_offset = push_access_to_stack(node_ref, ref, unrolls);
     cg->local.get(get_tmp_v128());
