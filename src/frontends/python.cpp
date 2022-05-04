@@ -228,7 +228,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                              [](const LoopTree &lt) { return lt.roots; })
       .def("trivially_parallel",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
-             return trivially_parallel(lt, ref);
+             return is_trivially_parallel(lt, ref);
            })
       .def("children", &LoopTree::children)
       .def("parent", &LoopTree::parent)
@@ -296,7 +296,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
         for (const auto &t : tensors) {
           memory.emplace_back(t->data.address);
         }
-        return exec(lt, memory);
+        auto cc = getBackends().at("cpu")->compile(lt);
+        return cc->run(memory);
       });
   m.def("swap", [](LoopTree &lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
     return loop_tool::swap(lt, a, b);

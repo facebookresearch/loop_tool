@@ -17,7 +17,7 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
-using InnerFnTypeImproved =
+using InnerFnType =
     std::function<void(const std::vector<void *> &, int[MAX_DEPTH])>;
 
 // Generates runnable code (there's also CodeGenerator, which generates text)
@@ -97,7 +97,7 @@ class Compiler {
   std::vector<symbolic::Constraint> gen_constraints(
       IR::NodeRef node, LoopTree::TreeRef ref) const;
 
-  InnerFnTypeImproved gen_reset(LoopTree::TreeRef ref) const;
+  InnerFnType gen_reset(LoopTree::TreeRef ref) const;
 
   symbolic::Expr reify_sizes(const symbolic::Expr &expr) const;
   int64_t get_expr_max(const symbolic::Expr &) const;
@@ -107,18 +107,18 @@ class Compiler {
   std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(
       LoopTree::TreeRef ref, const Access &access) const;
 
-  InnerFnTypeImproved gen_mem_node(LoopTree::TreeRef ref) const;
-  InnerFnTypeImproved gen_add_node(LoopTree::TreeRef ref) const;
-  InnerFnTypeImproved gen_mul_node(LoopTree::TreeRef ref) const;
-  InnerFnTypeImproved gen_binary_node(LoopTree::TreeRef ref) const;
-  InnerFnTypeImproved gen_unary_node(LoopTree::TreeRef ref) const;
-  InnerFnTypeImproved gen_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_mem_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_add_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_mul_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_binary_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_unary_node(LoopTree::TreeRef ref) const;
+  InnerFnType gen_node(LoopTree::TreeRef ref) const;
 
-  InnerFnTypeImproved gen_loop(
+  InnerFnType gen_loop(
       LoopTree::TreeRef ref,
       std::unordered_map<IR::VarRef, int> overrides) const;
 
-  InnerFnTypeImproved gen_exec(
+  InnerFnType gen_exec(
       LoopTree::TreeRef ref = -1,
       std::unordered_map<IR::VarRef, int> overrides = {}) const;
 
@@ -168,44 +168,11 @@ struct Auxiliary {
       resets;  // allocation LCAs
 };
 
-// recursively generate functions for loops/nodes(leaves) of the loop tree
-using InnerFnType = std::function<void(const std::vector<void *> &,
-                                       int[MAX_DEPTH], int[MAX_DEPTH])>;
-using GenFnType = std::function<InnerFnType(const LoopTree &, const Auxiliary &,
-                                            LoopTree::TreeRef)>;
-
-// returns pairs loop depth, inner size for the var at that depth
-//   assuming indices is a map from the loop depth to the current loop
-//   iteration, index = indices[p.first] * p.second for p in idx_vec
-std::vector<std::pair<int, int64_t>> gen_idx_vector(const LoopTree &lt,
-                                                    const Auxiliary &aux,
-                                                    const Allocation &alloc,
-                                                    LoopTree::TreeRef use);
-std::function<int64_t(int[MAX_DEPTH])> gen_idx_func(const LoopTree &lt,
-                                                    const Auxiliary &aux,
-                                                    const Allocation &alloc,
-                                                    LoopTree::TreeRef use);
-void gen_alloc(const LoopTree &lt, Auxiliary &aux, LoopTree::TreeRef ref);
-void exec(const LoopTree &lt, const std::vector<void *> &memory);
-
-Auxiliary calculate_aux(const LoopTree &lt);
-std::pair<std::function<void(const std::vector<void *> &)>,
-          std::vector<int64_t>>
-compile(const LoopTree &lt,
-        std::function<InnerFnType(const LoopTree &, const Auxiliary &,
-                                  LoopTree::TreeRef)>
-            callback = {});
-bool trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
-
 struct CPUBackend : public Backend {
   CPUBackend() : Backend("cpu") {}
   ~CPUBackend() {}
-  CPUBackend(std::string name, GenFnType callback_)
-      : Backend(name), callback(callback_) {}
-
-  // for easy CPU overwriting
-  // TODO map annotations to GenFnTypes
-  GenFnType callback = {};
+  CPUBackend(std::string name)
+      : Backend(name) {}
 
   std::unique_ptr<Compiled> compile_impl(
       const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,

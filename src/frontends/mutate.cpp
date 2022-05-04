@@ -524,6 +524,41 @@ int64_t flops(const LoopTree& lt) {
   return total;
 }
 
+bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref) {
+  bool trivially_parallel = true;
+  if (lt.kind(ref) == LoopTree::NODE) {
+    return false;
+  }
+  auto tree_v = lt.loop(ref).var;
+  lt.walk(
+      [&](LoopTree::TreeRef ref, int) {
+        if (lt.kind(ref) == LoopTree::LOOP) {
+          return;
+        }
+        auto node_ref = lt.node(ref);
+        bool iters_over = false;
+        for (auto v : lt.ir.loop_vars(node_ref)) {
+          if (v == tree_v) {
+            iters_over = true;
+            break;
+          }
+        }
+        if (iters_over) {
+          bool pointwise = false;
+          for (auto v : lt.ir.pointwise_vars(node_ref)) {
+            if (v == tree_v) {
+              pointwise = true;
+            }
+          }
+          if (!pointwise) {
+            trivially_parallel = false;
+          }
+        }
+      },
+      ref);
+  return trivially_parallel;
+}
+
 LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref,
                   std::string annot) {
   auto new_ir = lt.ir;

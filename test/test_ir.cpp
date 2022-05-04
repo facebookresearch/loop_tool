@@ -96,7 +96,8 @@ TEST(BasicSchedule) {
   float out[M * N];
   rand(in0, M * K);
   rand(in1, N * K);
-  exec(lt, {in0, in1, out});
+  auto cc = getBackends().at("cpu")->compile(lt);
+  cc->run({in0, in1, out});
   float out_ref[M * N];
   ref_mm(in0, in1, M, N, K, out_ref);
   float max_diff = 0;
@@ -132,8 +133,8 @@ TEST(NodeSplit) {
 
   auto lt = LoopTree(ir);
   lt.walk([&](LoopTree::TreeRef ref, int) {
-    if (trivially_parallel(lt, ref)) {
-      // lt.annotate(ref, "parallel");
+    if (is_trivially_parallel(lt, ref)) {
+      annotate(lt, ref, "parallel");
     }
   });
   std::cout << lt.dump() << "\n";

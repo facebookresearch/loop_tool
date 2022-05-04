@@ -37,7 +37,7 @@ LoopTree decrease_reuse(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree increase_reuse(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref);
-int64_t flops(const LoopTree& lt);
+
 LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref, std::string annot);
 // map an old ref to a close new ref after mutation, return the new ref
 LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
@@ -45,5 +45,9 @@ LoopTree::TreeRef map_ref(const LoopTree& new_lt, LoopTree::TreeRef old_ref,
 
 LoopTree maximize_reuse(const LoopTree& lt);
 LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount);
+
+// Informational functions
+int64_t flops(const LoopTree& lt);
+bool is_trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
 
 }  // namespace loop_tool
