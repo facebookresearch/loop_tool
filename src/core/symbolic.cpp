@@ -1035,5 +1035,13 @@ Expr differentiate(Expr e, Symbol sym) {
   return Expr(0);
 }
 
+Expr intercept(Expr e) {
+  auto symbols = e.symbols();
+  for (const auto& s : symbols) {
+    e = e.replace(s, Expr(0)).simplify();
+  }
+  return e;
+}
+
 }  // namespace symbolic
 }  // namespace loop_tool

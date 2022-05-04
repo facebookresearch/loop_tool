@@ -53,10 +53,6 @@ class Compiler {
     std::vector<symbolic::Expr> full_exprs;
     std::vector<symbolic::Expr> scoped_exprs;
     std::vector<std::pair<int64_t, int64_t>> bounds;
-
-    // DEPRECATED
-    std::unordered_map<IR::VarRef, std::tuple<int64_t, int64_t, int64_t>> vars;
-    int64_t total_offset;
   };
 
   struct IdxInformation {
@@ -93,23 +89,24 @@ class Compiler {
   // given a node used at point "ref", generate access information
   Access gen_access(IR::NodeRef node, LoopTree::TreeRef ref) const;
 
-  // DEPRECATED, see gen_index_equations
-  std::vector<symbolic::Constraint> gen_constraints(
-      IR::NodeRef node, LoopTree::TreeRef ref) const;
+
+  symbolic::Expr get_scoped_expr(const Access& access) const;
+std::unordered_map<symbolic::Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+  symbolic::Hash<symbolic::Symbol>>
+                     get_symbol_strides(
+                         LoopTree::TreeRef ref, LoopTree::TreeRef root) const;
+
+std::function<float*(const std::vector<void *> &memory, int indices[MAX_DEPTH])> gen_access_fn(const Access &access, LoopTree::TreeRef ref) const;
+  std::vector<std::pair<symbolic::Expr, int64_t>> get_constraints(const Access& access) const;
+
 
   InnerFnType gen_reset(LoopTree::TreeRef ref) const;
 
   symbolic::Expr reify_sizes(const symbolic::Expr &expr) const;
   int64_t get_expr_max(const symbolic::Expr &) const;
   int64_t get_expr_min(const symbolic::Expr &) const;
-  IdxInformation gen_idx_info(LoopTree::TreeRef ref,
-                              const Compiler::Access &access) const;
-  std::function<int64_t(int indices[MAX_DEPTH])> gen_idx_fn(
-      LoopTree::TreeRef ref, const Access &access) const;
 
   InnerFnType gen_mem_node(LoopTree::TreeRef ref) const;
-  InnerFnType gen_add_node(LoopTree::TreeRef ref) const;
-  InnerFnType gen_mul_node(LoopTree::TreeRef ref) const;
   InnerFnType gen_binary_node(LoopTree::TreeRef ref) const;
   InnerFnType gen_unary_node(LoopTree::TreeRef ref) const;
   InnerFnType gen_node(LoopTree::TreeRef ref) const;
@@ -142,30 +139,6 @@ class Compiler {
 
   std::vector<void *> allocate() const;
   std::vector<int64_t> memory_sizes() const;
-};
-
-struct Allocation {
-  int64_t size;
-  int64_t thread_size;
-  int idx;
-  bool should_init;
-  float init_val;         // TODO don't hardcode float type
-  LoopTree::TreeRef lca;  // can easily deduce required vars this way
-  LoopTree::TreeRef producer;
-};
-
-// unfortunately, there is some required auxiliary information
-struct Auxiliary {
-  std::unordered_map<IR::VarRef, int> var_idx;  // index into "tails" array
-  std::unordered_map<LoopTree::TreeRef, int64_t>
-      inner_size;  // total size of inner loops over same var
-  std::unordered_map<IR::NodeRef, Allocation>
-      allocs;  // intermediate allocations
-  // thread -> [(idx, stride), ...]
-  std::unordered_map<LoopTree::TreeRef, std::vector<std::pair<int, int>>>
-      thread_memory;
-  std::unordered_map<LoopTree::TreeRef, std::vector<Allocation>>
-      resets;  // allocation LCAs
 };
 
 struct CPUBackend : public Backend {

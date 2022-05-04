@@ -132,6 +132,8 @@ std::vector<Constraint> evaluate(
     const std::vector<Constraint>& old_constraints);
 
 Expr differentiate(Expr, Symbol);
+// zero out every symbol
+Expr intercept(Expr);
 
 }  // namespace symbolic
 }  // namespace loop_tool

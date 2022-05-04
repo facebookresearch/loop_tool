@@ -309,6 +309,52 @@ bool Compiler::is_input_output(IR::NodeRef nr) const {
   return false;
 };
 
+Expr Compiler::get_scoped_expr(const Compiler::Access &access) const {
+  Expr full_expr(0);
+  for (auto i = 0; i < access.scoped_exprs.size(); ++i) {
+    auto stride = access.alloc.size(i + 1);
+    const auto &expr = access.scoped_exprs.at(i);
+    full_expr = full_expr + expr * Expr(stride);
+  }
+  full_expr = full_expr.simplify();
+  return full_expr;
+}
+
+std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                   Hash<Symbol>>
+Compiler::get_symbol_strides(LoopTree::TreeRef ref,
+                             LoopTree::TreeRef root) const {
+  std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                     Hash<Symbol>>
+      sym_strides;
+  auto p = lt.parent(ref);
+  while (p != root) {
+    const auto &l = lt.loop(p);
+    auto sym = var_to_sym.at(l.var);
+    auto stride = inner_sizes.at(p);
+    sym_strides[sym].emplace_back(p, stride);
+    p = lt.parent(p);
+  }
+  return sym_strides;
+}
+
+// pairs of index equation and maximum value (always lower bounded by 0)
+// second value -1 implies no upperbound constraint
+std::vector<std::pair<Expr, int64_t>> Compiler::get_constraints(
+    const Compiler::Access &access) const {
+  std::vector<std::pair<Expr, int64_t>> constraints;
+  for (auto i = 0; i < access.bounds.size(); ++i) {
+    const auto &bound = access.bounds.at(i);
+    const auto &expr = access.scoped_exprs.at(i);
+    // 0 < expr < -1, default condition (unconstrained)
+    if (bound.first == 0 && bound.second == -1) {
+      continue;
+    }
+    constraints.emplace_back(expr, bound.second);
+  }
+  return constraints;
+}
+
 std::string Compiler::gen_access_string(IR::NodeRef node_ref,
                                         LoopTree::TreeRef ref) const {
   std::stringstream ss;
@@ -334,36 +380,27 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
     sym_strings[p.first] = "(" + p.second + ")";
   }
 
-  bool constrained = false;
-  for (const auto &b : acc.bounds) {
-    if (b.first != 0 || b.second != -1) {
-      constrained = true;
-    }
-  }
-  // TODO eliminate this restriction
-  if (node_ref == lt.node(ref)) {
-    constrained = false;
-  }
+  // if we're accessing a write, we're unconstrained
+  // TODO change this to allow conditional writes!
+  const auto &constraints = node_ref != lt.node(ref)
+                                ? get_constraints(acc)
+                                : std::vector<std::pair<Expr, int64_t>>{};
 
-  if (constrained) {
+  if (constraints.size()) {
     ss << "(";
-    bool constraint_added = false;
-    for (auto i = 0; i < acc.bounds.size(); ++i) {
-      const auto &b = acc.bounds.at(i);
-      const auto &expr = acc.scoped_exprs.at(i);
-      if (b.first == 0 && b.second == -1) {
-        continue;
-      }
-      const auto &str = expr.dump(false, sym_strings);
-      if (constraint_added) {
-        ss << " && ";
-      }
-      ss << "((" << str << ") >= 0)";
-      if (b.second != -1) {
-        ss << " && ((" << str << ") < " << b.second << ")";
-      }
-      constraint_added = true;
+  }
+  for (const auto &constraint : constraints) {
+    const auto &expr = constraint.first;
+    const auto &str = expr.dump(false, sym_strings);
+    if (&constraint != &constraints.front()) {
+      ss << " && ";
     }
+    ss << "((" << str << ") >= 0)";
+    if (constraint.second != -1) {
+      ss << " && ((" << str << ") < " << constraint.second << ")";
+    }
+  }
+  if (constraints.size()) {
     ss << " ? ";
   }
 
@@ -388,7 +425,8 @@ std::string Compiler::gen_access_string(IR::NodeRef node_ref,
     ss << "v" << acc.alloc.mem_idx;
   }
 
-  if (constrained) {
+  // TODO may not be 0 when out of bounds!
+  if (constraints.size()) {
     ss << " : " << 0 << ")";
   }
   return ss.str();
@@ -1128,93 +1166,56 @@ Compiler::Access Compiler::gen_access(IR::NodeRef node_ref,
   return access;
 }
 
-Compiler::IdxInformation Compiler::gen_idx_info(
-    LoopTree::TreeRef ref, const Compiler::Access &access) const {
-  Compiler::IdxInformation info;
-
-  ASSERT(lt.kind(ref) == LoopTree::NODE);
-  ref = lt.parent(ref);
-  std::unordered_map<IR::VarRef, int> var_to_max_idx;
-  std::unordered_map<IR::VarRef, int64_t> last;
-
-  while (ref != -1) {
-    auto loop = lt.loop(ref);
-    auto stride = ([&]() -> int64_t {
-      if (last.count(loop.var)) {
-        return last.at(loop.var);
+std::function<float *(const std::vector<void *> &memory,
+                      int indices[MAX_DEPTH])>
+Compiler::gen_access_fn(const Compiler::Access &access,
+                        LoopTree::TreeRef ref) const {
+  const auto &expr = get_scoped_expr(access);
+  const auto &constraints = get_constraints(access);
+  auto resolve_expr =
+      [&](const Expr &e) -> std::function<int64_t(int[MAX_DEPTH])> {
+    auto sym_strides = get_symbol_strides(ref, access.alloc.lca);
+    auto total_depth = lt.depth(ref);
+    std::vector<int64_t> strides(total_depth, 0);
+    for (const auto &sym : e.symbols()) {
+      auto stride_expr = differentiate(e, sym).simplify();
+      ASSERT(stride_expr.can_evaluate()) << "Invalid indexing expr";
+      auto base_stride = stride_expr.evaluate();
+      for (const auto &p : sym_strides.at(sym)) {
+        const auto &sym_ref = p.first;
+        const auto &sym_ref_stride = p.second;
+        strides[lt.depth(sym_ref)] = sym_ref_stride * base_stride;
       }
-      if (access.vars.count(loop.var)) {
-        auto t = access.vars.at(loop.var);
-        auto stride = std::get<0>(t);
-        auto offset = std::get<1>(t);
-        auto max = std::get<2>(t);
-        if (max != -1 || offset < 0) {
-          if (max == -1) {
-            max = var_sizes.at(loop.var);
-          }
-          var_to_max_idx[loop.var] = info.maxes.size();
-          info.maxes.emplace_back((max - offset) * stride);
-          info.mins.emplace_back(-offset * stride);
-        }
-        return stride;
-      } else {
-        return 0L;
-      }
-    })();
-    info.offset = access.total_offset;
-    info.strides.emplace(info.strides.begin(), stride);
-    if (var_to_max_idx.count(loop.var)) {
-      info.idxs.emplace(info.idxs.begin(), var_to_max_idx.at(loop.var));
-    } else {
-      info.idxs.emplace(info.idxs.begin(), -1);
     }
-    if (stride) {
-      last[loop.var] = stride * loop.size + loop.tail;
-    }
-    ref = lt.parent(ref);
-  }
-
-  return info;
-}
-
-IdxFn Compiler::gen_idx_fn(LoopTree::TreeRef ref,
-                           const Compiler::Access &access) const {
-  ASSERT(lt.kind(ref) == LoopTree::NODE);
-  auto n = lt.node(ref);
-  auto info = gen_idx_info(ref, access);
-
-  ref = lt.parent(ref);
-  if (ref == -1) {
-    return [](int indices[MAX_DEPTH]) { return 0; };
-  }
-
-  if (info.maxes.size()) {
-    return [info](int indices[MAX_DEPTH]) -> int64_t {
-      std::vector<int64_t> totals(info.maxes.size());
+    auto offset_expr = intercept(expr);
+    ASSERT(offset_expr.can_evaluate()) << "Invalid indexing expr";
+    auto offset = offset_expr.evaluate();
+    return [strides, offset](int indices[MAX_DEPTH]) -> int64_t {
       int64_t idx = 0;
-      for (auto i = 0; i < info.strides.size(); ++i) {
-        auto bound_idx = info.idxs[i];
-        if (bound_idx != -1) {
-          totals[bound_idx] += indices[i] * info.strides[i];
-          if (totals[bound_idx] >= info.maxes[bound_idx]) {
-            return -1L;
-          }
-          if (totals[bound_idx] < info.mins[bound_idx]) {
-            return -1L;
-          }
-        }
-        idx += indices[i] * info.strides[i];
+      for (auto i = 0; i < strides.size(); ++i) {
+        idx += indices[i] * strides[i];
       }
-      return idx + info.offset;
+      return idx + offset;
     };
-  }
+  };
 
-  return [info, n](int indices[MAX_DEPTH]) -> int64_t {
-    int64_t idx = 0;
-    for (auto i = 0; i < info.strides.size(); ++i) {
-      idx += indices[i] * info.strides[i];
+  using IdxFn = std::function<int64_t(int[MAX_DEPTH])>;
+  std::vector<std::pair<IdxFn, int64_t>> constraint_fns;
+  for (const auto &c : constraints) {
+    constraint_fns.emplace_back(resolve_expr(c.first), c.second);
+  }
+  auto idx_fn = resolve_expr(expr);
+  auto mem_idx = access.alloc.mem_idx;
+  return [constraint_fns, mem_idx, idx_fn](const std::vector<void *> &memory,
+                                           int indices[MAX_DEPTH]) -> float * {
+    for (const auto &p : constraint_fns) {
+      auto i = p.first(indices);
+      if (i < 0 || (p.second != -1 && i >= p.second)) {
+        return nullptr;
+      }
     }
-    return idx + info.offset;
+    float *data = (float *)memory[mem_idx];
+    return &data[idx_fn(indices)];
   };
 }
 
@@ -1229,27 +1230,22 @@ InnerFnType Compiler::gen_mem_node(LoopTree::TreeRef ref) const {
   ASSERT(node.inputs().size() == 1)
       << "Cannot call gen_mem_node on this node " << lt.ir.dump(node_ref);
   auto inacc = gen_access(node.inputs().at(0), ref);
-  auto inidx = gen_idx_fn(ref, inacc);
+  auto inacc_fn = gen_access_fn(inacc, ref);
 
   auto outacc = gen_access(node_ref, ref);
-
-  auto outidx = gen_idx_fn(ref, outacc);
+  auto outacc_fn = gen_access_fn(outacc, ref);
 
   auto s = lt.ir.dump(node_ref);
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
-    auto outi = outidx(indices);
-    auto ini = inidx(indices);
-    if (outi >= 0 && ini >= 0) {
-      ASSERT(outi < outacc.alloc.size())
-          << "accessing " << outi << " out of bounds (" << outacc.alloc.size()
-          << ")";
-      ((float *)memory[outacc.alloc.mem_idx])[outi] =
-          ((float *)memory[inacc.alloc.mem_idx])[ini];
-    } else if (outi >= 0) {
-      ASSERT(outi < outacc.alloc.size())
-          << "accessing " << outi << " out of bounds (" << outacc.alloc.size()
-          << ")";
-      ((float *)memory[outacc.alloc.mem_idx])[outi] = 0;
+    auto *f = outacc_fn(memory, indices);
+    if (!f) {
+      return;
+    }
+    auto *i = inacc_fn(memory, indices);
+    if (!i) {
+      *f = 0;
+    } else {
+      *f = *i;
     }
   };
 }
@@ -1258,15 +1254,17 @@ InnerFnType Compiler::gen_binary_node(LoopTree::TreeRef ref) const {
   auto node_ref = lt.node(ref);
   const auto &node = lt.ir.node(node_ref);
 
-  std::vector<std::pair<int, IdxFn>> inputs;
+  using AccessFn =
+      std::function<float *(const std::vector<void *> &, int[MAX_DEPTH])>;
+  std::vector<AccessFn> inputs;
   for (const auto &inp : node.inputs()) {
     auto inacc = gen_access(inp, ref);
-    auto inidx = gen_idx_fn(ref, inacc);
-    inputs.emplace_back(inacc.alloc.mem_idx, inidx);
+    auto inacc_fn = gen_access_fn(inacc, ref);
+    inputs.emplace_back(inacc_fn);
   }
 
   auto outacc = gen_access(node_ref, ref);
-  auto outidx = gen_idx_fn(ref, outacc);
+  auto outacc_fn = gen_access_fn(outacc, ref);
 
   auto arith = [&]() -> std::function<float(float, float)> {
     switch (node.op()) {
@@ -1291,19 +1289,26 @@ InnerFnType Compiler::gen_binary_node(LoopTree::TreeRef ref) const {
   bool is_reduction = lt.ir.reduction_vars(node_ref).size();
 
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
-    auto outi = outidx(indices);
-    auto first_inp = inputs.at(0);
-    auto out_f = ((float *)memory[first_inp.first])[first_inp.second(indices)];
+    auto *out_f = outacc_fn(memory, indices);
+    if (!out_f) {
+      return;
+    }
+    auto *f = inputs.at(0)(memory, indices);
+    if (f && is_reduction) {
+      *out_f = arith(*out_f, *f);
+    } else if (f) {
+      *out_f = *f;
+    } else {
+      *out_f = 0;
+    }
     for (auto i = 1; i < inputs.size(); ++i) {
-      auto other_inp = inputs.at(1);
-      auto f = ((float *)memory[other_inp.first])[other_inp.second(indices)];
-      out_f = arith(out_f, f);
+      auto other_inp = inputs.at(i);
+      auto *f = other_inp(memory, indices);
+      if (!f) {
+        continue;
+      }
+      *out_f = arith(*out_f, *f);
     }
-    if (is_reduction) {
-      auto f = ((float *)memory[outacc.alloc.mem_idx])[outi];
-      out_f = arith(out_f, f);
-    }
-    ((float *)memory[outacc.alloc.mem_idx])[outi] = out_f;
   };
 }
 
@@ -1315,10 +1320,10 @@ InnerFnType Compiler::gen_unary_node(LoopTree::TreeRef ref) const {
   const auto &inp = node.inputs().at(0);
 
   auto inacc = gen_access(inp, ref);
-  auto inidx = gen_idx_fn(ref, inacc);
+  auto inacc_fn = gen_access_fn(inacc, ref);
 
   auto outacc = gen_access(node_ref, ref);
-  auto outidx = gen_idx_fn(ref, outacc);
+  auto outacc_fn = gen_access_fn(outacc, ref);
 
   auto arith = [&]() -> std::function<float(float)> {
     switch (node.op()) {
@@ -1341,58 +1346,15 @@ InnerFnType Compiler::gen_unary_node(LoopTree::TreeRef ref) const {
   }();
 
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
-    auto outi = outidx(indices);
-    auto ini = inidx(indices);
-    auto f = ((float *)memory[inacc.alloc.mem_idx])[ini];
-    ((float *)memory[outacc.alloc.mem_idx])[outi] = arith(f);
-  };
-}
-
-InnerFnType Compiler::gen_add_node(LoopTree::TreeRef ref) const {
-  auto node_ref = lt.node(ref);
-  const auto &node = lt.ir.node(node_ref);
-
-  std::vector<std::pair<int, IdxFn>> inputs;
-  for (const auto &inp : node.inputs()) {
-    auto inacc = gen_access(inp, ref);
-    auto inidx = gen_idx_fn(ref, inacc);
-    inputs.emplace_back(inacc.alloc.mem_idx, inidx);
-  }
-
-  auto outacc = gen_access(node_ref, ref);
-  auto outidx = gen_idx_fn(ref, outacc);
-
-  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
-    auto outi = outidx(indices);
-    for (const auto &p : inputs) {
-      auto ini = p.second(indices);
-      ((float *)memory[outacc.alloc.mem_idx])[outi] +=
-          ((float *)memory[p.first])[ini];
+    auto *f = outacc_fn(memory, indices);
+    if (!f) {
+      return;
     }
-  };
-}
-
-InnerFnType Compiler::gen_mul_node(LoopTree::TreeRef ref) const {
-  auto node_ref = lt.node(ref);
-  const auto &node = lt.ir.node(node_ref);
-
-  std::vector<std::pair<int, IdxFn>> inputs;
-  for (const auto &inp : node.inputs()) {
-    auto inacc = gen_access(inp, ref);
-    auto inidx = gen_idx_fn(ref, inacc);
-    inputs.emplace_back(inacc.alloc.mem_idx, inidx);
-  }
-
-  auto outacc = gen_access(node_ref, ref);
-  auto outidx = gen_idx_fn(ref, outacc);
-
-  return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
-    auto outi = outidx(indices);
-    ((float *)memory[outacc.alloc.mem_idx])[outi] = 1;
-    for (const auto &p : inputs) {
-      auto ini = p.second(indices);
-      ((float *)memory[outacc.alloc.mem_idx])[outi] *=
-          ((float *)memory[p.first])[ini];
+    auto *i = inacc_fn(memory, indices);
+    if (!i) {
+      *f = 0;
+    } else {
+      *f = arith(*i);
     }
   };
 }
@@ -1440,6 +1402,7 @@ struct CPUCompiled : public Compiled {
     auto compiler = Compiler(lt);
     auto code = compiler.gen_string();
     try {
+      ASSERT(0);
       std::stringstream fn_name;
       fn_name << "fn_" << compiler.count;
       std::string source_name = "/tmp/" + fn_name.str() + ".c";

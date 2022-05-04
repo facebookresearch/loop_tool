@@ -378,6 +378,7 @@ TEST(LazyConcat2D) {
     B.data<float>()[i] = 7;  // i;
   }
   std::cerr << loop_tool::dot(C.ir()) << "\n";
+  std::cerr << C.code() << "\n";
   std::cerr << "checking " << C.data<float>()[0] << "\n";
   for (auto i = 0; i < batch * 8; ++i) {
     std::cerr << C.data<float>()[i] << "\n";

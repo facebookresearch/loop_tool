@@ -86,18 +86,6 @@ WebAssemblyCompiler::WebAssemblyCompiler(const LoopTree& lt)
   }
 }
 
-Expr WebAssemblyCompiler::get_scoped_expr(
-    const Compiler::Access& access) const {
-  Expr full_expr(0);
-  for (auto i = 0; i < access.scoped_exprs.size(); ++i) {
-    auto stride = access.alloc.size(i + 1);
-    const auto& expr = access.scoped_exprs.at(i);
-    full_expr = full_expr + expr * Expr(stride);
-  }
-  full_expr = full_expr.simplify();
-  return full_expr;
-}
-
 int64_t WebAssemblyCompiler::get_unroll_offset(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
     const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const {
@@ -126,33 +114,13 @@ int64_t WebAssemblyCompiler::get_unroll_offset(
   return offset;
 }
 
-// returns constant offset for all symbols
-std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
-                   Hash<Symbol>>
-WebAssemblyCompiler::get_symbol_strides(
-    LoopTree::TreeRef ref, LoopTree::TreeRef root,
-    const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const {
-  std::unordered_map<Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
-                     Hash<Symbol>>
-      sym_strides;
-  auto p = lt.parent(ref);
-  while (p != root) {
-    const auto& l = lt.loop(p);
-    auto sym = var_to_sym.at(l.var);
-    auto stride = inner_sizes.at(p);
-    sym_strides[sym].emplace_back(p, stride);
-    p = lt.parent(p);
-  }
-  return sym_strides;
-}
-
 int32_t WebAssemblyCompiler::push_access_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
   auto access = gen_access(node_ref, ref);
   const auto& idx_expr = get_scoped_expr(access);
   // grab the relevant loops
-  auto sym_strides = get_symbol_strides(ref, access.alloc.lca, unrolls);
+  auto sym_strides = get_symbol_strides(ref, access.alloc.lca);
   // memory needs 4x for bytes sizeof(float)
   int32_t offset =
       get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls) * 4;
