@@ -283,8 +283,7 @@ struct TensorImpl {
   }
 
   inline std::string code() const {
-    auto compiler = Compiler(loop_tree());
-    return compiler.gen_string();
+    return compiled()->dump();
   }
 
   inline void set(const IR& ir) {
@@ -307,10 +306,10 @@ struct TensorImpl {
                             lowered.sizes};
   }
 
-  inline std::shared_ptr<Compiled> compiled() {
+  inline std::shared_ptr<Compiled> compiled() const {
     auto h = hash();
     if (!getCompilationCache().count(h)) {
-      compile();
+      const_cast<TensorImpl*>(this)->compile();
     }
     auto& cc = getCompilationCache().at(h);
     return cc;

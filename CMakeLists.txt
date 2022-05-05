@@ -35,7 +35,7 @@ if (APPLE)
 endif()
 
 
-add_library(loop_tool SHARED ${CORE_SRCS})
+add_library(loop_tool SHARED ${CORE_SRCS} ${CPU_SRCS})
 target_include_directories(loop_tool PRIVATE ${LIB_PRIVATE_INCLUDE})
 target_include_directories(loop_tool PUBLIC
     "$<BUILD_INTERFACE:${LIB_INCLUDE}>"

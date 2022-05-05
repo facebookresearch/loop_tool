@@ -80,6 +80,7 @@ class Compiler {
       sym_to_var;
 
   Compiler(const LoopTree &lt_);
+  virtual ~Compiler() = default;
 
   Allocation gen_alloc(IR::NodeRef node_ref) const;
 
@@ -89,16 +90,17 @@ class Compiler {
   // given a node used at point "ref", generate access information
   Access gen_access(IR::NodeRef node, LoopTree::TreeRef ref) const;
 
+  symbolic::Expr get_scoped_expr(const Access &access) const;
+  std::unordered_map<symbolic::Symbol,
+                     std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                     symbolic::Hash<symbolic::Symbol>>
+  get_symbol_strides(LoopTree::TreeRef ref, LoopTree::TreeRef root) const;
 
-  symbolic::Expr get_scoped_expr(const Access& access) const;
-std::unordered_map<symbolic::Symbol, std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
-  symbolic::Hash<symbolic::Symbol>>
-                     get_symbol_strides(
-                         LoopTree::TreeRef ref, LoopTree::TreeRef root) const;
-
-std::function<float*(const std::vector<void *> &memory, int indices[MAX_DEPTH])> gen_access_fn(const Access &access, LoopTree::TreeRef ref) const;
-  std::vector<std::pair<symbolic::Expr, int64_t>> get_constraints(const Access& access) const;
-
+  std::function<float *(const std::vector<void *> &memory,
+                        int indices[MAX_DEPTH])>
+  gen_access_fn(const Access &access, LoopTree::TreeRef ref) const;
+  std::vector<std::pair<symbolic::Expr, int64_t>> get_constraints(
+      const Access &access) const;
 
   InnerFnType gen_reset(LoopTree::TreeRef ref) const;
 
@@ -111,41 +113,22 @@ std::function<float*(const std::vector<void *> &memory, int indices[MAX_DEPTH])>
   InnerFnType gen_unary_node(LoopTree::TreeRef ref) const;
   InnerFnType gen_node(LoopTree::TreeRef ref) const;
 
-  InnerFnType gen_loop(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
+  InnerFnType gen_loop(LoopTree::TreeRef ref,
+                       std::unordered_map<IR::VarRef, int> overrides) const;
 
   InnerFnType gen_exec(
       LoopTree::TreeRef ref = -1,
       std::unordered_map<IR::VarRef, int> overrides = {}) const;
-
-  bool is_input_output(IR::NodeRef nr) const;
-  std::string gen_access_string(IR::NodeRef node_ref,
-                                LoopTree::TreeRef ref) const;
-  std::string gen_reset_string(LoopTree::TreeRef ref) const;
-  std::string gen_mem_node_string(LoopTree::TreeRef ref) const;
-  std::string gen_compute_node_string(LoopTree::TreeRef ref) const;
-  inline std::string gen_indent(LoopTree::TreeRef ref, int extra = 0) const {
-    auto depth = ((ref == -1) ? 0 : lt.depth(ref) + 1);
-    return std::string((depth + extra) * 2, ' ');
-  }
-  std::string gen_node_string(LoopTree::TreeRef ref) const;
-  std::string gen_loop_string(
-      LoopTree::TreeRef ref,
-      std::unordered_map<IR::VarRef, int> overrides) const;
-  std::string gen_string(
-      LoopTree::TreeRef ref = -1,
-      std::unordered_map<IR::VarRef, int> overrides = {}) const;
+  virtual std::string gen_string() const;
 
   std::vector<void *> allocate() const;
   std::vector<int64_t> memory_sizes() const;
 };
 
-struct CPUBackend : public Backend {
-  CPUBackend() : Backend("cpu") {}
-  ~CPUBackend() {}
-  CPUBackend(std::string name)
-      : Backend(name) {}
+struct CPUInterpretedBackend : public Backend {
+  CPUInterpretedBackend() : Backend("cpu_interpreted") {}
+  ~CPUInterpretedBackend() {}
+  CPUInterpretedBackend(std::string name) : Backend(name) {}
 
   std::unique_ptr<Compiled> compile_impl(
       const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,

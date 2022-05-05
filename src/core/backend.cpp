@@ -25,6 +25,16 @@ void Compiled::operator()(const std::vector<Tensor *> &tensors,
   run(memory, sync);
 }
 
+std::vector<void *> Compiled::allocate(std::vector<int64_t> &sizes) const {
+  std::vector<void *> memory(sizes.size());
+  for (auto i = 0; i < sizes.size(); ++i) {
+    if (sizes[i] > 0) {
+      memory[i] = calloc(sizes[i], sizeof(float));
+    }
+  }
+  return memory;
+}
+
 std::unordered_map<std::string, std::shared_ptr<Backend>>
     &getMutableBackends() {
   static std::unordered_map<std::string, std::shared_ptr<Backend>> backends_;
@@ -41,7 +51,7 @@ void registerBackend(std::shared_ptr<Backend> backend) {
 }
 
 std::shared_ptr<Backend> &getDefaultBackend() {
-  static std::shared_ptr<Backend> default_backend_ = getBackends().at("cpu");
+  static std::shared_ptr<Backend> default_backend_ = getBackends().at("cpp");
   return default_backend_;
 }
 

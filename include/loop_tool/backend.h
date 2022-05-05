@@ -19,8 +19,13 @@ struct Compiled {
   virtual ~Compiled() {}
   virtual void run(const std::vector<void *> &memory,
                    bool sync = true) const = 0;
+  virtual std::string dump() const {
+    return "[not implemented, override `std::string Compiled::dump() const`]";
+  }
 
   void operator()(const std::vector<Tensor *> &tensors, bool sync = true) const;
+
+  std::vector<void *> allocate(std::vector<int64_t>& sizes) const;
 
   template <bool sync, typename... Args>
   void run(Args const &... tensors) const {

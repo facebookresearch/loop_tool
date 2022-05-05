@@ -96,7 +96,7 @@ TEST(BasicSchedule) {
   float out[M * N];
   rand(in0, M * K);
   rand(in1, N * K);
-  auto cc = getBackends().at("cpu")->compile(lt);
+  auto cc = getDefaultBackend()->compile(lt);
   cc->run({in0, in1, out});
   float out_ref[M * N];
   ref_mm(in0, in1, M, N, K, out_ref);
@@ -139,7 +139,7 @@ TEST(NodeSplit) {
   });
   std::cout << lt.dump() << "\n";
 
-  auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
+  auto cc = getDefaultBackend()->compile(lt, {}, -1);
   std::vector<float> input(N * N);
   float ref = 0;
   for (auto i = 0; i < N * N; ++i) {
@@ -176,7 +176,7 @@ TEST(BasicInterpreter) {
 
   auto lt = LoopTree(ir);
   std::cout << lt.dump() << "\n";
-  auto cc = getBackends().at("cpu")->compile(lt, {}, -1);
+  auto cc = getDefaultBackend()->compile(lt, {}, -1);
   std::vector<float> input(N);
   for (auto i = 0; i < N; ++i) {
     input[i] = i * 3;

@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #include <loop_tool/dynlib.h>
 #include <loop_tool/loop_tool.h>
+#include <loop_tool/cpp.h>
 
 #include <fstream>
 
@@ -28,7 +29,7 @@ TEST(CppFromLazy) {
   lz::Tensor A(M, K);
   lz::Tensor B(K, N);
   auto C = mm(A, B);
-  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto compiler = loop_tool::CppCompiler(C.loop_tree());
   auto code = compiler.gen_string();
   std::string fn_name = "fn_" + std::to_string(compiler.count);
 
@@ -90,7 +91,7 @@ TEST(CppWithTail) {
 
   C.compile();
   C.set(lt);
-  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto compiler = loop_tool::CppCompiler(C.loop_tree());
   auto code = compiler.gen_string();
   std::string fn_name = "fn_" + std::to_string(compiler.count);
   std::cerr << code << "\n";
@@ -142,7 +143,7 @@ TEST(CppView) {
   std::cerr << '\n';
   std::cerr << lt.dump();
   std::cerr << '\n';
-  auto compiler = loop_tool::Compiler(C.loop_tree());
+  auto compiler = loop_tool::CppCompiler(C.loop_tree());
   auto code = compiler.gen_string();
   std::string fn_name = "fn_" + std::to_string(compiler.count);
 
