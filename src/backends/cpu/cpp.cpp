@@ -453,9 +453,7 @@ struct CppCompiled : public Compiled {
   mutable std::vector<int64_t> mem_sizes;
   std::shared_ptr<loop_tool::DynamicLibrary> dll;
 
-  CppCompiled(const LoopTree &lt,
-              const std::unordered_set<LoopTree::TreeRef> &threaded,
-              LoopTree::TreeRef ref) {
+  CppCompiled(const LoopTree &lt) {
     auto compiler = CppCompiler(lt);
     code = compiler.gen_string();
     try {
@@ -503,10 +501,8 @@ struct CppCompiled : public Compiled {
   std::string dump() const override { return code; }
 };
 
-std::unique_ptr<Compiled> CppBackend::compile_impl(
-    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
-    LoopTree::TreeRef root) {
-  return std::make_unique<CppCompiled>(lt, parallel, root);
+std::unique_ptr<Compiled> CppBackend::compile_impl(const LoopTree &lt) {
+  return std::make_unique<CppCompiled>(lt);
 }
 
 int CppBackend::hardware_requirement() const {

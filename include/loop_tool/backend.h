@@ -56,15 +56,11 @@ struct Backend {
 
   const std::string &name() const { return name_; }
 
-  virtual std::unique_ptr<Compiled> compile_impl(
-      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
-      LoopTree::TreeRef root) = 0;
+  virtual std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) = 0;
   virtual int hardware_requirement() const = 0;
 
-  std::unique_ptr<Compiled> compile(
-      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel = {},
-      LoopTree::TreeRef root = -1) {
-    auto compiled = compile_impl(lt, parallel, root);
+  std::unique_ptr<Compiled> compile(const LoopTree &lt) {
+    auto compiled = compile_impl(lt);
     compiled->hardware_requirement = hardware_requirement();
     compiled->name = name();
     return compiled;

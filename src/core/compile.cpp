@@ -959,9 +959,7 @@ struct CPUInterpreted : public Compiled {
   mutable std::vector<void *> mem;
   mutable std::vector<int64_t> mem_sizes;
 
-  CPUInterpreted(const LoopTree &lt,
-                 const std::unordered_set<LoopTree::TreeRef> &threaded,
-                 LoopTree::TreeRef ref) {
+  CPUInterpreted(const LoopTree &lt) {
     auto compiler = Compiler(lt);
     fn = compiler.gen_exec();
     str = compiler.gen_string();
@@ -990,9 +988,8 @@ struct CPUInterpreted : public Compiled {
 };
 
 std::unique_ptr<Compiled> CPUInterpretedBackend::compile_impl(
-    const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
-    LoopTree::TreeRef root) {
-  return std::make_unique<CPUInterpreted>(lt, parallel, root);
+    const LoopTree &lt) {
+  return std::make_unique<CPUInterpreted>(lt);
 }
 
 int CPUInterpretedBackend::hardware_requirement() const {

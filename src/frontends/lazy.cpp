@@ -380,14 +380,7 @@ void TensorImpl::unify() {
 
 std::unique_ptr<Compiled> TensorImpl::backend_compile(
     const LoopTree& loop_tree) {
-  // legacy
-  std::unordered_set<LoopTree::TreeRef> parallel;
-  loop_tree.walk([&](LoopTree::TreeRef ref, int) {
-    if (loop_tree.annotation(ref).find("parallel") != std::string::npos) {
-      parallel.insert(ref);
-    }
-  });
-  return getDefaultBackend()->compile(loop_tree, parallel, -1);
+  return getDefaultBackend()->compile(loop_tree);
 }
 
 void TensorImpl::populateLoweredCache() {

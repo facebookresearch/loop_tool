@@ -192,14 +192,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
     if (backend->hardware_requirement() & getAvailableHardware()) {
       m.def(
           backend->name().c_str(),
-          [=](const LoopTree &lt,
-              const std::unordered_set<LoopTree::TreeRef> &parallel,
-              LoopTree::TreeRef root) -> std::shared_ptr<Compiled> {
-            return backend->compile(lt, parallel, root);
+          [=](const LoopTree &lt) -> std::shared_ptr<Compiled> {
+            return backend->compile(lt);
           },
-          py::arg("loop_tree"),
-          py::arg("parallel") = std::unordered_set<LoopTree::TreeRef>{},
-          py::arg("root") = -1);
+          py::arg("loop_tree"));
     }
   }
   py::class_<Compiler::Allocation>(m, "CompilerAllocation")

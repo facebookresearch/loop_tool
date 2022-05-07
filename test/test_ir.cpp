@@ -139,7 +139,7 @@ TEST(NodeSplit) {
   });
   std::cout << lt.dump() << "\n";
 
-  auto cc = getDefaultBackend()->compile(lt, {}, -1);
+  auto cc = getDefaultBackend()->compile(lt);
   std::vector<float> input(N * N);
   float ref = 0;
   for (auto i = 0; i < N * N; ++i) {
@@ -176,7 +176,7 @@ TEST(BasicInterpreter) {
 
   auto lt = LoopTree(ir);
   std::cout << lt.dump() << "\n";
-  auto cc = getDefaultBackend()->compile(lt, {}, -1);
+  auto cc = getDefaultBackend()->compile(lt);
   std::vector<float> input(N);
   for (auto i = 0; i < N; ++i) {
     input[i] = i * 3;

@@ -130,9 +130,7 @@ struct CPUInterpretedBackend : public Backend {
   ~CPUInterpretedBackend() {}
   CPUInterpretedBackend(std::string name) : Backend(name) {}
 
-  std::unique_ptr<Compiled> compile_impl(
-      const LoopTree &lt, const std::unordered_set<LoopTree::TreeRef> &parallel,
-      LoopTree::TreeRef root) override;
+  std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) override;
   int hardware_requirement() const override;
 };
 

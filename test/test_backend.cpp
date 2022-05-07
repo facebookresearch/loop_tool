@@ -21,10 +21,7 @@ struct CustomCompiled : public lt::Compiled {
 struct CustomBackend : lt::Backend {
   CustomBackend() : lt::Backend("custom") {}
 
-  std::unique_ptr<lt::Compiled> compile_impl(
-      const lt::LoopTree &lt,
-      const std::unordered_set<lt::LoopTree::TreeRef> &parallel,
-      lt::LoopTree::TreeRef root) {
+  std::unique_ptr<lt::Compiled> compile_impl(const lt::LoopTree &lt) {
     return std::make_unique<CustomCompiled>();
   }
 
@@ -69,7 +66,7 @@ TEST(CustomBackend) {
   std::cout << loop_tree.dump();
 
   // compile and run
-  auto compiled = lt::getBackends().at("custom")->compile(loop_tree, {}, -1);
+  auto compiled = lt::getBackends().at("custom")->compile(loop_tree);
   auto A = lt::Tensor(N * N);
   auto B = lt::Tensor(1);
   const auto &f = *compiled;
