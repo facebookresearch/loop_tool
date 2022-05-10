@@ -55,15 +55,6 @@ class Compiler {
     std::vector<std::pair<int64_t, int64_t>> bounds;
   };
 
-  struct IdxInformation {
-    std::vector<int64_t> strides;
-    int64_t offset = 0;
-    // optional overrides
-    std::vector<int> idxs;
-    std::vector<int64_t> maxes;
-    std::vector<int64_t> mins;
-  };
-
   // optionally always true, this is for cleanup
   mutable bool set_called = false;
   size_t count;
@@ -130,7 +121,7 @@ struct CPUInterpretedBackend : public Backend {
   ~CPUInterpretedBackend() {}
   CPUInterpretedBackend(std::string name) : Backend(name) {}
 
-  std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) override;
+  std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) const override;
   int hardware_requirement() const override;
 };
 

@@ -501,7 +501,7 @@ struct CppCompiled : public Compiled {
   std::string dump() const override { return code; }
 };
 
-std::unique_ptr<Compiled> CppBackend::compile_impl(const LoopTree &lt) {
+std::unique_ptr<Compiled> CppBackend::compile_impl(const LoopTree &lt) const {
   return std::make_unique<CppCompiled>(lt);
 }
 

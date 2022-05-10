@@ -15,13 +15,13 @@ struct CustomCompiled : public lt::Compiled {
     std::cerr << "here!\n";
     return;
   }
-
 };
 
 struct CustomBackend : lt::Backend {
   CustomBackend() : lt::Backend("custom") {}
 
-  std::unique_ptr<lt::Compiled> compile_impl(const lt::LoopTree &lt) {
+  std::unique_ptr<lt::Compiled> compile_impl(
+      const lt::LoopTree &lt) const override {
     return std::make_unique<CustomCompiled>();
   }
 

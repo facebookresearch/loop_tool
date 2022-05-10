@@ -282,9 +282,7 @@ struct TensorImpl {
     }
   }
 
-  inline std::string code() const {
-    return compiled()->dump();
-  }
+  inline std::string code() const { return compiled()->dump(); }
 
   inline void set(const IR& ir) {
     auto h = hash();

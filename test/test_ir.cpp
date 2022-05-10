@@ -150,7 +150,8 @@ TEST(NodeSplit) {
   cc->run({input.data(), output.data()}, true);
   std::cout << "sum of vals from 0 to " << (N * N - 1) << " is " << output[0]
             << "\n";
-  ASSERT( std::abs(ref - output[0]) < 0.01) << "expected " << ref << " but got " << output[0];
+  ASSERT(std::abs(ref - output[0]) < 0.01)
+      << "expected " << ref << " but got " << output[0];
 }
 
 TEST(BasicInterpreter) {

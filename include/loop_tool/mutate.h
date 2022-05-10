@@ -48,6 +48,7 @@ LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount);
 
 // Informational functions
 int64_t flops(const LoopTree& lt);
-bool is_trivially_parallel(const LoopTree &lt, LoopTree::TreeRef ref);
+bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref);
+std::vector<IR::NodeRef> find(const IR& ir, Operation op);
 
 }  // namespace loop_tool

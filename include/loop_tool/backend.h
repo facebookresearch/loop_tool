@@ -25,7 +25,7 @@ struct Compiled {
 
   void operator()(const std::vector<Tensor *> &tensors, bool sync = true) const;
 
-  std::vector<void *> allocate(std::vector<int64_t>& sizes) const;
+  std::vector<void *> allocate(std::vector<int64_t> &sizes) const;
 
   template <bool sync, typename... Args>
   void run(Args const &... tensors) const {
@@ -56,10 +56,10 @@ struct Backend {
 
   const std::string &name() const { return name_; }
 
-  virtual std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) = 0;
+  virtual std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) const = 0;
   virtual int hardware_requirement() const = 0;
 
-  std::unique_ptr<Compiled> compile(const LoopTree &lt) {
+  std::unique_ptr<Compiled> compile(const LoopTree &lt) const {
     auto compiled = compile_impl(lt);
     compiled->hardware_requirement = hardware_requirement();
     compiled->name = name();
@@ -72,6 +72,16 @@ void registerBackend(std::shared_ptr<Backend> backend);
 
 std::shared_ptr<Backend> &getDefaultBackend();
 void setDefaultBackend(std::string backend);
+
+struct ScopedBackend {
+  std::string old_backend_name;
+  ScopedBackend(std::string backend_name) {
+    const auto &old_backend = getDefaultBackend();
+    old_backend_name = old_backend->name();
+    setDefaultBackend(backend_name);
+  }
+  ~ScopedBackend() { setDefaultBackend(old_backend_name); }
+};
 
 struct RegisterBackend {
   RegisterBackend(std::shared_ptr<Backend> backend) {

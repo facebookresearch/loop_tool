@@ -13,9 +13,8 @@ namespace loop_tool {
 class CppCompiler : public Compiler {
  public:
   CppCompiler(const LoopTree& lt);
-  inline std::string gen_string() const override {
-    return gen_string_impl();
-  }
+  inline std::string gen_string() const override { return gen_string_impl(); }
+
  private:
   std::string gen_string_impl(
       LoopTree::TreeRef ref = -1,
@@ -34,7 +33,6 @@ class CppCompiler : public Compiler {
   std::string gen_loop_string(
       LoopTree::TreeRef ref,
       std::unordered_map<IR::VarRef, int> overrides) const;
-
 };
 
 struct CppBackend : public Backend {
@@ -42,7 +40,7 @@ struct CppBackend : public Backend {
   ~CppBackend() {}
   CppBackend(std::string name) : Backend(name) {}
 
-  std::unique_ptr<Compiled> compile_impl(const LoopTree &lt) override;
+  std::unique_ptr<Compiled> compile_impl(const LoopTree& lt) const override;
   int hardware_requirement() const override;
 };
 

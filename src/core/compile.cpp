@@ -988,7 +988,7 @@ struct CPUInterpreted : public Compiled {
 };
 
 std::unique_ptr<Compiled> CPUInterpretedBackend::compile_impl(
-    const LoopTree &lt) {
+    const LoopTree &lt) const {
   return std::make_unique<CPUInterpreted>(lt);
 }
 

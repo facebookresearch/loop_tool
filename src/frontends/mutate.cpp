@@ -730,4 +730,15 @@ LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount) {
   return annotate(lt, annotations);
 }
 
+std::vector<IR::NodeRef> find(const IR& ir, Operation op) {
+  std::vector<IR::NodeRef> out;
+  for (const auto& n : ir.nodes()) {
+    const auto& node = ir.node(n);
+    if (node.op() == op) {
+      out.emplace_back(n);
+    }
+  }
+  return out;
+}
+
 }  // namespace loop_tool

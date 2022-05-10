@@ -4,9 +4,9 @@ Copyright (c) Facebook, Inc. and its affiliates.
 This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
+#include <loop_tool/cpp.h>
 #include <loop_tool/dynlib.h>
 #include <loop_tool/loop_tool.h>
-#include <loop_tool/cpp.h>
 
 #include <fstream>
 

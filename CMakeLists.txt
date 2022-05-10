@@ -1,6 +1,6 @@
 project(loop_tool)
 cmake_minimum_required(VERSION 3.8)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/)
 
@@ -23,6 +23,15 @@ if (BUILD_WASM)
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
 endif()
 
+option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" OFF)
+if (BUILD_LOOP_NEST)
+  list(APPEND CORE_SRCS "${SRC_DIR}/backends/cpu/loop_nest.cpp")
+  set(DABUN_BUILD_APPS_FOR_ALL_SUPPORTED_VEX OFF)
+  set(DABUN_BUILD_TESTS_FOR_ALL_ARCH_VEX OFF)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/loop_nest")
+  set_target_properties(dabun PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 file(GLOB CPU_SRCS
   ${SRC_DIR}/backends/cpu/*.cpp
 )
@@ -41,6 +50,9 @@ target_include_directories(loop_tool PUBLIC
     "$<BUILD_INTERFACE:${LIB_INCLUDE}>"
     $<INSTALL_INTERFACE:include/>
 )
+if (BUILD_LOOP_NEST)
+  target_link_libraries(loop_tool PUBLIC dabun)
+endif()
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
@@ -69,6 +81,10 @@ file(GLOB TEST_SRCS ${TEST_DIR}/test_*.cpp)
 list(APPEND TEST_SRCS "${TEST_DIR}/test.cpp") # main file
 add_library(loop_tool_test_utils "${TEST_DIR}/utils.cpp")
 target_include_directories(loop_tool_test_utils PUBLIC ${SRC_DIR})
+
+if (BUILD_LOOP_NEST)
+  list(APPEND TEST_SRCS "${TEST_DIR}/loop_nest_test.cpp")
+endif()
 
 if (BUILD_WASM)
   list(APPEND TEST_SRCS "${TEST_DIR}/wasm_test.cpp")
