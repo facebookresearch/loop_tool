@@ -32,9 +32,7 @@ if (BUILD_LOOP_NEST)
   set_target_properties(dabun PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
-file(GLOB CPU_SRCS
-  ${SRC_DIR}/backends/cpu/*.cpp
-)
+set(CPU_SRCS ${SRC_DIR}/backends/cpu/cpp.cpp)
 
 set(WHOLE_ARCHIVE_START "-Wl,--whole-archive -Wl,--no-as-needed")
 set(WHOLE_ARCHIVE_END "-Wl,--no-whole-archive -Wl,--as-needed")

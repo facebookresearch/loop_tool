@@ -380,7 +380,6 @@ void TensorImpl::unify() {
 
 std::unique_ptr<Compiled> TensorImpl::backend_compile(
     const LoopTree& loop_tree) {
-  std::cerr << "Default backend is " << getDefaultBackend()->name() << "\n";
   return getDefaultBackend()->compile(loop_tree);
 }
 

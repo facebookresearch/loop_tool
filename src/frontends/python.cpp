@@ -108,6 +108,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
   });
   m.def("set_default_backend",
         [](std::string backend) { setDefaultBackend(backend); });
+  m.def("get_default_backend",
+        []() -> std::string { return getDefaultBackend()->name(); });
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
