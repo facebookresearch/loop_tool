@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 #include "dabun/loop_nest.hpp"
 
 #include "dabun/arithmetic_operation.hpp"
+#include "dabun/isa.hpp"
 #include "loop_tool/backend.h"
 #include "loop_tool/mutate.h"
 
@@ -164,8 +165,16 @@ struct LoopNestCompiler : public Compiler {
                    .A_strides(A_strides)
                    .B_strides(B_strides)
                    .append_loops(order);
-    return dabun::loop_nest_compiler<dabun::extension::avx2, float>(arg,
-                                                                    dabun::fma)
+
+#if defined(__AVX512F__)
+#define VEX dabun::extension::avx512
+#elif defined(__aarch64__) || defined(__arm64__)
+#define VEX dabun::extension::neon
+#else // default to avx2
+#define VEX dabun::extension::avx2
+#endif
+
+    return dabun::loop_nest_compiler<VEX, float>(arg, dabun::fma)
         .get_shared();
   }
 
