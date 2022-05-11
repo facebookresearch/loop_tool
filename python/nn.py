@@ -89,6 +89,8 @@ def conv(X, W, spatial, window, stride=1, channel_reduce=True):
     return (X * W).sum(*reduction_dims)
 
 
-def batch_norm(x, mean, var, weight, bias, eps=lt.Tensor().set(1e-5)):
+def batch_norm(x, mean, var, weight, bias, eps=None):
+    if eps == None:
+        eps = lt.Tensor().set(1e-5)
     x = (x - mean) * weight
     return x / (var + eps).sqrt() + bias

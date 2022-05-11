@@ -50,6 +50,7 @@ class CMakeBuild(build_ext):
             "-DCMAKE_INSTALL_RPATH={}".format(
                 "@loader_path" if "darwin" in sys.platform else "$ORIGIN"
             ),
+            "-DBUILD_TESTS=OFF",
         ]
         build_args = []
 
@@ -117,6 +118,7 @@ setup(
     install_requires=[],
     setup_requires=["pybind11", "ninja"],
     include_package_data=True,
+    exclude_package_data={'': ['test']},
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
 )
