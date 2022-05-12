@@ -1,9 +1,22 @@
 import loop_tool_py as lt
 import curses
 from curses import wrapper
+from curses.textpad import Textbox
 import time
 
 # use with vim [file] -c 'set updatetime=750 | set autoread | au CursorHold * checktime | call feedkeys("lh")'
+
+
+def hex_to_color(h):
+    r, g, b = tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return curses.color_pair(int(16 + r / 48 * 36 + g / 48 * 6 + b / 48))
+
+
+def init_colors():
+    curses.start_color()
+    curses.use_default_colors()
+    for i in range(0, curses.COLORS):
+        curses.init_pair(i + 1, i, -1)
 
 
 def get_versions(loop):
@@ -92,24 +105,27 @@ def gen_info(tree, highlighted, drag):
 def prompt(stdscr, pad, s):
     rows, cols = stdscr.getmaxyx()
     pad.addstr(0, 0, s + " " * (cols - len(s) - 1))
+    # , hex_to_color("00ff00"))
     stdscr.refresh()
     pad.refresh(0, 0, 0, 0, rows, cols)
-    aggregate_s = ""
+    editwin = curses.newwin(1, 30, 0, len(s))
+    box = Textbox(editwin, insert_mode=True)
+
+    def validate(x):
+        if x == 10:
+            x = 7
+        if x == 127:
+            x = curses.KEY_BACKSPACE
+        return x
+
+    box.edit(validate)
+    message = box.gather()
     split_size = 0
-    while True:
-        key = stdscr.getkey()
-        pad.addstr(0, len(s) + len(aggregate_s), key)
-        aggregate_s += key
-        if key == "":
-            return
-        elif key == "\n":
-            try:
-                split_size = int(aggregate_s)
-            except:
-                pass
-            return split_size
-        stdscr.refresh()
-        pad.refresh(0, 0, 0, 0, *stdscr.getmaxyx())
+    try:
+        split_size = int(message)
+    except:
+        pass
+    return split_size
 
 
 def ui_impl(stdscr, tensor, fn):
