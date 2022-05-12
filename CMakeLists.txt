@@ -13,20 +13,30 @@ file(GLOB CORE_SRCS
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
 
-option(BUILD_WASM "Build a WebAssembly compilation target" OFF)
+option(BUILD_WASM "Build a WebAssembly compilation target" ON)
 option(BUILD_WASM_RUNTIME "Build a WebAssembly runtime with WAMR" OFF)
 option(BUILD_ES6 "Build an ES6 target in emcc" OFF)
+
 if(DEFINED EMCC_DIR)
   set(BUILD_WASM ON)
 endif()
+
+if (BUILD_WASM_RUNTIME)
+  set(BUILD_WASM ON)
+  list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm_runtime.cpp")
+  set(WAMR_BUILD_AOT 0)
+  if (DEFINED LLVM_DIR)
+    set(WAMR_BUILD_AOT 1)
+    set(WAMR_BUILD_JIT 1)
+  endif()
+  set(WAMR_BUILD_LIBC_BUILTIN 0)
+  set(WAMR_BUILD_LIBC_WASI 0)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/wasm-micro-runtime")
+endif()
+
 if (BUILD_WASM)
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm.cpp")
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
-endif()
-
-if (BUILD_WASM_RUNTIME)
-  list(APPEND CORE_SRCS "${SRC_DIR}/backends/wasm/wasm_runtime.cpp")
-  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/wasm-micro-runtime")
 endif()
 
 option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" OFF)
