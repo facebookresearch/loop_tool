@@ -71,7 +71,7 @@ TEST(MutateSwap) {
 
   auto a = lt.children(lt.children(lt.roots.at(0)).at(0)).at(0);
   auto b = lt.children(a).at(0);
-  lt = swap(lt, a, b);
+  lt = swap_loops(lt, a, b);
 
   std::cerr << '\n';
   std::cerr << lt.dump();

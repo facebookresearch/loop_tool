@@ -300,16 +300,20 @@ LoopTree add_loop(const LoopTree& lt, LoopTree::TreeRef ref,
   ASSERT(lt.kind(add) == LoopTree::LOOP);
   auto node_ref = lt.node(ref);
   auto loop = lt.loop(add);
+  auto annot = lt.annotation(add);
   ASSERT(lt.ir.reduction_vars(node_ref).size() == 0)
       << "cannot add orthogonal inner loop to reduction";
   auto new_ir = lt.ir;
   auto order = new_ir.order(node_ref);
   order.emplace_back(loop.var, IR::LoopSize{loop.size, loop.tail});
   new_ir.set_order(node_ref, order);
-  return LoopTree(new_ir);
+  auto new_lt = LoopTree(new_ir);
+  auto new_ref = map_ref(new_lt, ref, lt);
+  return annotate(lt, new_ref, annot);
 }
 
-LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
+LoopTree swap_loops(const LoopTree& lt, LoopTree::TreeRef a,
+                    LoopTree::TreeRef b) {
   ASSERT(lt.kind(a) == LoopTree::LOOP);
   ASSERT(lt.kind(b) == LoopTree::LOOP);
   bool a_is_parent = false;
@@ -367,6 +371,27 @@ LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
     new_ir.set_order(node_ref, order, loop_annotations);
   }
   return LoopTree(new_ir);
+}
+
+LoopTree try_swap(const LoopTree& lt, LoopTree::TreeRef a,
+                  LoopTree::TreeRef b) {
+  bool a_is_loop = lt.kind(a) == LoopTree::LOOP;
+  bool b_is_loop = lt.kind(b) == LoopTree::LOOP;
+  if (!a_is_loop && !b_is_loop) {
+    return swap_nodes(lt, a, b);
+  } else if (a_is_loop && b_is_loop) {
+    if (lt.loop(a).var != lt.loop(b).var) {
+      return swap_loops(lt, a, b);
+    }
+  } else if (!a_is_loop && b_is_loop) {
+    // we're hoisting a node
+    if (lt.parent(a) == b) {
+      return remove_loop(lt, a, b);
+    } else {
+      return add_loop(lt, a, b);
+    }
+  }
+  return lt;
 }
 
 LoopTree toggle_reuse(const LoopTree& lt, LoopTree::TreeRef ref, IR::NodeRef n,

@@ -20,7 +20,10 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx);
 LoopTree delete_copy(const LoopTree& lt, LoopTree::TreeRef ref);
-LoopTree swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b);
+// generic swap for addressable loops and nodes, may fail silently
+LoopTree try_swap(const LoopTree& lt, LoopTree::TreeRef a, LoopTree::TreeRef b);
+LoopTree swap_loops(const LoopTree& lt, LoopTree::TreeRef a,
+                    LoopTree::TreeRef b);
 LoopTree add_loop(const LoopTree& lt, LoopTree::TreeRef ref,
                   LoopTree::TreeRef add);
 LoopTree remove_loop(const LoopTree& lt, LoopTree::TreeRef ref,

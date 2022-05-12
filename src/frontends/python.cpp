@@ -291,7 +291,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("copy_input", &copy_input)
       .def("delete_copy", &delete_copy)
       .def("remove_loop", &remove_loop)
-      .def("swap", &swap)
+      .def("try_swap", &try_swap)
+      .def("swap_loops", &swap_loops)
       .def("swap_nodes", &swap_nodes)
       .def("swap_vars",
            [](const LoopTree &lt, IR::NodeRef node_ref, IR::VarRef a,

@@ -31,22 +31,6 @@ def benchmark(tensor, limit_ms=100):
     return 1000 * (iters - 1) / (t - start)
 
 
-def drag_inward(tree, ref):
-    cs = tree.children(ref)
-    for c in cs:
-        if tree.is_loop(c):
-            tree = tree.swap(ref, c)
-            break
-    return tree
-
-
-def drag_outward(tree, ref):
-    p = tree.parent(ref)
-    if p != -1:
-        tree = tree.swap(ref, p)
-    return tree
-
-
 def loop_version(tree, ref):
     if not tree.is_loop(ref):
         return None
@@ -188,6 +172,12 @@ def ui_impl(stdscr, tensor, fn):
 
     render(True)
 
+    def update_tree(new_tree):
+        nonlocal highlighted, tree, changed
+        highlighted = new_tree.map_ref(highlighted, tree)
+        tree = new_tree
+        changed = True
+
     while True:
         key = stdscr.getkey()
         changed = False
@@ -196,51 +186,33 @@ def ui_impl(stdscr, tensor, fn):
         elif key == "s":
             split_size = prompt(stdscr, tree_pad, "inner size? ")
             try:
-                tree = tree.split(highlighted, split_size)
-                changed = True
+                update_tree(tree.split(highlighted, split_size))
             except:
                 pass
         elif key == "u" and len(trees) > 1:
             trees = trees[:-1]
-            tree = trees[-1]
-            changed = True
+            update_tree(trees[-1])
         elif key == "KEY_DOWN":
             if drag:
-                try:
-                    tree = drag_inward(tree, highlighted)
-                    changed = True
-                except:
-                    pass
+                update_tree(tree.try_swap(highlighted, tree.next_ref(highlighted)))
             else:
                 n = tree.next_ref(highlighted)
                 if n is not None:
                     highlighted = n
         elif key == "KEY_UP":
             if drag:
-                try:
-                    tree = drag_outward(tree, highlighted)
-                    changed = True
-                except:
-                    pass
+                update_tree(tree.try_swap(highlighted, tree.previous_ref(highlighted)))
             else:
                 p = tree.previous_ref(highlighted)
                 if p is not None:
                     highlighted = p
-        elif key == "KEY_SR": # up + shift
-            try:
-                tree = drag_outward(tree, highlighted)
-                changed = True
-            except:
-                pass
-        elif key == "KEY_SF": # down + shift
-            try:
-                tree = drag_inward(tree, highlighted)
-                changed = True
-            except:
-                pass
-        elif key in ('KEY_BACKSPACE', '\b', '\x7f'):
-            tree = tree.merge(highlighted)
+        elif key == "KEY_SR":  # up + shift
+            update_tree(tree.try_swap(highlighted, tree.previous_ref(highlighted)))
+        elif key == "KEY_SF":  # down + shift
+            update_tree(tree.try_swap(highlighted, tree.next_ref(highlighted)))
             changed = True
+        elif key in ("KEY_BACKSPACE", "\b", "\x7f"):
+            update_tree(tree.merge(highlighted))
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)

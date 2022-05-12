@@ -262,7 +262,8 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("annotate", &annotate)
       .function("split", split_impl)
       .function("merge", merge)
-      .function("swap", swap)
+      .function("try_swap", try_swap)
+      .function("swap_loops", swap_loops)
       .function("swap_nodes", swap_nodes)
       .function(
           "swap_vars",
