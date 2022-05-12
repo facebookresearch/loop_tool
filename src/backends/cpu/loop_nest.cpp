@@ -38,9 +38,6 @@ struct LoopNestCompiler : public Compiler {
     }               \
   }
   bool is_fma_nest() const {
-    // 2 reads (unscheduled), 1 mul, 1 add, 1 write scheduled
-    REQUIRE(lt.ir.nodes().size() == 2 + 1 + 1 + 1);
-
     auto reads = find(lt.ir, Operation::read);
     REQUIRE(reads.size() == 2);
     REQUIRE(lt.scheduled.count(reads.at(0)) == 0);
@@ -52,11 +49,23 @@ struct LoopNestCompiler : public Compiler {
     auto mul_ref = muls.at(0);
     const auto& mul = lt.ir.node(mul_ref);
     REQUIRE(lt.scheduled.count(mul_ref) == 1);
+    REQUIRE(mul.inputs().size() == 2);
+
+    auto views = find(lt.ir, Operation::view);
+    for (auto v : views) {
+      REQUIRE(lt.ir.node(v).outputs().size() == 1);
+      REQUIRE(lt.ir.node(v).outputs().at(0) == mul_ref);
+      REQUIRE(lt.ir.node(v).inputs().size() == 1);
+    }
+
+    // 2 reads (unscheduled), 1 mul, 1 add, 1 write scheduled, optional views
+    REQUIRE(lt.ir.nodes().size() == 2 + 1 + 1 + 1 + views.size());
 
     auto adds = find(lt.ir, Operation::add);
     REQUIRE(adds.size() == 1);
     auto add_ref = adds.at(0);
     const auto& add = lt.ir.node(add_ref);
+    REQUIRE(add.inputs().size() == 1);
     REQUIRE(lt.scheduled.count(add_ref) == 1);
 
     REQUIRE(add.inputs().size() == 1);
@@ -81,6 +90,7 @@ struct LoopNestCompiler : public Compiler {
   dabun::shared_aot_fn<void(float*, const float*, const float*, int)>
   compile_fma_nest() const {
     auto muls = find(lt.ir, Operation::multiply);
+    const auto& mul = lt.ir.node(muls.at(0));
     auto ref = lt.parent(lt.scheduled.at(muls.at(0)));
     std::vector<std::pair<std::string, int>> order;
     std::vector<std::pair<std::string, int>> sizes;
@@ -99,9 +109,9 @@ struct LoopNestCompiler : public Compiler {
     }
 
     auto reads = find(lt.ir, Operation::read);
-    auto A_ref = reads.at(0);
+    auto A_ref = mul.inputs().at(0);
     const auto& A = lt.ir.node(A_ref);
-    auto B_ref = reads.at(1);
+    auto B_ref = mul.inputs().at(1);
     const auto& B = lt.ir.node(B_ref);
     auto C_ref = find(lt.ir, Operation::write).at(0);
     const auto& C = lt.ir.node(C_ref);

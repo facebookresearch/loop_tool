@@ -28,18 +28,18 @@ struct Compiled {
   std::vector<void *> allocate(std::vector<int64_t> &sizes) const;
 
   template <bool sync, typename... Args>
-  void run(Args const &... tensors) const {
+  void run(Args const &...tensors) const {
     std::vector<void *> memory = {tensors.data.address...};
     run(memory, sync);
   }
 
   template <typename... Args>
-  void operator()(Args const &... tensors) const {
+  void operator()(Args const &...tensors) const {
     run<true, Args...>(std::forward<Args const &>(tensors)...);
   }
 
   template <typename... Args>
-  void async(Args const &... tensors) const {
+  void async(Args const &...tensors) const {
     run<false, Args...>(std::forward<Args const &>(tensors)...);
   }
 

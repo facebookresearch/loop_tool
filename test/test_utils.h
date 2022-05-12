@@ -27,6 +27,12 @@ void rand(float *data, int N);
 void ref_mm(const float *A, const float *B, int M, int N, int K, float *C,
             float alpha = 0);
 
+// input: NCHW weight: MCKhKw out: NM(H-K+2)(W-K+2)
+void ref_conv(const float *X, const float *W, int N, int M, int C, int HW,
+              int K, float *Y);
+
+bool all_close(const float *A, const float *B, size_t N, float eps = 0.001);
+
 }  // namespace testing
 }  // namespace loop_tool
 

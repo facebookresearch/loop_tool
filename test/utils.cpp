@@ -145,5 +145,44 @@ void ref_mm(const float* A, const float* B, int M, int N, int K, float* C,
   }
 }
 
+void ref_conv(const float* X, const float* W, int N, int M, int C, int HW,
+              int K, float* Y) {
+  const auto HWO = HW - K + 1;
+  for (auto i = 0; i < N * M * HWO * HWO; ++i) {
+    Y[i] = 0;
+  }
+  for (auto n = 0; n < N; ++n) {
+    for (auto m = 0; m < M; ++m) {
+      for (auto c = 0; c < C; ++c) {
+        for (auto h = 0; h < HWO; ++h) {
+          for (auto w = 0; w < HWO; ++w) {
+            for (auto kh = 0; kh < K; ++kh) {
+              for (auto kw = 0; kw < K; ++kw) {
+                Y[n * M * HWO * HWO + m * HWO * HWO + h * HWO + w] +=
+                    X[(n)*HW * HW * C + (c)*HW * HW + (h + kh) * HW +
+                      (w + kw)] *
+                    W[m * C * K * K + c * K * K + kh * K + kw];
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+bool all_close(const float* A, const float* B, size_t N, float eps) {
+  float max_diff = 0;
+  float min_val = std::numeric_limits<float>::max();
+  for (size_t i = 0; i < N; ++i) {
+    max_diff = std::max(std::abs(A[i] - B[i]), max_diff);
+    min_val = std::min(std::abs(A[i]), min_val);
+    min_val = std::min(std::abs(B[i]), min_val);
+  }
+  std::cerr << "max diff " << max_diff << " vs min val " << min_val
+            << " (eps: " << eps << ")\n";
+  return max_diff < std::max(eps * min_val, eps);
+}
+
 }  // namespace testing
 }  // namespace loop_tool
