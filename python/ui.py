@@ -18,42 +18,6 @@ def get_versions(loop):
     return versions
 
 
-def count_stats(tree):
-    loop_sizes = []
-    total_flops = 0
-    total_reads = 0
-    total_writes = 0
-
-    def _r(ref, depth):
-        nonlocal loop_sizes, total_flops, total_reads, total_writes
-        if tree.is_loop(ref):
-            loop_sizes = loop_sizes[:depth]
-            loop = tree.loop(ref)
-            loop_sizes.append(loop)
-            return
-        var_sizes = dict()
-        for loop in loop_sizes[::-1]:
-            if loop.var not in var_sizes:
-                var_sizes[loop.var] = 1
-            var_sizes[loop.var] *= loop.size
-            var_sizes[loop.var] += loop.tail
-        iterations = 1
-        for _, s in var_sizes.items():
-            iterations *= s
-        if "read" in tree.dump(ref):
-            total_reads += iterations
-        elif "view" in tree.dump(ref):
-            total_reads += iterations
-            total_writes += iterations
-        elif "write" in tree.dump(ref):
-            total_writes += iterations
-        else:
-            total_flops += iterations
-
-    tree.walk(_r)
-    return total_flops, total_reads, total_writes
-
-
 def benchmark(tensor, limit_ms=100):
     start = time.time() * 1000
     iters = 1
@@ -67,48 +31,11 @@ def benchmark(tensor, limit_ms=100):
     return 1000 * (iters - 1) / (t - start)
 
 
-def prev_ref(tree, ref):
-    if ref == -1:
-        return None
-    sibs = tree.children(tree.parent(ref))
-    idx = 0
-    while sibs[idx] != ref:
-        idx += 1
-    idx -= 1
-    if idx < 0:
-        p = tree.parent(ref)
-        if p == -1:
-            return None
-        return p
-    n = sibs[idx]
-    p = n
-    while n != ref:
-        p = n
-        n = next_ref(tree, n)
-    return p
-
-
-def next_ref(tree, ref, handle_children=True):
-    if ref == -1:
-        return None
-    children = tree.children(ref)
-    if len(children) and handle_children:
-        return children[0]
-    sibs = tree.children(tree.parent(ref))
-    idx = 0
-    while sibs[idx] != ref:
-        idx += 1
-    idx += 1
-    if idx < len(sibs):
-        return sibs[idx]
-    return next_ref(tree, tree.parent(ref), False)
-
-
 def drag_inward(tree, ref):
     cs = tree.children(ref)
     for c in cs:
         if tree.is_loop(c):
-            tree = lt.swap(tree, ref, c)
+            tree = tree.swap(ref, c)
             break
     return tree
 
@@ -116,7 +43,7 @@ def drag_inward(tree, ref):
 def drag_outward(tree, ref):
     p = tree.parent(ref)
     if p != -1:
-        tree = lt.swap(tree, ref, p)
+        tree = tree.swap(ref, p)
     return tree
 
 
@@ -232,7 +159,7 @@ def ui_impl(stdscr, tensor, fn):
                     f.write(tensor.code)
             _ = benchmark(tensor, 10)  # warmup
             iters_sec = benchmark(tensor)
-            flops, reads, writes = count_stats(tree)
+            flops = tree.flops()
         tree_pad.addstr(
             i,
             len(info) + 1,
@@ -269,7 +196,7 @@ def ui_impl(stdscr, tensor, fn):
         elif key == "s":
             split_size = prompt(stdscr, tree_pad, "inner size? ")
             try:
-                tree = lt.split(tree, highlighted, split_size)
+                tree = tree.split(highlighted, split_size)
                 changed = True
             except:
                 pass
@@ -285,7 +212,7 @@ def ui_impl(stdscr, tensor, fn):
                 except:
                     pass
             else:
-                n = next_ref(tree, highlighted)
+                n = tree.next_ref(highlighted)
                 if n is not None:
                     highlighted = n
         elif key == "KEY_UP":
@@ -296,9 +223,24 @@ def ui_impl(stdscr, tensor, fn):
                 except:
                     pass
             else:
-                p = prev_ref(tree, highlighted)
+                p = tree.previous_ref(highlighted)
                 if p is not None:
                     highlighted = p
+        elif key == "KEY_SR": # up + shift
+            try:
+                tree = drag_outward(tree, highlighted)
+                changed = True
+            except:
+                pass
+        elif key == "KEY_SF": # down + shift
+            try:
+                tree = drag_inward(tree, highlighted)
+                changed = True
+            except:
+                pass
+        elif key in ('KEY_BACKSPACE', '\b', '\x7f'):
+            tree = tree.merge(highlighted)
+            changed = True
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)

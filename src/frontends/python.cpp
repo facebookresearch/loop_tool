@@ -293,7 +293,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("remove_loop", &remove_loop)
       .def("swap", &swap)
       .def("swap_nodes", &swap_nodes)
-      .def("swap_vars", &swap_vars)
+      .def("swap_vars",
+           [](const LoopTree &lt, IR::NodeRef node_ref, IR::VarRef a,
+              IR::VarRef b) { return swap_vars(lt, node_ref, a, b); })
       .def("enable_reuse", &enable_reuse)
       .def("disable_reuse", &disable_reuse)
       .def("increase_reuse", &increase_reuse)
@@ -314,12 +316,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
         auto cc = getBackends().at("cpu")->compile(lt);
         return cc->run(memory);
       });
-  m.def("swap", [](LoopTree &lt, LoopTree::TreeRef a, LoopTree::TreeRef b) {
-    return loop_tool::swap(lt, a, b);
-  });
-  m.def("split", [](LoopTree &lt, LoopTree::TreeRef ref, int64_t size) {
-    return loop_tool::split(lt, ref, size);
-  });
 
   py::class_<lazy::Symbol>(m, "Symbol")
       .def(py::init<std::string>())
