@@ -224,10 +224,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
                           std::string annot) { annotate(lt, ref, annot); })
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
-      .def("trivially_parallel",
-           [](const LoopTree &lt, LoopTree::TreeRef ref) {
-             return is_trivially_parallel(lt, ref);
-           })
       .def("children", &LoopTree::children)
       .def("parent", &LoopTree::parent)
       .def("leaves",
@@ -285,6 +281,27 @@ PYBIND11_MODULE(loop_tool_py, m) {
           "dump", &LoopTree::dump,
           py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
       .def("walk", &LoopTree::walk, py::arg("callback"), py::arg("root") = -1)
+      .def("trivially_parallel",
+           [](const LoopTree &lt, LoopTree::TreeRef ref) {
+             return is_trivially_parallel(lt, ref);
+           })
+      .def("flops", &flops)
+      .def("split", &split)
+      .def("merge", &merge)
+      .def("copy_input", &copy_input)
+      .def("delete_copy", &delete_copy)
+      .def("remove_loop", &remove_loop)
+      .def("swap", &swap)
+      .def("swap_nodes", &swap_nodes)
+      .def("swap_vars", &swap_vars)
+      .def("enable_reuse", &enable_reuse)
+      .def("disable_reuse", &disable_reuse)
+      .def("increase_reuse", &increase_reuse)
+      .def("decrease_reuse", &decrease_reuse)
+      .def("next_ref", &next_ref)
+      .def("previous_ref", &previous_ref)
+      .def("annotate", &annotate)
+      .def("map_ref", &map_ref)
       .def(
           "__repr__", &LoopTree::dump,
           py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
@@ -521,7 +538,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("unify", [](lazy::Tensor &t) { t.unify(); })
       .def("compile", [](lazy::Tensor &t) { t.compile(); })
       .def("resolve", [](lazy::Tensor &t) { (void)t.data<float>(); })
-      .def("invalidate", [](lazy::Tensor &t) { t.force_recompute(); })
+      .def("force_recompute", [](lazy::Tensor &t) { t.force_recompute(); })
+      .def("clear_cache", [](lazy::Tensor &t) { t.clear_cache(); })
+      .def("__hash__", [](lazy::Tensor &t) { return t.hash(); })
       .def_property_readonly("compiled",
                              [](lazy::Tensor &t) { return t.compiled(); })
       .def_property_readonly("ir", [](lazy::Tensor &t) { return t.ir(); })

@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 #include "dabun/loop_nest.hpp"
 
 #include "dabun/arithmetic_operation.hpp"
+#include "dabun/code_generator/memory_resource.hpp"
 #include "dabun/isa.hpp"
 #include "loop_tool/backend.h"
 #include "loop_tool/mutate.h"
@@ -88,21 +89,10 @@ struct LoopNestCompiler : public Compiler {
       auto size_name = lt.ir.var(v).name();
       sizes.emplace_back(size_name, (int)size);
     }
-    auto inner_ref = ref;
-    std::unordered_set<IR::VarRef> seen;
-    while (inner_ref != -1) {
-      auto loop = lt.loop(inner_ref);
-      if (seen.count(loop.var)) {
-        break;
-      }
-      seen.insert(loop.var);
-      auto order_name = lt.ir.var(loop.var).name();
-      order.emplace(order.begin(), order_name, 1);
-      inner_ref = lt.parent(inner_ref);
-    }
+
     while (ref != -1) {
       auto loop = lt.loop(ref);
-      auto order_size = loop.size * inner_sizes.at(ref);
+      auto order_size = inner_sizes.at(ref);
       auto order_name = lt.ir.var(loop.var).name();
       order.emplace(order.begin(), order_name, order_size);
       ref = lt.parent(ref);
@@ -170,12 +160,11 @@ struct LoopNestCompiler : public Compiler {
 #define VEX dabun::extension::avx512
 #elif defined(__aarch64__) || defined(__arm64__)
 #define VEX dabun::extension::neon
-#else // default to avx2
+#else  // default to avx2
 #define VEX dabun::extension::avx2
 #endif
 
-    return dabun::loop_nest_compiler<VEX, float>(arg, dabun::fma)
-        .get_shared();
+    return dabun::loop_nest_compiler<VEX, float>(arg, dabun::fma).get_shared();
   }
 
   void compile_transpose_nest() const {
@@ -186,6 +175,10 @@ struct LoopNestCompiler : public Compiler {
 
 struct LoopNestCompiled : public Compiled {
   dabun::shared_aot_fn<void(float*, const float*, const float*, int)> fn;
+
+  LoopNestCompiled() = delete;
+  LoopNestCompiled(const LoopNestCompiled&) = delete;
+  LoopNestCompiled(LoopNestCompiled&&) = delete;
 
   LoopNestCompiled(const LoopTree& lt) {
     LoopNestCompiler cc(lt);
@@ -203,7 +196,10 @@ struct LoopNestCompiled : public Compiled {
 };
 
 struct LoopNestBackend : public Backend {
-  LoopNestBackend() : Backend("loop_nest") {}
+  LoopNestBackend() : Backend("loop_nest") {
+    // static destruction order hack
+    (void)dabun::memory_resource::default_resource();
+  }
   ~LoopNestBackend() {}
 
   std::unique_ptr<Compiled> compile_impl(const LoopTree& lt) const override {

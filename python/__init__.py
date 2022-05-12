@@ -10,8 +10,8 @@ def symbols(s):
 
 class Backend():
     def __init__(self, backend):
-        self.backend = backend
         self.old_backend = get_default_backend() 
+        self.backend = backend
     def __enter__(self):
         set_default_backend(self.backend)
         return self

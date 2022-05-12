@@ -60,7 +60,7 @@ def benchmark(tensor, limit_ms=100):
     t = 0
     while (t - start) < limit_ms:
         for i in range(iters):
-            tensor.invalidate()
+            tensor.force_recompute()
             tensor.resolve()
         t = time.time() * 1000
         iters *= 2

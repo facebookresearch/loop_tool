@@ -195,6 +195,14 @@ struct TensorImpl {
       std::unordered_set<const TensorImpl*>& seen) const;
 
   inline void force_recompute() const { force_recompute_ = true; }
+  inline void clear_cache() const {
+    auto h = hash();
+    auto& cache = getCompilationCache();
+    if (cache.count(h)) {
+      cache.erase(h);
+    }
+    ASSERT(getCompilationCache().count(h) == 0);
+  }
 
   template <typename T>
   T* data() const {
@@ -296,6 +304,7 @@ struct TensorImpl {
 
   inline void set(const LoopTree& loop_tree) {
     auto h = hash();
+    clear_cache();
     if (!getLoweredCache().count(h)) {
       const_cast<TensorImpl*>(this)->populateLoweredCache();
     }
@@ -604,6 +613,7 @@ struct Tensor {
   inline void set(const LoopTree& loop_tree) { impl_->set(loop_tree); }
 
   inline void force_recompute() const { impl()->force_recompute(); }
+  inline void clear_cache() const { impl()->clear_cache(); }
   inline size_t hash() const { return impl()->hash(); }
 
   template <typename T>
