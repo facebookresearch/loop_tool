@@ -38,15 +38,6 @@ class WebAssemblyCompiler : public Compiler {
       const symbolic::Expr& idx_expr,
       const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
 
-  std::unordered_map<symbolic::Symbol,
-                     std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
-                     symbolic::Hash<symbolic::Symbol>>
-  get_symbol_strides(
-      LoopTree::TreeRef ref, LoopTree::TreeRef root,
-      const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
-
-  symbolic::Expr get_scoped_expr(const Compiler::Access& access) const;
-
   int32_t push_access_to_stack(
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;

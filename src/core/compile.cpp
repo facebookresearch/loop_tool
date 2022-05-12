@@ -345,12 +345,13 @@ std::vector<std::pair<Expr, int64_t>> Compiler::get_constraints(
   return constraints;
 }
 
-std::vector<int64_t> Compiler::memory_sizes() const {
+std::vector<int64_t> Compiler::memory_sizes(bool include_io) const {
   std::vector<int64_t> memory(allocations.size());
   for (const auto &p : allocations) {
     const auto &alloc = p.second;
     // don't allocate inputs and outputs
-    if (alloc.mem_idx < lt.ir.inputs().size() + lt.ir.outputs().size()) {
+    if (!include_io &&
+        (alloc.mem_idx < lt.ir.inputs().size() + lt.ir.outputs().size())) {
       memory[alloc.mem_idx] = 0;
       continue;
     }

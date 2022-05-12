@@ -113,7 +113,7 @@ class Compiler {
   virtual std::string gen_string() const;
 
   std::vector<void *> allocate() const;
-  std::vector<int64_t> memory_sizes() const;
+  std::vector<int64_t> memory_sizes(bool include_io = false) const;
 };
 
 struct CPUInterpretedBackend : public Backend {

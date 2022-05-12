@@ -4,3 +4,6 @@
 [submodule "extern/loop_nest"]
 	path = extern/loop_nest
 	url = https://github.com/facebookresearch/loop_nest.git
+[submodule "extern/wasm-micro-runtime"]
+	path = extern/wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime.git

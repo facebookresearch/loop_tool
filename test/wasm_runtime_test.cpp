@@ -10,8 +10,8 @@ LICENSE file in the root directory of this source tree.
 
 using namespace loop_tool::testing;
 
-TEST(LoopNestBackend) {
-  loop_tool::ScopedBackend sb("loop_nest");
+TEST(WasmBackend) {
+  loop_tool::ScopedBackend sb("wasm");
   namespace lz = ::loop_tool::lazy;
   auto mm = [](lz::Tensor A, lz::Tensor B) {
     auto M = lz::Symbol("M");
@@ -40,8 +40,8 @@ TEST(LoopNestBackend) {
   C.clear_cache();
 }
 
-TEST(LoopNestMM) {
-  loop_tool::ScopedBackend sb("loop_nest");
+TEST(WasmMM) {
+  loop_tool::ScopedBackend sb("wasm");
   namespace lz = ::loop_tool::lazy;
   auto mm = [](lz::Tensor A, lz::Tensor B) {
     auto M = lz::Symbol("M");
@@ -68,8 +68,8 @@ TEST(LoopNestMM) {
   C.clear_cache();
 }
 
-TEST(LoopNestConv) {
-  loop_tool::ScopedBackend sb("loop_nest");
+TEST(WasmConv) {
+  loop_tool::ScopedBackend sb("wasm");
   namespace lz = ::loop_tool::lazy;
 
   auto conv = [](lz::Tensor X, lz::Tensor w) {
