@@ -20,6 +20,7 @@ class WebAssemblyCompiler : public Compiler {
   std::unordered_set<LoopTree::TreeRef> vectorized_loops;
   mutable std::unordered_set<IR::NodeRef> stack_f32;
   mutable std::unordered_set<IR::NodeRef> stack_v128;
+  mutable int32_t tmp_i32;
   mutable int32_t tmp_f32;
   mutable int32_t tmp_v128;
   mutable std::unordered_map<IR::NodeRef, std::vector<int>> local_f32;
@@ -38,6 +39,18 @@ class WebAssemblyCompiler : public Compiler {
       const symbolic::Expr& idx_expr,
       const std::unordered_map<LoopTree::TreeRef, int32_t>& unrolls) const;
 
+  void push_expr_to_stack(
+      const symbolic::Expr& idx_expr,
+      std::unordered_map<symbolic::Symbol,
+                         std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                         symbolic::Hash<symbolic::Symbol>>
+          sym_strides,
+
+      std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
+      int32_t base_stride) const;
+  bool push_constraints_to_stack(
+      IR::NodeRef node_ref, LoopTree::TreeRef ref,
+      std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
   int32_t push_access_to_stack(
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const;
@@ -56,6 +69,7 @@ class WebAssemblyCompiler : public Compiler {
       IR::NodeRef node_ref, LoopTree::TreeRef ref,
       std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
       IR::VarRef dim) const;
+  int32_t get_tmp_i32() const;
   int32_t get_tmp_f32() const;
   int32_t get_tmp_v128() const;
 

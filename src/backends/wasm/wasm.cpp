@@ -114,18 +114,20 @@ int64_t WebAssemblyCompiler::get_unroll_offset(
   return offset;
 }
 
-int32_t WebAssemblyCompiler::push_access_to_stack(
-    IR::NodeRef node_ref, LoopTree::TreeRef ref,
-    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
-  auto access = gen_access(node_ref, ref);
-  const auto& idx_expr = get_scoped_expr(access);
-  // grab the relevant loops
-  auto sym_strides = get_symbol_strides(ref, access.alloc.lca);
-  // memory needs 4x for bytes sizeof(float)
-  int32_t offset =
-      get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls) * 4;
-
+void WebAssemblyCompiler::push_expr_to_stack(
+    const Expr& idx_expr,
+    std::unordered_map<symbolic::Symbol,
+                       std::vector<std::pair<LoopTree::TreeRef, int64_t>>,
+                       symbolic::Hash<symbolic::Symbol>>
+        sym_strides,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
+    int32_t base_stride) const {
   bool emitted = false;
+  auto idx_expr_offset = intercept(idx_expr).evaluate();
+  if (idx_expr_offset) {
+    cg->i32.const_(idx_expr_offset * base_stride);
+    emitted = true;
+  }
   for (const auto& sym : idx_expr.symbols()) {
     auto stride_expr = differentiate(idx_expr, sym).simplify();
     ASSERT(stride_expr.can_evaluate()) << "Invalid indexing expr";
@@ -136,7 +138,7 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
     // each symbol can have multiple iterators
     for (const auto& p : sym_strides.at(sym)) {
       // float size
-      int32_t inner_stride = p.second * stride * 4;
+      int32_t inner_stride = p.second * stride * base_stride;
       if (inner_stride == 0) {
         continue;
       }
@@ -158,13 +160,84 @@ int32_t WebAssemblyCompiler::push_access_to_stack(
   if (!emitted) {
     cg->i32.const_(0);
   }
+}
+
+int32_t WebAssemblyCompiler::push_access_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  auto access = gen_access(node_ref, ref);
+  const auto& idx_expr = get_scoped_expr(access);
+  // grab the relevant loops
+  auto sym_strides = get_symbol_strides(ref, access.alloc.lca);
+  // memory needs 4x for bytes sizeof(float)
+  int32_t offset =
+      get_unroll_offset(node_ref, ref, access.alloc.lca, idx_expr, unrolls) * 4;
+
+  push_expr_to_stack(idx_expr, sym_strides, unrolls, 4);
   return offset;
+}
+
+bool WebAssemblyCompiler::push_constraints_to_stack(
+    IR::NodeRef node_ref, LoopTree::TreeRef ref,
+    std::unordered_map<LoopTree::TreeRef, int32_t> unrolls) const {
+  auto acc = gen_access(node_ref, ref);
+  const auto& constraints = node_ref != lt.node(ref)
+                                ? get_constraints(acc)
+                                : std::vector<std::pair<Expr, int64_t>>{};
+  if (!constraints.size()) {
+    return false;
+  };
+  auto sym_strides = get_symbol_strides(ref, acc.alloc.lca);
+  bool emitted = false;
+  for (const auto& c : constraints) {
+    const auto& idx_expr = c.first;
+    const auto lower_bound = intercept(idx_expr).evaluate() < 0;
+    const auto upper_bound = c.second != -1;
+
+    if (!lower_bound && !upper_bound) {
+      continue;
+    }
+    if (lower_bound) {
+      cg->i32.const_(0);
+      push_expr_to_stack(idx_expr, sym_strides, unrolls, 1);
+      if (upper_bound) {
+        cg->local.tee(get_tmp_i32());
+      }
+      cg->i32.le_s();
+      if (emitted) {
+        cg->i32.and_();
+      } else {
+        emitted = true;
+      }
+    }
+    if (upper_bound) {
+      cg->i32.const_(c.second);
+      if (lower_bound) {
+        cg->local.get(get_tmp_i32());
+      } else {
+        push_expr_to_stack(idx_expr, sym_strides, unrolls, 1);
+      }
+      cg->i32.gt_s();
+      if (emitted) {
+        cg->i32.and_();
+      } else {
+        emitted = true;
+      }
+    }
+  }
+  // degenerate case
+  if (!emitted) {
+    return false;
+  }
+  cg->if_(cg->f32);
+  return true;
 }
 
 void WebAssemblyCompiler::push_float_to_stack(
     IR::NodeRef node_ref, LoopTree::TreeRef ref,
     std::unordered_map<LoopTree::TreeRef, int32_t> unrolls,
     bool force_memory_load) const {
+  bool constrained = push_constraints_to_stack(node_ref, ref, unrolls);
   if (!force_memory_load && stack_f32.count(node_ref)) {
     // it's on the stack
   } else if (!force_memory_load && local_f32.count(node_ref)) {
@@ -194,6 +267,11 @@ void WebAssemblyCompiler::push_float_to_stack(
   } else {
     auto offset = push_access_to_stack(node_ref, ref, unrolls);
     cg->f32.load(0, memory_locations.at(resolved_reads.at(node_ref)) + offset);
+  }
+  if (constrained) {
+    cg->else_();
+    cg->f32.const_(0);
+    cg->end();
   }
 }
 
@@ -543,7 +621,8 @@ void WebAssemblyCompiler::emit_reset(LoopTree::TreeRef ref) const {
       continue;
     }
     if (stack_f32.count(alloc.node_ref)) {
-      ASSERT(0) << "reset not possible for stack resident memory";
+      // cg->f32.const_(value(node));
+      // ASSERT(0) << "reset not possible for stack resident memory";
     } else if (local_f32.count(alloc.node_ref)) {
       for (const auto& local : local_f32.at(alloc.node_ref)) {
         cg->f32.const_(value(node));
@@ -741,6 +820,13 @@ void WebAssemblyCompiler::emit_loop(
   }
 }
 
+int32_t WebAssemblyCompiler::get_tmp_i32() const {
+  if (tmp_i32 == -1) {
+    tmp_i32 = cg->local(cg->i32);
+  }
+  return tmp_i32;
+}
+
 int32_t WebAssemblyCompiler::get_tmp_f32() const {
   if (tmp_f32 == -1) {
     tmp_f32 = cg->local(cg->f32);
@@ -798,6 +884,7 @@ void WebAssemblyCompiler::emit(
 
 std::vector<uint8_t> WebAssemblyCompiler::emit() const {
   cg = std::move(std::make_shared<wasmblr::CodeGenerator>());
+  tmp_i32 = -1;
   stack_f32.clear();
   local_f32.clear();
   tmp_f32 = -1;

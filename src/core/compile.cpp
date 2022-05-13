@@ -340,6 +340,9 @@ std::vector<std::pair<Expr, int64_t>> Compiler::get_constraints(
     if (bound.first == 0 && bound.second == -1) {
       continue;
     }
+    if (expr.can_evaluate() && expr.evaluate() == 0) {
+      continue;
+    }
     constraints.emplace_back(expr, bound.second);
   }
   return constraints;
