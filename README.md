@@ -169,7 +169,7 @@ make -j$(nproc)
 To build the Python bindings from source, install `pybind11`:
 
 ```
-pip install pybind11 # or conda
+pip install pybind11 ninja # or conda
 python setup.py install
 ```
 
