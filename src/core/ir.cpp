@@ -69,11 +69,10 @@ IR::NodeRef IR::create_node(Operation op, std::vector<IR::NodeRef> inputs,
 
 void IR::delete_node(const IR::NodeRef &node_ref) {
   // only one case where we can easily delete the node
+  replace_all_uses(node_ref, -1);
   if (node_ref == nodes_.size() - 1) {
-    std::cerr << "deleting node reified " << node_ref << "\n";
     nodes_.erase(nodes_.begin() + node_ref);
   } else {
-    std::cerr << "deleting\n";
     deleted_.insert(node_ref);
   }
 }
@@ -274,7 +273,6 @@ void IR::reify_deletions() {
   std::vector<Node> new_nodes;
   for (auto i = 0; i < nodes_.size(); ++i) {
     if (deleted_.count(i)) {
-      std::cerr << "skipping " << i << "\n";
       continue;
     }
     new_nodes.emplace_back(nodes_.at(i));

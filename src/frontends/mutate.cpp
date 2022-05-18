@@ -92,6 +92,90 @@ std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
   return node_refs;
 }
 
+LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
+  auto keep_nodes = [&]() {
+    if (lt.kind(ref) == LoopTree::NODE) {
+      return std::unordered_set<IR::NodeRef>(lt.node(ref));
+    }
+    return to_set(collect_nodes(lt, ref));
+  }();
+  IR new_ir;
+  auto nodes = lt.ir.nodes();
+  std::unordered_map<IR::NodeRef, IR::NodeRef> node_map;
+  std::unordered_map<IR::VarRef, IR::VarRef> var_map;
+  for (auto nr : nodes) {
+    if (!keep_nodes.count(nr)) {
+      continue;
+    }
+    const auto& n = lt.ir.node(nr);
+    std::vector<IR::NodeRef> inputs;
+    std::vector<IR::VarRef> vars;
+    std::vector<symbolic::Constraint> constraints = n.constraints();
+    std::unordered_map<int, IR::VarRef> sym_var_map;
+
+    for (auto inp : n.inputs()) {
+      if (keep_nodes.count(inp)) {
+        inputs.emplace_back(node_map.at(inp));
+      }
+    }
+    for (auto v : n.vars()) {
+      if (!var_map.count(v)) {
+        var_map[v] = new_ir.create_var(lt.ir.var(v).name());
+      }
+      vars.emplace_back(var_map.at(v));
+    }
+    if (inputs.size() == 0) {
+      const auto inp = new_ir.create_node(Operation::read, {}, vars);
+      inputs.emplace_back(inp);
+      new_ir.add_input(inp);
+    }
+    for (const auto& p : n.sym_to_var()) {
+      sym_var_map[p.first] = var_map.at(p.second);
+    }
+    node_map[nr] =
+        new_ir.create_node(n.op(), inputs, vars, constraints, sym_var_map);
+    bool write = true;
+    for (auto out : n.outputs()) {
+      if (keep_nodes.count(out)) {
+        write = false;
+      }
+    }
+    if (write) {
+      const auto out =
+          new_ir.create_node(Operation::write, {node_map.at(nr)}, vars);
+      new_ir.add_output(out);
+    }
+  }
+  for (auto nr : nodes) {
+    if (!keep_nodes.count(nr)) {
+      continue;
+    }
+    std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
+    std::vector<std::string> annotations;
+    const auto& old_order = lt.ir.order(nr);
+    const auto& old_annot = lt.ir.loop_annotations(nr);
+    for (auto i = 0; i < old_order.size(); ++i) {
+      const auto& p = old_order.at(i);
+      // NB: ignore removed scheduled loops
+      if (!var_map.count(p.first)) {
+        std::cerr << "WARNING, REUSE DISABLE NOT PRESERVED\n";
+        continue;
+      }
+      order.emplace_back(var_map.at(p.first), p.second);
+      annotations.emplace_back(old_annot.at(i));
+    }
+    auto new_nr = node_map.at(nr);
+    new_ir.set_order(new_nr, order, annotations);
+    new_ir.annotate(new_nr, lt.ir.annotation(nr));
+    // TODO: this should skip the skipped indices above
+    for (auto i : lt.ir.not_reusable(nr)) {
+      new_ir.disable_reuse(new_nr, i);
+    }
+  }
+
+  return LoopTree(new_ir);
+}
+
 int64_t get_inner_size(const LoopTree& lt, LoopTree::TreeRef ref) {
   auto loop = lt.loop(ref);
   int64_t inner_size = 0;

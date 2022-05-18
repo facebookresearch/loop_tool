@@ -15,6 +15,9 @@ IR split_node(const IR& ir, IR::NodeRef node_ref,
 IR split_var(const IR& ir, IR::VarRef v);
 IR swap_vars(const IR& ir, IR::NodeRef node_ref, IR::VarRef a, IR::VarRef b);
 
+// split out a subtree at the ref
+LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref);
+
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 // merges upward
 LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref);
