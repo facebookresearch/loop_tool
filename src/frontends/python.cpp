@@ -18,6 +18,8 @@ LICENSE file in the root directory of this source tree.
 #include "loop_tool/ir.h"
 #include "loop_tool/lazy.h"
 #include "loop_tool/mutate.h"
+#include <loop_tool/measure.hpp>
+#include "loop_tool/serialization.h" 
 #include "loop_tool/tensor.h"
 
 #ifdef ENABLE_CUDA
@@ -107,6 +109,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         [](std::string backend) { setDefaultBackend(backend); });
   m.def("get_default_backend",
         []() -> std::string { return getDefaultBackend()->name(); });
+  m.def("deserialize", &deserialize);   
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -138,6 +141,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__repr__", &dot)
       .def("dump", &IR::dump)
       .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
+      .def("serialize", &serialize )
       .def_property_readonly("vars", &IR::vars)
       .def_property_readonly("nodes", &IR::nodes)
       .def_property_readonly(
@@ -315,6 +319,31 @@ PYBIND11_MODULE(loop_tool_py, m) {
         }
         auto cc = getBackends().at("cpu")->compile(lt);
         return cc->run(memory);
+      })
+      .def("eval", [](const LoopTree &lt)
+      {
+        auto c = Compiler(lt);
+        auto sizes = c.memory_sizes(true);
+        std::vector<void *> memory;
+        std::vector<std::vector<float>> data;
+
+        for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++){
+          data.emplace_back(std::vector<float>(sizes[i]));
+        }
+        
+        for (const auto &v: data){
+          memory.emplace_back((void *)(v.data()));
+        }
+
+        
+        auto cc = getDefaultBackend()->compile(lt);
+
+        // TODO: Run 100 times and get mean, std:
+        unsigned iterations = 100;
+        unsigned warmup_iterations = 5;
+        return dabun::measure_median(
+          [&]() {cc->run(memory);}, iterations, warmup_iterations
+          );
       });
 
   py::class_<lazy::Symbol>(m, "Symbol")

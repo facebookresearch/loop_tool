@@ -39,8 +39,16 @@ if (BUILD_WASM)
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
 endif()
 
-option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" OFF)
+option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" ON)
+
 if (BUILD_LOOP_NEST)
+  find_package(Boost 1.66.0)
+  if(Boost_FOUND)
+    include_directories(loop_tool PUBLIC ${Boost_INCLUDE_DIRS})
+  else()
+    message(FATAL_ERROR "Can't find boost libraries")
+  endif()
+
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/cpu/loop_nest.cpp")
   set(DABUN_BUILD_APPS_FOR_ALL_SUPPORTED_VEX OFF)
   set(DABUN_BUILD_TESTS_FOR_ALL_ARCH_VEX OFF)
