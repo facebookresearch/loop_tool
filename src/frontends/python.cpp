@@ -288,6 +288,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              return is_trivially_parallel(lt, ref);
            })
+      .def("get_available_actions", &get_available_actions)
       .def("flops", &flops)
       .def("split", &split)
       .def("merge", &merge)

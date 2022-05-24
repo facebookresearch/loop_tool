@@ -10,6 +10,7 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
 
+std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::TreeRef ref);
 IR split_node(const IR& ir, IR::NodeRef node_ref,
               std::vector<IR::VarRef> injected);
 IR split_var(const IR& ir, IR::VarRef v);

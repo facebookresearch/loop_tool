@@ -8,8 +8,76 @@ LICENSE file in the root directory of this source tree.
 #include <loop_tool/mutate.h>
 
 #include <algorithm>
+#include <string>
 
 namespace loop_tool {
+
+std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::TreeRef ref){
+  // LoopTree::TreeRef ref = cursor;
+  std::vector<std::string> avail_actions;
+
+  LoopTree::TreeRef p_ref = previous_ref(lt, ref);
+  LoopTree::TreeRef n_ref = next_ref(lt, ref);
+
+  if (p_ref == ref){
+    p_ref = -1;
+  }
+  if (n_ref == ref){
+    n_ref = -1;
+  }
+
+  // up
+  if (p_ref != -1){
+    avail_actions.push_back("up");
+  }
+
+  // down
+  if (n_ref != -1){
+    avail_actions.push_back("down");
+  }
+
+  // swap nodes or loops
+  if (lt.kind(ref) == LoopTree::NODE){
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::NODE){
+      avail_actions.push_back("swap_up");
+    } 
+    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::NODE){
+      avail_actions.push_back("swap_down");
+    }  
+  }else if (lt.kind(ref) == LoopTree::LOOP){
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP){
+      avail_actions.push_back("swap_up");
+    } 
+    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::LOOP){
+      avail_actions.push_back("swap_down");
+    } 
+  }
+
+  // split
+  if (lt.kind(ref) == LoopTree::LOOP){
+    auto loop = lt.loop(ref);
+    avail_actions.push_back("split_" + std::to_string(loop.size));
+  } 
+  
+  // merge
+  if(lt.kind(ref) == LoopTree::LOOP && 
+     p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP && 
+     lt.loop(ref).var == lt.loop(p_ref).var){
+
+    avail_actions.push_back("merge");
+  }
+
+  // copy input
+  if (lt.kind(ref) == LoopTree::NODE){
+    auto node_ref = lt.node(ref);
+    auto& node = lt.ir.node(node_ref);
+    auto input_size = node.inputs().size();
+    avail_actions.push_back("copy_input_" + std::to_string(input_size));
+  }
+
+  return avail_actions;
+}
+
 
 IR split_node(const IR& ir, IR::NodeRef node_ref,
               std::vector<IR::VarRef> injected) {
