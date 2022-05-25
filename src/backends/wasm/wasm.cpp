@@ -6,6 +6,8 @@ LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/wasm.h"
 
+#include <limits>
+
 using namespace loop_tool;
 using namespace symbolic;
 

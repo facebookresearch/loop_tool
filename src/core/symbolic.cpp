@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/symbolic.h"
 
+#include <limits>
 #include <algorithm>
 #include <functional>
 #include <unordered_map>

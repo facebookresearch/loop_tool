@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 #include "loop_tool/cpp.h"
 
 #include <fstream>
+#include <limits>
 
 #include "loop_tool/dynlib.h"
 
