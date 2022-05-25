@@ -71,8 +71,10 @@ std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::Tre
   if (lt.kind(ref) == LoopTree::NODE){
     auto node_ref = lt.node(ref);
     auto& node = lt.ir.node(node_ref);
-    auto input_size = node.inputs().size();
-    avail_actions.push_back("copy_input_" + std::to_string(input_size));
+    
+    for (auto &input: node.inputs()){
+      avail_actions.push_back("copy_input_" + std::to_string(input));
+    }
   }
 
   return avail_actions;
