@@ -26,56 +26,57 @@ std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::Tre
     n_ref = -1;
   }
 
-  // up
+  // General operations
   if (p_ref != -1){
     avail_actions.push_back("up");
   }
-
-  // down
   if (n_ref != -1){
     avail_actions.push_back("down");
   }
 
-  // swap nodes or loops
-  if (lt.kind(ref) == LoopTree::NODE){
-    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::NODE){
-      avail_actions.push_back("swap_up");
-    } 
-    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::NODE){
-      avail_actions.push_back("swap_down");
-    }  
-  }else if (lt.kind(ref) == LoopTree::LOOP){
+  // Loop operations
+  if (lt.kind(ref) == LoopTree::LOOP){
+    // split
+    auto loop = lt.loop(ref);
+    avail_actions.push_back("split_" + std::to_string(loop.size));
+
+    // merge
+    if(p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP && lt.loop(ref).var == lt.loop(p_ref).var){
+      avail_actions.push_back("merge");
+    }
+
+    // swap loops
     if (p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP){
       avail_actions.push_back("swap_up");
     } 
     if (n_ref != -1 && lt.kind(n_ref) == LoopTree::LOOP){
       avail_actions.push_back("swap_down");
     } 
+
+    // Loop annotations
+    avail_actions.push_back("vectorize");
+    avail_actions.push_back("unroll");
   }
-
-  // split
-  if (lt.kind(ref) == LoopTree::LOOP){
-    auto loop = lt.loop(ref);
-    avail_actions.push_back("split_" + std::to_string(loop.size));
-  } 
-  
-  // merge
-  if(lt.kind(ref) == LoopTree::LOOP && 
-     p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP && 
-     lt.loop(ref).var == lt.loop(p_ref).var){
-
-    avail_actions.push_back("merge");
-  }
-
-  // copy input
   if (lt.kind(ref) == LoopTree::NODE){
+    
+    // swap nodes
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::NODE){
+      avail_actions.push_back("swap_up");
+    } 
+    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::NODE){
+      avail_actions.push_back("swap_down");
+    }
+
+    // copy input
     auto node_ref = lt.node(ref);
     auto& node = lt.ir.node(node_ref);
-    
+
     for (auto &input: node.inputs()){
       avail_actions.push_back("copy_input_" + std::to_string(input));
-    }
+    }  
   }
+
+
 
   return avail_actions;
 }
