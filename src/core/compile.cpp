@@ -10,6 +10,7 @@ LICENSE file in the root directory of this source tree.
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <thread>
 #include <unordered_set>

@@ -39,7 +39,7 @@ if (BUILD_WASM)
   set(LIB_INCLUDE ${LIB_INCLUDE} "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasmblr")
 endif()
 
-option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" ON)
+option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" OFF)
 if (BUILD_LOOP_NEST)
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/cpu/loop_nest.cpp")
   set(DABUN_BUILD_APPS_FOR_ALL_SUPPORTED_VEX OFF)
