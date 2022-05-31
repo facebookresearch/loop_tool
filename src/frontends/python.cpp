@@ -86,12 +86,9 @@ std::vector<int64_t> getNumpySizes(
 PYBIND11_MODULE(loop_tool_py, m) {
   m.def("load_lib", [](std::string lib_name) { loadLibrary(lib_name); });
   m.def("backends", []() {
-    std::vector<std::string> backends = {"cpu"};
-    for (const auto &hw : getHardware()) {
-      if (hw->name() == "cuda") {
-        backends.emplace_back("cuda");
-        cuda_available = true;
-      }
+    std::vector<std::string> backends;
+    for (const auto &kv : getBackends()) {
+      backends.emplace_back(kv.first);
     }
     return backends;
   });
@@ -220,8 +217,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
-      .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
-                          std::string annot) { annotate(lt, ref, annot); })
+      .def("annotate",
+           [](LoopTree &lt, LoopTree::TreeRef ref, std::string annot) {
+             return annotate(lt, ref, annot);
+           })
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
       .def("children", &LoopTree::children)

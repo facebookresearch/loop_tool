@@ -16,6 +16,7 @@ LICENSE file in the root directory of this source tree.
 
 #include "loop_tool/backend.h"
 #include "loop_tool/error.h"
+#include "loop_tool/mutate.h"
 #include "loop_tool/symbolic.h"
 
 namespace loop_tool {
@@ -269,6 +270,121 @@ InnerFnType Compiler::gen_reset(LoopTree::TreeRef ref) const {
   };
 }
 
+InnerFnType Compiler::gen_backend_exec(
+    LoopTree::TreeRef ref, std::unordered_map<IR::VarRef, int> overrides,
+    const std::string &backend) const {
+  const auto &backends = getBackends();
+  ASSERT(backends.count(backend)) << "Can't find backend " << backend;
+  std::unordered_map<IR::NodeRef, IR::NodeRef> node_map;
+  std::unordered_map<IR::VarRef, IR::VarRef> var_map;
+
+  auto sub_lt = subtree(lt, ref, node_map, var_map);
+  std::unordered_map<int, int> memory_map;
+  auto sub_tree_idx = 0;
+  auto get_induced_strides = [&](std::vector<IR::VarRef> vars,
+                                 std::vector<IR::VarRef> new_vars) {
+    // collect all inner vars and generate strides
+    // e.g.
+    //  [ a, b, c ]
+    //  [    b    ]
+    // should become
+    //  [|b| * |c|, 0, 1]
+    std::vector<int64_t> strides(vars.size());
+    auto nvs = to_set(new_vars);
+    auto get_inner_size = [&](int idx) {
+      int64_t size = 1;
+      for (auto i = idx; i < vars.size(); ++i) {
+        size *= var_sizes.at(vars[i]);
+      }
+      return size;
+    };
+
+    for (auto i = 0; i < vars.size(); ++i) {
+      const auto &v = vars.at(i);
+      if (var_map.count(v) && nvs.count(var_map.at(v))) {
+        strides[i] = 0;
+        continue;
+      }
+      strides[i] = get_inner_size(i + 1);
+    }
+    return strides;
+  };
+
+  // generate a mapping from index to stride for the node
+  std::unordered_map<int, int64_t> mutations;
+  auto update_mutations = [&](IR::NodeRef old_nr, IR::NodeRef new_nr) {
+    ASSERT(node_map.at(old_nr) == new_nr);
+    auto depth = lt.depth(ref);
+    const auto &node = lt.ir.node(old_nr);
+    const auto &sub_node = sub_lt.ir.node(new_nr);
+    auto strides = get_induced_strides(node.vars(), sub_node.vars());
+    auto sym_strides = get_symbol_strides(ref, -1);
+
+    for (auto i = 0; i < strides.size(); ++i) {
+      auto v = node.vars().at(i);
+      auto stride = strides.at(i);
+      auto sym = var_to_sym.at(v);
+      for (const auto &p : sym_strides.at(sym)) {
+        if (p.first >= depth) {
+          continue;
+        }
+        mutations[p.first] = p.second * stride;
+      }
+    }
+  };
+
+  for (const auto &sn : sub_lt.ir.inputs()) {
+    auto idx = 0;
+    bool found = false;
+    for (const auto &n : lt.ir.inputs()) {
+      if (n == node_map[sn]) {
+        memory_map[sub_tree_idx] = idx;
+        update_mutations(n, sn);
+        found = true;
+        break;
+      }
+      idx++;
+    }
+    ASSERT(found);
+    sub_tree_idx++;
+  }
+  for (const auto &sn : sub_lt.ir.outputs()) {
+    auto idx = 0;
+    bool found = false;
+    for (const auto &n : lt.ir.outputs()) {
+      if (n == node_map[sn]) {
+        memory_map[sub_tree_idx] = idx;
+        update_mutations(n, sn);
+        found = true;
+        break;
+      }
+      idx++;
+    }
+    ASSERT(found);
+    sub_tree_idx++;
+  }
+
+  auto cc = std::shared_ptr<Compiled>(backends.at(backend)->compile(sub_lt));
+  auto mutate_memory = [memory_map, mutations](
+                           int i, const std::vector<void *> &memory,
+                           int indices[MAX_DEPTH]) {
+    float *base_memory = (float *)memory[memory_map.at(i)];
+    for (const auto &p : mutations) {
+      base_memory += indices[p.first] * p.second;
+    }
+    return base_memory;
+  };
+  auto mem_size = sub_lt.ir.inputs().size() + sub_lt.ir.outputs().size();
+  return [cc, mutate_memory, mem_size](const std::vector<void *> &memory,
+                                       int indices[MAX_DEPTH]) {
+    std::vector<void *> mutated_memory(mem_size);
+    for (auto i = 0; i < mutated_memory.size(); ++i) {
+      mutated_memory[i] = mutate_memory(i, memory, indices);
+    }
+    cc->run(mutated_memory);
+  };
+}
+
 InnerFnType Compiler::gen_exec(
     LoopTree::TreeRef ref,
     std::unordered_map<IR::VarRef, int> overrides) const {
@@ -285,6 +401,21 @@ InnerFnType Compiler::gen_exec(
       }
     };
   }
+  auto split_string = [](std::string s) {
+    std::stringstream ss(s);
+    std::istream_iterator<std::string> begin(ss);
+    std::istream_iterator<std::string> end;
+    std::vector<std::string> vstrings(begin, end);
+    return vstrings;
+  };
+  auto annots = split_string(lt.annotation(ref));
+  for (const auto &annot : annots) {
+    if (annot[0] == '[' && annot[annot.size() - 1] == ']') {
+      auto backend = annot.substr(1, annot.size() - 2);
+      return gen_backend_exec(ref, overrides, backend);
+    }
+  }
+
   if (lt.kind(ref) == LoopTree::NODE) {
     return gen_node(ref);
   }

@@ -106,6 +106,9 @@ class Compiler {
 
   InnerFnType gen_loop(LoopTree::TreeRef ref,
                        std::unordered_map<IR::VarRef, int> overrides) const;
+  InnerFnType gen_backend_exec(LoopTree::TreeRef ref,
+                               std::unordered_map<IR::VarRef, int> overrides,
+                               const std::string &backend) const;
 
   InnerFnType gen_exec(
       LoopTree::TreeRef ref = -1,

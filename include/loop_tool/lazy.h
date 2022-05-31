@@ -80,6 +80,7 @@ struct TensorImpl {
   std::vector<Constraint> constraints() const { return constraints_; }
 
   void updateHash() {
+    const_cast<TensorImpl*>(this)->unify();
     auto h = symbolic::hash((size_t)op_);
     h = symbolic::hash(h ^ shape_.size());
     auto cm = constraints();
@@ -189,7 +190,6 @@ struct TensorImpl {
   void unify();
   void populateCompilationCache();
   void populateLoweredCache();
-  std::unique_ptr<Compiled> backend_compile(const LoopTree& lt);
 
   std::vector<void*> getInputBuffers(
       std::unordered_set<const TensorImpl*>& seen) const;
@@ -294,6 +294,7 @@ struct TensorImpl {
 
   inline void set(const IR& ir) {
     auto h = hash();
+    clear_cache();
     if (!getLoweredCache().count(h)) {
       const_cast<TensorImpl*>(this)->populateLoweredCache();
     }

@@ -40,11 +40,14 @@ void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
   ASSERT(sizes.size() == shape_.size())
       << "Invalid binding, expected " << shape_.size() << " dims got "
       << sizes.size() << " dims";
+  // safe the indices of the constrained values
+  std::unordered_set<int> already_constrained;
   if (constraints_.size() > 0) {
     for (auto i = 0; i < sizes.size(); ++i) {
       for (const auto& c : constraints_) {
         if (c.first == Expr::size(shape_.at(i)) &&
             c.second.type() == Expr::Type::value) {
+          already_constrained.insert(i);
           ASSERT(c.second.value() == sizes.at(i))
               << "Already bound " << c.first.dump() << " to " << c.second.dump()
               << ", can't change that to " << sizes.at(i);
@@ -54,6 +57,9 @@ void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
   }
   for (auto i = 0; i < sizes.size(); ++i) {
     const auto& s = sizes.at(i);
+    if (already_constrained.count(i)) {
+      continue;
+    }
     constraints_.emplace_back(
         std::make_pair(Expr::size(shape_.at(i)), Expr(s)));
   }
@@ -378,11 +384,6 @@ void TensorImpl::unify() {
   unifyConstraints();
 }
 
-std::unique_ptr<Compiled> TensorImpl::backend_compile(
-    const LoopTree& loop_tree) {
-  return getDefaultBackend()->compile(loop_tree);
-}
-
 void TensorImpl::populateLoweredCache() {
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, int64_t>> var_map;
@@ -399,10 +400,13 @@ void TensorImpl::populateLoweredCache() {
 }
 
 void TensorImpl::populateCompilationCache() {
-  populateLoweredCache();
-  auto loop_tree = getLoweredCache().at(hash()).loop_tree;
-  auto cc = backend_compile(loop_tree);
-  getCompilationCache().emplace(hash(), std::move(cc));
+  auto h = hash();
+  if (!getLoweredCache().count(h)) {
+    populateLoweredCache();
+  }
+  auto loop_tree = getLoweredCache().at(h).loop_tree;
+  auto cc = getDefaultBackend()->compile(loop_tree);
+  getCompilationCache().emplace(h, std::move(cc));
 }
 
 }  // namespace lazy

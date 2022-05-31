@@ -92,7 +92,9 @@ std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
   return node_refs;
 }
 
-LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
+LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
+                 std::unordered_map<IR::NodeRef, IR::NodeRef> node_map,
+                 std::unordered_map<IR::VarRef, IR::VarRef> var_map) {
   auto keep_nodes = [&]() {
     if (lt.kind(ref) == LoopTree::NODE) {
       return std::unordered_set<IR::NodeRef>(lt.node(ref));
@@ -101,13 +103,24 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
   }();
   IR new_ir;
   auto nodes = lt.ir.nodes();
-  std::unordered_map<IR::NodeRef, IR::NodeRef> node_map;
-  std::unordered_map<IR::VarRef, IR::VarRef> var_map;
   for (auto nr : nodes) {
+    const auto& n = lt.ir.node(nr);
+    // absorb unscheduled inputs
+    if (!lt.scheduled.count(nr)) {
+      const auto& outputs = n.outputs();
+      bool used_by_keep_nodes = true;
+      for (const auto& o : outputs) {
+        if (!keep_nodes.count(o)) {
+          used_by_keep_nodes = false;
+        }
+      }
+      if (used_by_keep_nodes) {
+        keep_nodes.insert(nr);
+      }
+    }
     if (!keep_nodes.count(nr)) {
       continue;
     }
-    const auto& n = lt.ir.node(nr);
     std::vector<IR::NodeRef> inputs;
     std::vector<IR::VarRef> vars;
     std::vector<symbolic::Constraint> constraints = n.constraints();
@@ -124,7 +137,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
       }
       vars.emplace_back(var_map.at(v));
     }
-    if (inputs.size() == 0) {
+    if (inputs.size() == 0 && n.op() != Operation::read) {
       const auto inp = new_ir.create_node(Operation::read, {}, vars);
       inputs.emplace_back(inp);
       new_ir.add_input(inp);
@@ -134,7 +147,15 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
     }
     node_map[nr] =
         new_ir.create_node(n.op(), inputs, vars, constraints, sym_var_map);
+
+    if (n.op() == Operation::read) {
+      new_ir.add_input(node_map[nr]);
+    }
     bool write = true;
+    if (n.op() == Operation::write) {
+      new_ir.add_output(node_map[nr]);
+      write = false;
+    }
     for (auto out : n.outputs()) {
       if (keep_nodes.count(out)) {
         write = false;
@@ -146,6 +167,8 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref) {
       new_ir.add_output(out);
     }
   }
+  ASSERT(new_ir.outputs().size() > 0);
+  ASSERT(new_ir.inputs().size() > 0);
   for (auto nr : nodes) {
     if (!keep_nodes.count(nr)) {
       continue;

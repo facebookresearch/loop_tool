@@ -31,11 +31,12 @@ struct LoopNestCompiler : public Compiler {
     return compile_fma_nest();
   }
 
-#define REQUIRE(x)  \
-  {                 \
-    if (!(x)) {     \
-      return false; \
-    }               \
+#define REQUIRE(x)                    \
+  {                                   \
+    if (!(x)) {                       \
+      std::cerr << #x << " failed\n"; \
+      return false;                   \
+    }                                 \
   }
   bool is_fma_nest() const {
     auto reads = find(lt.ir, Operation::read);

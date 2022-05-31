@@ -104,3 +104,35 @@ TEST(LoopNestConv) {
 
   ASSERT(all_close(C_ref.data<float>(), C_lt.data<float>(), C_lt.numel()));
 }
+
+TEST(LoopNestEmbedded) {
+  loop_tool::ScopedBackend sb("cpu_interpreted");
+  namespace lz = ::loop_tool::lazy;
+  auto mm = [](lz::Tensor A, lz::Tensor B) {
+    auto M = lz::Symbol("M");
+    auto N = lz::Symbol("N");
+    auto K = lz::Symbol("K");
+    auto C = A.as(M, K) * B.as(K, N);
+    return C.sum(K);
+  };
+
+  auto M = 16;
+  auto N = 16;
+  auto K = 16;
+
+  lz::Tensor A(M, K);
+  lz::Tensor B(K, N);
+  rand(A.data<float>(), M * K);
+  rand(B.data<float>(), K * N);
+
+  auto C = mm(A, B);
+  auto tree = C.loop_tree();
+  tree = annotate(tree, tree.roots[0], "[loop_nest]");
+  C.set(tree);
+  std::cerr << "TRE IS " << tree.dump() << "\n";
+  lz::Tensor C_ref(M * N);
+  ref_mm(A.data<float>(), B.data<float>(), M, N, K, C_ref.data<float>());
+
+  ASSERT(all_close(C_ref.data<float>(), C.data<float>(), M * N));
+  C.clear_cache();
+}
