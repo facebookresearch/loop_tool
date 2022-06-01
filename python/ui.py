@@ -235,10 +235,17 @@ def ui_impl(stdscr, tensor, fn):
         elif key in ("KEY_BACKSPACE", "\b", "\x7f"):
             update_tree(tree.merge(highlighted))
         elif key == "v" :
-            update_tree(tree.annotate(highlighted, "vectorize"))
-        elif key == "u" :
-            update_tree(tree.annotate(highlighted, "unroll"))
+            if tree.annotation(highlighted) == "vectorize":
+                update_tree(tree.annotate(highlighted, ""))
+            else:    
+                update_tree(tree.annotate(highlighted, "vectorize"))
 
+        elif key == "u" :
+            if tree.annotation(highlighted) == "unroll":
+                update_tree(tree.annotate(highlighted, ""))    
+            else:
+                update_tree(tree.annotate(highlighted, "unroll"))
+            
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)
