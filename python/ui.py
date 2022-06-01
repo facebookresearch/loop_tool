@@ -31,7 +31,7 @@ def get_versions(loop):
     return versions
 
 
-def benchmark(tensor, limit_ms=100):
+def benchmark(tensor, limit_ms=1000):
     start = time.time() * 1000
     iters = 1
     t = 0
@@ -157,13 +157,14 @@ def ui_impl(stdscr, tensor, fn):
             if fn:
                 with open(fn, "w") as f:
                     f.write(tensor.code)
-            _ = benchmark(tensor, 10)  # warmup
+            # _ = benchmark(tensor, 10)  # warmup
             iters_sec = benchmark(tensor)
-            flops = tree.flops()
+            # flops = tree.FLOPs()
         tree_pad.addstr(
             i,
             len(info) + 1,
-            f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)",
+            # f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)",
+            f"{tree.FLOPS() / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total Flos)",
         )
 
         def _render_ref(ref):

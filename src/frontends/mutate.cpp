@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 
 #include <loop_tool/mutate.h>
+#include <loop_tool/measure.hpp>
 
 #include <algorithm>
 #include <string>
@@ -700,7 +701,33 @@ LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
   return trailing_next;
 }
 
-int64_t flops(const LoopTree& lt) {
+double eval_runtime(const LoopTree &lt){
+  auto c = Compiler(lt);
+  auto sizes = c.memory_sizes(true);
+  std::vector<void *> memory;
+  std::vector<std::vector<float>> data;
+
+  for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++){
+    data.emplace_back(std::vector<float>(sizes[i]));
+  }
+  
+  for (const auto &v: data){
+    memory.emplace_back((void *)(v.data()));
+  }
+
+  
+  auto cc = getDefaultBackend()->compile(lt);
+
+  // TODO: Run 100 times and get mean, std:
+  unsigned iterations = 100;
+  unsigned warmup_iterations = 5;
+  return dabun::measure_median(
+    [&]() {cc->run(memory);}, iterations, warmup_iterations
+    );
+}
+
+
+int64_t FLOPs(const LoopTree& lt) {
   int64_t total = 0;
   std::vector<LoopTree::Loop> running_loops;
   auto fn = [&](const LoopTree::TreeRef& ref, int depth) {
@@ -736,6 +763,11 @@ int64_t flops(const LoopTree& lt) {
   lt.walk(fn);
   return total;
 }
+
+double FLOPS(const LoopTree& lt) {
+  return FLOPs(lt) / eval_runtime(lt);
+}
+
 
 bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref) {
   bool trivially_parallel = true;

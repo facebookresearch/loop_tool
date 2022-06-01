@@ -175,7 +175,7 @@ std::vector<LoopTree::TreeRef> walk_loop_tree(const LoopTree &lt) {
   return out;
 }
 
-float get_flops(const LoopTree &lt) { return (float)flops(lt); }
+float get_flops(const LoopTree &lt) { return (float)FLOPs(lt); }
 
 LoopTree split_impl(const LoopTree &lt, LoopTree::TreeRef ref, int32_t size) {
   return split(lt, ref, size);

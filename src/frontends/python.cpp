@@ -296,7 +296,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return is_trivially_parallel(lt, ref);
            })
       .def("get_available_actions", &get_available_actions)
-      .def("flops", &flops)
+      .def("FLOPs", &FLOPs)
+      .def("FLOPS", &FLOPS)
+      .def("eval", &eval_runtime)
       .def("split", &split)
       .def("merge", &merge)
       .def("get_inputs", &get_inputs)
@@ -328,32 +330,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
         }
         auto cc = getBackends().at("cpu")->compile(lt);
         return cc->run(memory);
-      })
-      .def("eval", [](const LoopTree &lt)
-      {
-        auto c = Compiler(lt);
-        auto sizes = c.memory_sizes(true);
-        std::vector<void *> memory;
-        std::vector<std::vector<float>> data;
-
-        for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++){
-          data.emplace_back(std::vector<float>(sizes[i]));
-        }
-        
-        for (const auto &v: data){
-          memory.emplace_back((void *)(v.data()));
-        }
-
-        
-        auto cc = getDefaultBackend()->compile(lt);
-
-        // TODO: Run 100 times and get mean, std:
-        unsigned iterations = 100;
-        unsigned warmup_iterations = 5;
-        return dabun::measure_median(
-          [&]() {cc->run(memory);}, iterations, warmup_iterations
-          );
       });
+
 
   py::class_<lazy::Symbol>(m, "Symbol")
       .def(py::init<std::string>())
