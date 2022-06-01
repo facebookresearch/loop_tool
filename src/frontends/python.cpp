@@ -221,10 +221,17 @@ PYBIND11_MODULE(loop_tool_py, m) {
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
+<<<<<<< HEAD
       .def("annotate",
            [](LoopTree &lt, LoopTree::TreeRef ref, std::string annot) {
              return annotate(lt, ref, annot);
            })
+=======
+      .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
+                          std::string annot) { return annotate(lt, ref, annot); })
+      .def("annotation", [](LoopTree &lt, LoopTree::TreeRef ref
+                          ) { return lt.annotation(ref); })                   
+>>>>>>> de84324 (Added annotation to python.cpp)
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
       .def("children", &LoopTree::children)

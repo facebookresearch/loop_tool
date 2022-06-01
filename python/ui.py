@@ -171,7 +171,8 @@ def ui_impl(stdscr, tensor, fn):
                 loop = tree.loop(ref)
                 v = tree.ir.dump_var(loop.var)
                 r = f" r {loop.tail}" if loop.tail else ""
-                return f"for {v} in {loop.size}{r}"
+                a = loop
+                return f"for {v} in {loop.size}{r} {tree.annotation(ref)}"
             return tree.dump(ref)
 
         def _r(ref, depth):
@@ -194,19 +195,23 @@ def ui_impl(stdscr, tensor, fn):
         tree = new_tree
         changed = True
 
+    actions = []
     while True:
         key = stdscr.getkey()
         changed = False
+        actions.append(key)
+
         if key == "q":
             break
         elif key == "s":
             split_size = prompt(stdscr, tree_pad, "inner size? ")
+            actions.append(str(split_size))
             try:
                 update_tree(tree.split(highlighted, split_size))
             except:
                 pass
-        elif key == "u" and len(trees) > 1:
-            trees = trees[:-1]
+        # elif key == "u" and len(trees) > 1:
+        #     trees = trees[:-1]
             update_tree(trees[-1])
         elif key == "KEY_DOWN":
             if drag:
@@ -229,12 +234,22 @@ def ui_impl(stdscr, tensor, fn):
             changed = True
         elif key in ("KEY_BACKSPACE", "\b", "\x7f"):
             update_tree(tree.merge(highlighted))
+        elif key == "v" :
+            update_tree(tree.annotate(highlighted, "vectorize"))
+        elif key == "u" :
+            update_tree(tree.annotate(highlighted, "unroll"))
+
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)
         render(changed)
-        if key == "u":
-            trees = trees[:-1]
+        # if key == "u":
+        #     trees = trees[:-1]
+
+    print("Printing actions file\n")
+    print(actions)
+    with open("actions.txt", "w") as f:
+        f.write(", ".join(actions))
     return tree
 
 

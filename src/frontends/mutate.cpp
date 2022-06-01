@@ -73,7 +73,12 @@ std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::Tre
 
     for (auto &input: node.inputs()){
       avail_actions.push_back("copy_input_" + std::to_string(input));
-    }  
+    } 
+
+    // increase - decrease reuse
+    avail_actions.push_back("increase_reuse");
+
+    avail_actions.push_back("decrease_reuse");
   }
 
 
