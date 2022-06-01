@@ -68,11 +68,8 @@ std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::Tre
     }
 
     // copy input
-    auto node_ref = lt.node(ref);
-    auto& node = lt.ir.node(node_ref);
-
-    for (auto &input: node.inputs()){
-      avail_actions.push_back("copy_input_" + std::to_string(input));
+    for (int i=0; i < get_inputs(lt, ref).size(); i++){
+      avail_actions.push_back("copy_input_" + std::to_string(i));
     } 
 
     // increase - decrease reuse
@@ -409,6 +406,14 @@ LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
   }
   return LoopTree(new_ir);
 }
+
+std::vector<IR::NodeRef> get_inputs(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  auto& node = lt.ir.node(node_ref);
+  return node.inputs();
+}
+
 
 LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx) {
   ASSERT(lt.kind(ref) == LoopTree::NODE);

@@ -299,6 +299,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("flops", &flops)
       .def("split", &split)
       .def("merge", &merge)
+      .def("get_inputs", &get_inputs)
       .def("copy_input", &copy_input)
       .def("delete_copy", &delete_copy)
       .def("remove_loop", &remove_loop)

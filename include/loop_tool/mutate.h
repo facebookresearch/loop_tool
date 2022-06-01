@@ -24,6 +24,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 // merges upward
 LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref);
+std::vector<IR::NodeRef> get_inputs(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx);
 LoopTree delete_copy(const LoopTree& lt, LoopTree::TreeRef ref);
 // generic swap for addressable loops and nodes, may fail silently
