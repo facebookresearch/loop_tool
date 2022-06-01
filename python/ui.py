@@ -171,7 +171,6 @@ def ui_impl(stdscr, tensor, fn):
                 loop = tree.loop(ref)
                 v = tree.ir.dump_var(loop.var)
                 r = f" r {loop.tail}" if loop.tail else ""
-                a = loop
                 return f"for {v} in {loop.size}{r} {tree.annotation(ref)}"
             return tree.dump(ref)
 
@@ -210,8 +209,8 @@ def ui_impl(stdscr, tensor, fn):
                 update_tree(tree.split(highlighted, split_size))
             except:
                 pass
-        # elif key == "u" and len(trees) > 1:
-        #     trees = trees[:-1]
+        elif key == "U" and len(trees) > 1:
+            trees = trees[:-1]
             update_tree(trees[-1])
         elif key == "KEY_DOWN":
             if drag:
@@ -250,8 +249,8 @@ def ui_impl(stdscr, tensor, fn):
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)
         render(changed)
-        # if key == "u":
-        #     trees = trees[:-1]
+        if key == "U":
+            trees = trees[:-1]
 
     print("Printing actions file\n")
     print(actions)
