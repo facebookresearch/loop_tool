@@ -12,7 +12,6 @@ LICENSE file in the root directory of this source tree.
 #include <random>
 #include <sstream>
 
-#include "loop_tool/agent.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
@@ -220,34 +219,12 @@ PYBIND11_MODULE(loop_tool_py, m) {
                              [](LoopTree::Loop &loop) { return loop.tail; })
       .def("__eq__", &LoopTree::Loop::operator==);
 
-  py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
-      .def(py::init<const LoopTree &>())
-      .def("get_available_actions", &loop_tool::LoopTreeAgent::get_available_actions)
-      .def("up", &loop_tool::LoopTreeAgent::up)
-      .def("down", &loop_tool::LoopTreeAgent::down)
-      .def("swap_up", &loop_tool::LoopTreeAgent::agent_swap_up)
-      .def("swap_down", &loop_tool::LoopTreeAgent::agent_swap_down)
-      .def("split", &loop_tool::LoopTreeAgent::agent_split)
-      .def("merge", &loop_tool::LoopTreeAgent::agent_merge)
-      .def("annotate", &loop_tool::LoopTreeAgent::agent_annotate)
-      .def("copy_input", &loop_tool::LoopTreeAgent::agent_copy_input)
-      .def("increase_reuse", &loop_tool::LoopTreeAgent::agent_increase_reuse)
-      .def("decrease_reuse", &loop_tool::LoopTreeAgent::agent_decrease_reuse)
-      .def("dump", &loop_tool::LoopTreeAgent::dump);
-
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
-<<<<<<< HEAD
-      .def("annotate",
-           [](LoopTree &lt, LoopTree::TreeRef ref, std::string annot) {
-             return annotate(lt, ref, annot);
-           })
-=======
       .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
                           std::string annot) { return annotate(lt, ref, annot); })
       .def("annotation", [](LoopTree &lt, LoopTree::TreeRef ref
                           ) { return lt.annotation(ref); })                   
->>>>>>> de84324 (Added annotation to python.cpp)
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
       .def("children", &LoopTree::children)
@@ -312,12 +289,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return is_trivially_parallel(lt, ref);
            })
       .def("get_available_actions", &get_available_actions)
-      .def("FLOPs", &FLOPs)
-      .def("FLOPS", &FLOPS)
-      .def("eval", &eval_runtime)
+      .def("flops", &flops)
       .def("split", &split)
       .def("merge", &merge)
-      .def("get_inputs", &get_inputs)
       .def("copy_input", &copy_input)
       .def("delete_copy", &delete_copy)
       .def("remove_loop", &remove_loop)
@@ -346,8 +320,32 @@ PYBIND11_MODULE(loop_tool_py, m) {
         }
         auto cc = getBackends().at("cpu")->compile(lt);
         return cc->run(memory);
-      });
+      })
+      .def("eval", [](const LoopTree &lt)
+      {
+        auto c = Compiler(lt);
+        auto sizes = c.memory_sizes(true);
+        std::vector<void *> memory;
+        std::vector<std::vector<float>> data;
 
+        for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++){
+          data.emplace_back(std::vector<float>(sizes[i]));
+        }
+        
+        for (const auto &v: data){
+          memory.emplace_back((void *)(v.data()));
+        }
+
+        
+        auto cc = getDefaultBackend()->compile(lt);
+
+        // TODO: Run 100 times and get mean, std:
+        unsigned iterations = 100;
+        unsigned warmup_iterations = 5;
+        return dabun::measure_median(
+          [&]() {cc->run(memory);}, iterations, warmup_iterations
+          );
+      });
 
   py::class_<lazy::Symbol>(m, "Symbol")
       .def(py::init<std::string>())

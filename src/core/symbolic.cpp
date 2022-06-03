@@ -6,9 +6,9 @@ LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/symbolic.h"
 
-#include <limits>
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
