@@ -12,14 +12,14 @@ LICENSE file in the root directory of this source tree.
 #include <random>
 #include <sstream>
 
+#include "loop_tool/agent.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
 #include "loop_tool/lazy.h"
 #include "loop_tool/mutate.h"
-#include <loop_tool/measure.hpp>
-#include "loop_tool/serialization.h" 
+#include "loop_tool/serialization.h"
 #include "loop_tool/tensor.h"
 #include "sysml/measure.hpp"
 
@@ -110,7 +110,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         [](std::string backend) { setDefaultBackend(backend); });
   m.def("get_default_backend",
         []() -> std::string { return getDefaultBackend()->name(); });
-  m.def("deserialize", &deserialize);   
+  m.def("deserialize", &deserialize);
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -142,7 +142,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__repr__", &dot)
       .def("dump", &IR::dump)
       .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
-      .def("serialize", &serialize )
+      .def("serialize", &serialize)
       .def_property_readonly("vars", &IR::vars)
       .def_property_readonly("nodes", &IR::nodes)
       .def_property_readonly(
@@ -229,10 +229,14 @@ PYBIND11_MODULE(loop_tool_py, m) {
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
-      .def("annotate", [](LoopTree &lt, LoopTree::TreeRef ref,
-                          std::string annot) { return annotate(lt, ref, annot); })
-      .def("annotation", [](LoopTree &lt, LoopTree::TreeRef ref
-                          ) { return lt.annotation(ref); })                   
+      .def("annotate",
+           [](LoopTree &lt, LoopTree::TreeRef ref, std::string annot) {
+             return annotate(lt, ref, annot);
+           })
+      .def("annotation",
+           [](LoopTree &lt, LoopTree::TreeRef ref) {
+             return lt.annotation(ref);
+           })
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
       .def("children", &LoopTree::children)
@@ -297,9 +301,12 @@ PYBIND11_MODULE(loop_tool_py, m) {
              return is_trivially_parallel(lt, ref);
            })
       .def("get_available_actions", &get_available_actions)
-      .def("flops", &flops)
+      .def("FLOPs", &FLOPs)
+      .def("FLOPS", &FLOPS)
+      .def("eval", &eval_runtime)
       .def("split", &split)
       .def("merge", &merge)
+      .def("get_inputs", &get_inputs)
       .def("copy_input", &copy_input)
       .def("delete_copy", &delete_copy)
       .def("remove_loop", &remove_loop)
@@ -328,31 +335,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
         }
         auto cc = getBackends().at("cpu")->compile(lt);
         return cc->run(memory);
-      })
-      .def("eval", [](const LoopTree &lt)
-      {
-        auto c = Compiler(lt);
-        auto sizes = c.memory_sizes(true);
-        std::vector<void *> memory;
-        std::vector<std::vector<float>> data;
-
-        for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++){
-          data.emplace_back(std::vector<float>(sizes[i]));
-        }
-        
-        for (const auto &v: data){
-          memory.emplace_back((void *)(v.data()));
-        }
-
-        
-        auto cc = getDefaultBackend()->compile(lt);
-
-        // TODO: Run 100 times and get mean, std:
-        unsigned iterations = 100;
-        unsigned warmup_iterations = 5;
-        return dabun::measure_median(
-          [&]() {cc->run(memory);}, iterations, warmup_iterations
-          );
       });
 
   py::class_<lazy::Symbol>(m, "Symbol")
