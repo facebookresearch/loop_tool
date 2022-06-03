@@ -234,21 +234,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("increase_reuse", &loop_tool::LoopTreeAgent::agent_increase_reuse)
       .def("decrease_reuse", &loop_tool::LoopTreeAgent::agent_decrease_reuse)
       .def("dump", &loop_tool::LoopTreeAgent::dump);
-      
-      // .def("get_available_actions", &agent_get_available_actions)
-      // .def("up", &agent_up)
-      // .def("down", &agent_down)
-      // .def("swap_up", &agent_swap_up)
-      // .def("swap_down", &agent_swap_down)
-      // .def("split", &agent_split)
-      // .def("merge", &agent_merge)
-      // .def("annotate", &agent_annotate)
-      // .def("copy_input", &agent_copy_input)
-      // .def("increase_reuse", &agent_increase_reuse)
-      // .def("decrease_reuse", &agent_decrease_reuse)
-      // .def("dump", &agent_dump);
-
-      
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
