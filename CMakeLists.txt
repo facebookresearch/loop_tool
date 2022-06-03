@@ -80,6 +80,9 @@ if (BUILD_WASM_RUNTIME)
   target_include_directories(loop_tool PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasm-micro-runtime/core/iwasm/include")
 endif()
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/libsysml/sysmlcpp")
+target_link_libraries(loop_tool PUBLIC sysmlcpp)
+
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 target_link_libraries(loop_tool PUBLIC ${CMAKE_DL_LIBS} PRIVATE Threads::Threads)

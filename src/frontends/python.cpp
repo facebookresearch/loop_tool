@@ -21,6 +21,7 @@ LICENSE file in the root directory of this source tree.
 #include <loop_tool/measure.hpp>
 #include "loop_tool/serialization.h" 
 #include "loop_tool/tensor.h"
+#include "sysml/measure.hpp"
 
 #ifdef ENABLE_CUDA
 #include <cuda.h>
@@ -218,6 +219,13 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("tail",
                              [](LoopTree::Loop &loop) { return loop.tail; })
       .def("__eq__", &LoopTree::Loop::operator==);
+
+  py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
+      .def(py::init<const LoopTree &>())
+      .def("apply_action", &loop_tool::LoopTreeAgent::apply_action)
+      .def("get_available_actions",
+           &loop_tool::LoopTreeAgent::get_available_actions)
+      .def("dump", &loop_tool::LoopTreeAgent::dump);
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())

@@ -9,8 +9,9 @@ LICENSE file in the root directory of this source tree.
 #include <loop_tool/mutate.h>
 
 #include <algorithm>
-#include <loop_tool/measure.hpp>
 #include <string>
+
+#include "sysml/measure.hpp"
 
 namespace loop_tool {
 
@@ -727,7 +728,7 @@ double eval_runtime(const LoopTree& lt) {
   // TODO: Run 100 times and get mean, std:
   unsigned iterations = 100;
   unsigned warmup_iterations = 5;
-  return dabun::measure_median([&]() { cc->run(memory); }, iterations,
+  return sysml::measure_median([&]() { cc->run(memory); }, iterations,
                                warmup_iterations);
 }
 

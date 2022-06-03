@@ -195,17 +195,14 @@ def ui_impl(stdscr, tensor, fn):
         tree = new_tree
         changed = True
 
-    actions = []
     while True:
         key = stdscr.getkey()
         changed = False
-        actions.append(key)
 
         if key == "q":
             break
         elif key == "s":
             split_size = prompt(stdscr, tree_pad, "inner size? ")
-            actions.append(str(split_size))
             try:
                 update_tree(tree.split(highlighted, split_size))
             except:
@@ -253,10 +250,6 @@ def ui_impl(stdscr, tensor, fn):
         if key == "U":
             trees = trees[:-1]
 
-    print("Printing actions file\n")
-    print(actions)
-    with open("actions.txt", "w") as f:
-        f.write(", ".join(actions))
     return tree
 
 
