@@ -12,6 +12,7 @@ LICENSE file in the root directory of this source tree.
 #include <random>
 #include <sstream>
 
+#include "loop_tool/agent.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
@@ -218,6 +219,36 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("tail",
                              [](LoopTree::Loop &loop) { return loop.tail; })
       .def("__eq__", &LoopTree::Loop::operator==);
+
+  py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
+      .def(py::init<const LoopTree &>())
+      .def("get_available_actions", &loop_tool::LoopTreeAgent::get_available_actions)
+      .def("up", &loop_tool::LoopTreeAgent::up)
+      .def("down", &loop_tool::LoopTreeAgent::down)
+      .def("swap_up", &loop_tool::LoopTreeAgent::agent_swap_up)
+      .def("swap_down", &loop_tool::LoopTreeAgent::agent_swap_down)
+      .def("split", &loop_tool::LoopTreeAgent::agent_split)
+      .def("merge", &loop_tool::LoopTreeAgent::agent_merge)
+      .def("annotate", &loop_tool::LoopTreeAgent::agent_annotate)
+      .def("copy_input", &loop_tool::LoopTreeAgent::agent_copy_input)
+      .def("increase_reuse", &loop_tool::LoopTreeAgent::agent_increase_reuse)
+      .def("decrease_reuse", &loop_tool::LoopTreeAgent::agent_decrease_reuse)
+      .def("dump", &loop_tool::LoopTreeAgent::dump);
+      
+      // .def("get_available_actions", &agent_get_available_actions)
+      // .def("up", &agent_up)
+      // .def("down", &agent_down)
+      // .def("swap_up", &agent_swap_up)
+      // .def("swap_down", &agent_swap_down)
+      // .def("split", &agent_split)
+      // .def("merge", &agent_merge)
+      // .def("annotate", &agent_annotate)
+      // .def("copy_input", &agent_copy_input)
+      // .def("increase_reuse", &agent_increase_reuse)
+      // .def("decrease_reuse", &agent_decrease_reuse)
+      // .def("dump", &agent_dump);
+
+      
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())

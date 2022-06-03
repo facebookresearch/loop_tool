@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 
 #include <loop_tool/mutate.h>
 #include <loop_tool/measure.hpp>
+#include <loop_tool/backend.h>
 
 #include <algorithm>
 #include <string>
@@ -14,7 +15,6 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 
 std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::TreeRef ref){
-  // LoopTree::TreeRef ref = cursor;
   std::vector<std::string> avail_actions;
 
   LoopTree::TreeRef p_ref = previous_ref(lt, ref);
@@ -38,8 +38,19 @@ std::vector<std::string> get_available_actions(const LoopTree& lt, LoopTree::Tre
   // Loop operations
   if (lt.kind(ref) == LoopTree::LOOP){
     // split
-    auto loop = lt.loop(ref);
-    avail_actions.push_back("split_" + std::to_string(loop.size));
+    int max_vec_size = 1;
+
+    // the most inner-loop
+    if (all_of(lt.children(ref).begin(), lt.children(ref).end(), 
+          [&] (int i) {return lt.kind(i) == LoopTree::NODE;})
+        ){
+      max_vec_size = isa_traits<DABUN_ISA>().vector_size;
+    }
+    auto loop_iter = lt.loop(ref).size;
+    while (loop_iter >= max_vec_size){
+      avail_actions.push_back("split_" + std::to_string(loop_iter)); 
+      loop_iter /= 2; 
+    }
 
     // merge
     if(p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP && lt.loop(ref).var == lt.loop(p_ref).var){
@@ -985,5 +996,78 @@ std::vector<IR::NodeRef> find(const IR& ir, Operation op) {
   }
   return out;
 }
+
+
+// std::vector<std::string> agent_get_available_actions(const LoopTreeAgent &agent){
+//   return get_available_actions(agent.lt, agent.cursor);
+// }
+
+// LoopTreeAgent& agent_up(LoopTreeAgent &agent){
+//   agent.cursor = previous_ref(agent.lt, agent.cursor);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_down(LoopTreeAgent &agent){
+//   agent.cursor = next_ref(agent.lt, agent.cursor);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_swap_up(LoopTreeAgent &agent){
+//   agent.lt = try_swap(agent.lt, agent.cursor, previous_ref(agent.lt, agent.cursor));
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_swap_down(LoopTreeAgent &agent){
+//   agent.lt = try_swap(agent.lt, agent.cursor, next_ref(agent.lt, agent.cursor));
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_split(LoopTreeAgent &agent, int split_size){
+//   agent.lt = split(agent.lt, agent.cursor, split_size);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_merge(LoopTreeAgent &agent){
+//   agent.lt = merge(agent.lt, agent.cursor);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_annotate(LoopTreeAgent &agent, std::string annotation){
+//   if (agent.lt.annotation(agent.cursor) == annotation){
+//     agent.lt = annotate(agent.lt, agent.cursor, "");
+//   }else{
+//     agent.lt = annotate(agent.lt, agent.cursor, annotation);
+//   }
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_copy_input(LoopTreeAgent &agent, int first_second){
+//   ASSERT(first_second == 0 || first_second == 1);
+
+//   auto input_id = get_inputs(agent.lt, agent.cursor)[first_second];
+//   agent.lt = copy_input(agent.lt, agent.cursor, input_id);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_increase_reuse(LoopTreeAgent &agent){
+//   agent.lt = increase_reuse(agent.lt, agent.cursor);
+//   return agent;
+// }
+
+// LoopTreeAgent& agent_decrease_reuse(LoopTreeAgent &agent){
+//   agent.lt = decrease_reuse(agent.lt, agent.cursor);
+//   return agent;
+// }
+
+
+// std::string agent_dump(LoopTreeAgent &agent){
+//     std::string lt_str = agent.lt.dump();    
+//     int index = 0;
+//     for (int i = 0; i < agent.cursor + 1; i++){
+//       index = lt_str.find('\n', index+1);
+//     }
+//     lt_str.insert(index, "<<<<<< cursor (line " + std::to_string(agent.cursor) + " )");
+//     return lt_str;
+// }
 
 }  // namespace loop_tool

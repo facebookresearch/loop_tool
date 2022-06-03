@@ -64,4 +64,20 @@ double FLOPS(const LoopTree& lt);
 bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref);
 std::vector<IR::NodeRef> find(const IR& ir, Operation op);
 
+
+// // Operations on LoopTreeAgent
+// std::vector<std::string> agent_get_available_actions(const LoopTreeAgent &agent);
+// LoopTreeAgent& agent_up(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_down(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_swap_up(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_swap_down(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_split(LoopTreeAgent &agent, int split_size);
+// LoopTreeAgent& agent_merge(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_annotate(LoopTreeAgent &agent, std::string annotation);
+// LoopTreeAgent& agent_copy_input(LoopTreeAgent &agent, int first_second);
+// LoopTreeAgent& agent_increase_reuse(LoopTreeAgent &agent);
+// LoopTreeAgent& agent_decrease_reuse(LoopTreeAgent &agent);
+// std::string agent_dump(LoopTreeAgent &agent);
+
+
 }  // namespace loop_tool
