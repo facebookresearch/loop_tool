@@ -113,6 +113,67 @@ public:
     });
   }
 
+  std::string dump_dot() const {
+    int loop_id = 0;
+    std::unordered_map<std::string, int> iter_id;
+    std::stringstream ss;
+    ss << "digraph G {\n";
+    ss << " node [fontname = \"courier\", fontsize=12];\n";
+    auto short_name = [](std::string name) {
+      return name.substr(0, name.find("_"));
+    };
+    for (auto n : toposort(lt.ir)) {
+      ss << " ";
+      ss << n << "[shape=record,";
+      ss << "label=\"{";
+      ss << "'node':'" << loop_tool::dump(lt.ir.node(n).op()) << "',";
+      ss << "'iters': [";
+      auto vars = lt.ir.node(n).vars();
+      for (auto &v : vars) {
+        ss << "'" << short_name(lt.ir.var(v).name()) << "'";
+        if (&v != &vars.back()) {
+          ss << ", ";
+        }
+      }
+      ss << "],";
+      auto order = lt.ir.order(n);
+      int i = 0;
+      for (auto &p : order) {
+        ss << "'L" << i << "':{";
+
+        std::string iter_name = short_name(lt.ir.var(p.first).name());
+        if (iter_id.count(iter_name) == 0) {
+          iter_id[iter_name] = iter_id.size();
+        }
+
+        ss << "'name':" << iter_id[iter_name] << ",";
+
+        if (p.second.size >= 0) {
+          ss << "'range':" << p.second.size << ",";
+        }
+
+        if (p.second.tail >= 0) {
+          ss << "'tail':" << p.second.tail << ",";
+        }
+
+        ss << "'vectorize':" << (lt.ir.loop_annotations(n)[i] == "vectorize") << ",";
+        ss << "'unroll':" << (lt.ir.loop_annotations(n)[i] == "unroll") << ",";
+    
+        loop_id++;
+        i++;
+        ss << "},";
+      }
+      i = 0;
+
+      ss << "}\"];\n";
+      for (auto out : lt.ir.node(n).outputs()) {
+        ss << " " << n << " -> " << out << ";\n";
+      }
+    }
+    ss << "}\n";
+    return ss.str();
+  }
+
 
   /**********************************************
    * Actions

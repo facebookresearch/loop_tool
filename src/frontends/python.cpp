@@ -221,6 +221,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__eq__", &LoopTree::Loop::operator==);
 
   py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
+      .def("__repr__", &loop_tool::LoopTreeAgent::dump)
       .def(py::init<const LoopTree &>())
       .def(py::init<const LoopTreeAgent &>())
       .def_property_readonly("lt", [](const LoopTreeAgent &a) { return a.lt; })
@@ -229,9 +230,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("eval", &loop_tool::LoopTreeAgent::eval)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)
-      .def("serialize", &loop_tool::LoopTreeAgent::serialize)
-      .def("deserialize", &loop_tool::LoopTreeAgent::deserialize)
-      .def("dump", &loop_tool::LoopTreeAgent::dump);
+      .def("dot", &loop_tool::LoopTreeAgent::dump_dot);
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())

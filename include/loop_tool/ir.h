@@ -219,6 +219,7 @@ class IR {
 };
 
 std::string dot(const IR &ir);
+std::vector<IR::NodeRef> toposort(const IR &ir);
 
 class Node {
  protected:
