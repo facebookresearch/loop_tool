@@ -412,6 +412,7 @@ struct LoopTree {
       const std::function<std::string(LoopTree::TreeRef)> &fn = {}) const;
   IR ir;
 
+  LoopTree(){}
   LoopTree(const IR &ir_);
 
   std::vector<LoopTreeNode> nodes;

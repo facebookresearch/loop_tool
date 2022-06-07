@@ -10,65 +10,16 @@ LICENSE file in the root directory of this source tree.
 
 #include "ir.h"
 #include "mutate.h"
+#include "serialization.h"
 
 namespace loop_tool {
 
 class LoopTreeAgent {
- public:
-  LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor = 0)
-      : lt(lt), cursor(cursor) {}
-
-  LoopTreeAgent(LoopTreeAgent& agent) : lt(agent.lt), cursor(agent.cursor) {}
-
-  ~LoopTreeAgent() {}
-
-  /**********************************************
-   * Public API
-   **********************************************/
-  LoopTreeAgent& apply_action(std::string action) {
-    if (actions_fn.count(action) > 0) {
-      std::invoke(actions_fn.at(action), this);
-    } else {
-      std::cout << "Action: " << action << " not available" << std::endl;
-    }
-    return *this;
-  }
-
-  std::vector<std::string> get_available_actions() {
-    LoopTree lt_copy(lt);
-    LoopTree::TreeRef cursor_copy(cursor);
-
-    std::vector<std::string> available_actions;
-
-    for (auto& action : actions_fn) {
-      try {
-        apply_action(action.first);
-        available_actions.push_back(action.first);
-        // std::cout << action.first << std::endl;
-      } catch (std::runtime_error e) {
-        // std::cout << "Action: " << action.first << " illegal" << std::endl;
-      }
-      lt = lt_copy;
-      cursor = cursor_copy;
-    }
-
-    return available_actions;
-  }
-
-  std::string dump() {
-    return lt.dump([=](LoopTree::TreeRef ref) -> std::string {
-      if (ref == cursor) {
-        return "<<<<<< cursor (line " + std::to_string(cursor) + " )";
-      }
-      return "";
-    });
-  }
-
- private:
+public:
   LoopTree lt;
   LoopTree::TreeRef cursor;
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
-      void);  // function pointer type
+      void);
   const std::map<std::string, ActionFn> actions_fn = {
       {"up", &LoopTreeAgent::up},
       {"down", &LoopTreeAgent::down},
@@ -83,13 +34,85 @@ class LoopTreeAgent {
       {"split_128", &LoopTreeAgent::split_128},
       {"split_256", &LoopTreeAgent::split_256},
       {"merge", &LoopTreeAgent::merge},
-      {"vrctorize", &LoopTreeAgent::vectorize},
+      {"vectorize", &LoopTreeAgent::vectorize},
       {"unroll", &LoopTreeAgent::unroll},
       {"copy_input_0", &LoopTreeAgent::copy_input_0},
       {"copy_input_1", &LoopTreeAgent::copy_input_1},
       {"increase_reuse", &LoopTreeAgent::increase_reuse},
       {"decrease_reuse", &LoopTreeAgent::decrease_reuse},
   };
+
+  typedef double (LoopTreeAgent::*EvalFn)(void);
+  const std::map<std::string, EvalFn> metrics_fn = {
+      {"FLOPs", &LoopTreeAgent::FLOPs},
+      {"FLOPS", &LoopTreeAgent::FLOPS},
+      {"seconds", &LoopTreeAgent::seconds},
+    };
+
+  LoopTreeAgent() {}
+  LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor = 0)
+      : lt(lt), cursor(cursor) {}
+
+  LoopTreeAgent(const LoopTreeAgent& agent) {
+    lt = LoopTree(agent.lt.ir);
+    cursor = agent.cursor;
+  }
+  ~LoopTreeAgent() {}
+
+  /**********************************************
+   * Public API
+   **********************************************/
+  LoopTreeAgent& apply_action(std::string action) {
+    ASSERT(actions_fn.count(action) > 0) << help_actions();
+    std::invoke(actions_fn.at(action), this);
+    return *this;
+  }
+
+  double eval(std::string metric){
+    ASSERT(metrics_fn.count(metric) > 0) << help_metrics();
+    return std::invoke(metrics_fn.at(metric), this);
+  }
+
+
+  std::vector<std::string> get_available_actions() {
+    LoopTree lt_copy(lt);
+    LoopTree::TreeRef cursor_copy(cursor);
+
+    std::vector<std::string> available_actions;
+
+    for (auto& action : actions_fn) {
+      try {
+        apply_action(action.first);
+        available_actions.push_back(action.first);
+      } catch (std::runtime_error e) {}
+      lt = lt_copy;
+      cursor = cursor_copy;
+    }
+
+    return available_actions;
+  }
+
+  std::string serialize(){
+    return std::to_string(cursor) + "\n" + loop_tool::serialize(lt.ir);
+  }
+
+  LoopTreeAgent deserialize(std::string ser){
+    std::cout << "ser = " << ser << std::endl;
+    int delimiter_pos = ser.find('\n');
+    LoopTree::TreeRef cursor = std::stoi( ser.substr(0, delimiter_pos) );
+    LoopTree lt(loop_tool::deserialize(ser.substr(delimiter_pos+1, ser.length())));
+    return LoopTreeAgent(lt, cursor);
+  }
+
+  std::string dump() {
+    return lt.dump([=](LoopTree::TreeRef ref) -> std::string {
+      if (ref == cursor) {
+        return "<<<<<< cursor (line " + std::to_string(cursor) + " )";
+      }
+      return "";
+    });
+  }
+
 
   /**********************************************
    * Actions
@@ -162,8 +185,44 @@ class LoopTreeAgent {
   }
 
   /**********************************************
-   * Auxilary Actions
+   * Evaluate metric
    **********************************************/
+
+  double FLOPS() {
+    return (double) loop_tool::FLOPS(lt);
+  }
+
+  double FLOPs() {
+    return (double) loop_tool::FLOPs(lt);
+  }
+
+  double seconds() {
+    return (double) loop_tool::eval_runtime(lt);
+  }
+
+  /**********************************************
+   * Auxilary Functions
+   **********************************************/
+  std::string help_actions(){
+    std::stringstream ss_actions;
+
+    ss_actions << "Available actions are:" << std::endl;
+    for (auto& action : actions_fn) {
+      ss_actions << action.first << std::endl;
+    }
+    return ss_actions.str();
+  }
+
+  std::string help_metrics(){
+    std::stringstream ss_metrics;
+
+    ss_metrics << "Available metrics are:" << std::endl;
+    for (auto& metric : metrics_fn) {
+      ss_metrics << metric.first << std::endl;
+    }
+    return ss_metrics.str();
+  }
+
   LoopTreeAgent& annotate(std::string annotation) {
     if (lt.annotation(cursor) == annotation) {
       lt = loop_tool::annotate(lt, cursor, "");

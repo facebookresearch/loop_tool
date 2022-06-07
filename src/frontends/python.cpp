@@ -222,9 +222,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
 
   py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
       .def(py::init<const LoopTree &>())
+      .def(py::init<const LoopTreeAgent &>())
+      .def_property_readonly("lt", [](const LoopTreeAgent &a) { return a.lt; })
+      .def_property_readonly("cursor", [](const LoopTreeAgent &a) { return a.cursor; })
       .def("apply_action", &loop_tool::LoopTreeAgent::apply_action)
+      .def("eval", &loop_tool::LoopTreeAgent::eval)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)
+      .def("serialize", &loop_tool::LoopTreeAgent::serialize)
+      .def("deserialize", &loop_tool::LoopTreeAgent::deserialize)
       .def("dump", &loop_tool::LoopTreeAgent::dump);
 
   py::class_<LoopTree>(m, "LoopTree")
@@ -300,7 +306,6 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              return is_trivially_parallel(lt, ref);
            })
-      .def("get_available_actions", &get_available_actions)
       .def("FLOPs", &FLOPs)
       .def("FLOPS", &FLOPS)
       .def("eval", &eval_runtime)
