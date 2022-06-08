@@ -400,6 +400,38 @@ struct LoopTree {
     return "";
   }
 
+  std::vector<IR::NodeRef> collect_nodes(LoopTree::TreeRef ref) const {
+    ASSERT(kind(ref) == LoopTree::LOOP)
+        << "can only collect nodes within loops";
+    std::vector<IR::NodeRef> node_refs;
+    walk(
+        [&](LoopTree::TreeRef tr, int depth) {
+          if (kind(tr) == LoopTree::NODE) {
+            node_refs.emplace_back(node(tr));
+          }
+        },
+        ref);
+    return node_refs;
+  }
+
+  std::vector<std::pair<IR::NodeRef, int>> get_ir_coordinates(LoopTree::TreeRef ref) const {
+    ASSERT(kind(ref) == LoopTree::LOOP) << "can only split loops";
+    std::vector<std::pair<IR::NodeRef, int>> ir_ref_map;
+
+    auto node_refs = collect_nodes(ref);
+    auto ref_loop = loop(ref);
+
+    for (auto node_ref : node_refs) {
+      auto node_loop_order = loop_order(node_ref);
+      for (auto i = 0; i < node_loop_order.size(); ++i) {
+        if (node_loop_order.at(i) == ref_loop) {
+          ir_ref_map.push_back(std::make_pair(node_ref, i));
+        }
+      }
+    }
+    return ir_ref_map;
+  }
+
   inline int depth(TreeRef ref) const { return tree_node(ref).depth; }
 
   TreeRef lca(TreeRef a, TreeRef b) const;

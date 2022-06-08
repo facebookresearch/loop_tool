@@ -80,21 +80,6 @@ IR swap_vars(const IR& ir_, IR::NodeRef node_ref, IR::VarRef a, IR::VarRef b) {
   return ir;
 }
 
-std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
-                                       LoopTree::TreeRef ref) {
-  ASSERT(lt.kind(ref) == LoopTree::LOOP)
-      << "can only collect nodes within loops";
-  std::vector<IR::NodeRef> node_refs;
-  lt.walk(
-      [&](LoopTree::TreeRef tr, int depth) {
-        if (lt.kind(tr) == LoopTree::NODE) {
-          node_refs.emplace_back(lt.node(tr));
-        }
-      },
-      ref);
-  return node_refs;
-}
-
 LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
                  std::unordered_map<IR::NodeRef, IR::NodeRef> node_map,
                  std::unordered_map<IR::VarRef, IR::VarRef> var_map) {
@@ -102,7 +87,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
     if (lt.kind(ref) == LoopTree::NODE) {
       return std::unordered_set<IR::NodeRef>(lt.node(ref));
     }
-    return to_set(collect_nodes(lt, ref));
+    return to_set(lt.collect_nodes(ref));
   }();
   IR new_ir;
   auto nodes = lt.ir.nodes();
@@ -228,7 +213,7 @@ int64_t get_inner_size(const LoopTree& lt, LoopTree::TreeRef ref) {
 
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
   ASSERT(lt.kind(ref) == LoopTree::LOOP) << "can only split loops";
-  auto node_refs = collect_nodes(lt, ref);
+  auto node_refs = lt.collect_nodes(ref);
   auto loop = lt.loop(ref);
 
   ASSERT(loop.size / size > 0)
@@ -274,6 +259,7 @@ LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size) {
   return LoopTree(new_ir);
 }
 
+
 LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
   ASSERT(lt.kind(ref) == LoopTree::LOOP);
   auto loop = lt.loop(ref);
@@ -315,7 +301,7 @@ LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
     return std::make_pair(new_order, new_annot);
   };
 
-  auto node_refs = collect_nodes(lt, p);
+  auto node_refs = lt.collect_nodes(p);
   auto new_ir = lt.ir;
   for (const auto& node_ref : node_refs) {
     auto loop_order = lt.loop_order(node_ref);
@@ -456,7 +442,7 @@ LoopTree swap_loops(const LoopTree& lt, LoopTree::TreeRef a,
     b = tmp;
   }
 
-  auto node_refs = collect_nodes(lt, a);
+  auto node_refs = lt.collect_nodes(a);
   auto a_loop = lt.loop(a);
   auto b_loop = lt.loop(b);
   if (a_loop.var == b_loop.var) {
@@ -735,7 +721,7 @@ LoopTree annotate(const LoopTree& lt, LoopTree::TreeRef ref,
     return LoopTree(new_ir);
   }
   auto loop = lt.loop(ref);
-  auto node_refs = collect_nodes(lt, ref);
+  auto node_refs = lt.collect_nodes(ref);
   for (const auto& node_ref : node_refs) {
     auto loop_order = lt.loop_order(node_ref);
     for (auto i = 0; i < loop_order.size(); ++i) {
@@ -760,7 +746,7 @@ LoopTree annotate(
       return LoopTree(new_ir);
     }
     auto loop = lt.loop(ref);
-    auto node_refs = collect_nodes(lt, ref);
+    auto node_refs = lt.collect_nodes(ref);
     for (const auto& node_ref : node_refs) {
       auto loop_order = lt.loop_order(node_ref);
       for (auto i = 0; i < loop_order.size(); ++i) {

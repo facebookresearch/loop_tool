@@ -117,6 +117,9 @@ public:
     int loop_id = 0;
     std::unordered_map<std::string, int> iter_id;
     std::stringstream ss;
+    auto ir_coordinates = lt.get_ir_coordinates(cursor);
+
+
     ss << "digraph G {\n";
     ss << " node [fontname = \"courier\", fontsize=12];\n";
     auto short_name = [](std::string name) {
@@ -158,7 +161,11 @@ public:
 
         ss << "'vectorize':" << (lt.ir.loop_annotations(n)[i] == "vectorize") << ",";
         ss << "'unroll':" << (lt.ir.loop_annotations(n)[i] == "unroll") << ",";
-    
+
+        bool is_cursor = std::count(ir_coordinates.begin(), ir_coordinates.end(), std::make_pair(n, i));
+        ss << "'cursor':" << is_cursor << ",";
+        
+
         loop_id++;
         i++;
         ss << "},";
