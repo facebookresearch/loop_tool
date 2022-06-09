@@ -25,7 +25,7 @@ struct CustomBackend : lt::Backend {
     return std::make_unique<CustomCompiled>();
   }
 
-  int hardware_requirement() const {
+  int hardware_requirement() const override {
     return 0;  // CPU
   }
 };
