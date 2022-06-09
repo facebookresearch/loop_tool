@@ -65,7 +65,7 @@ struct TensorImpl {
 
   std::unordered_map<int, Expr> size_constraints() const {
     std::unordered_map<int, Expr> out;
-    for (auto c : constraints_) {
+    for (const auto& c : constraints_) {
       auto expr = c.first;
       bool size_expr = (expr.op() == symbolic::Op::size) &&
                        (expr.args().size() == 1) &&
@@ -79,8 +79,8 @@ struct TensorImpl {
 
   std::vector<Constraint> constraints() const { return constraints_; }
 
-  void updateHash() {
-    const_cast<TensorImpl*>(this)->unify();
+  void updateHash(bool force_unify = false) {
+    const_cast<TensorImpl*>(this)->unify(force_unify);
     auto h = symbolic::hash((size_t)op_);
     h = symbolic::hash(h ^ shape_.size());
     auto cm = constraints();
@@ -187,7 +187,7 @@ struct TensorImpl {
   void propagateConstraints(const std::vector<Constraint>& constraints,
                             std::unordered_set<TensorImpl*>& seen);
   void unifyConstraints();
-  void unify();
+  void unify(bool force = false);
   void populateCompilationCache();
   void populateLoweredCache();
 
@@ -627,7 +627,9 @@ struct Tensor {
     return impl()->template data<T>();
   };
 
-  inline void unify() const { const_cast<TensorImpl*>(impl_.get())->unify(); }
+  inline void unify(bool force = false) const {
+    const_cast<TensorImpl*>(impl_.get())->unify(force);
+  }
   inline void compile() const {
     const_cast<TensorImpl*>(impl_.get())->compile();
   }

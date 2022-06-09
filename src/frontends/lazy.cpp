@@ -55,6 +55,7 @@ void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
       }
     }
   }
+  bool unify_changed = false;
   for (auto i = 0; i < sizes.size(); ++i) {
     const auto& s = sizes.at(i);
     if (already_constrained.count(i)) {
@@ -62,8 +63,9 @@ void TensorImpl::bind(void* data, std::vector<int64_t> sizes) {
     }
     constraints_.emplace_back(
         std::make_pair(Expr::size(shape_.at(i)), Expr(s)));
+    unify_changed = true;
   }
-  updateHash();
+  updateHash(unify_changed);
 }
 
 std::vector<void*> TensorImpl::getInputBuffers(
@@ -139,7 +141,7 @@ int64_t TensorImpl::size(int dim) const {
       << "couldn't find size of " << Expr(shape().at(dim)).dump() << "\n";
   auto expr = size_constraints().at(id);
   if (expr.type() != Expr::Type::value) {
-    const_cast<TensorImpl*>(this)->unify();
+    const_cast<TensorImpl*>(this)->unify(true);
     expr = size_constraints().at(id);
   }
   ASSERT(expr.can_evaluate())
@@ -170,6 +172,10 @@ IR::NodeRef TensorImpl::resolve(
           << "unbound variable in compute " << s.name() << " (id: " << s.id()
           << ")";
       auto expr = size_constraints().at(s.id());
+      if (!expr.can_evaluate()) {
+        const_cast<TensorImpl*>(this)->unify(true);
+      }
+      expr = size_constraints().at(s.id());
       ASSERT(expr.can_evaluate()) << "can't resolve size for sym " << s.name()
                                   << " expr " << expr.dump();
       auto size = static_cast<int64_t>(expr.evaluate());
@@ -375,8 +381,8 @@ void TensorImpl::unifySymbols() {
   propagateSymbolMap(symbol_map, seen);
 }
 
-void TensorImpl::unify() {
-  if (unified_) {
+void TensorImpl::unify(bool force) {
+  if (!force && unified_) {
     return;
   }
   unified_ = true;
