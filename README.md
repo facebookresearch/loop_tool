@@ -14,6 +14,7 @@ can be written as highly optimized bounded loops,
     - Optimized through local node-level annotations
     - Lowered to various backends (currently CPU and CUDA)
 
+Additionally, a curses-based UI is provided (in Python `lt.ui(tensor)`) to interactively optimize loop structures on the fly:
 
 
 https://user-images.githubusercontent.com/4842908/172877041-fd4b9ed8-7164-49f6-810f-b14f169e2ca9.mp4
