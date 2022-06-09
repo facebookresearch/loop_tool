@@ -14,7 +14,11 @@ can be written as highly optimized bounded loops,
     - Optimized through local node-level annotations
     - Lowered to various backends (currently CPU and CUDA)
 
-![](https://user-images.githubusercontent.com/4842908/153905962-fd068faa-1438-4327-9c50-c8d1072cbd27.mp4)
+
+
+https://user-images.githubusercontent.com/4842908/172877041-fd4b9ed8-7164-49f6-810f-b14f169e2ca9.mp4
+
+
 
 ## Install
 
