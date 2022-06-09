@@ -113,6 +113,45 @@ public:
     });
   }
 
+  std::string dump_dot_simple() const {
+    int loop_id = 0;
+    std::unordered_map<std::string, int> iter_id;
+    std::stringstream ss;
+    auto ir_coordinates = lt.get_ir_coordinates(cursor);
+
+
+    ss << "digraph G {\n";
+    ss << " node [fontname = \"courier\", fontsize=12];\n";
+    auto short_name = [](std::string name) {
+      return name.substr(0, name.find("_"));
+    };
+
+
+    int n = 0;
+      lt.walk(
+        [&](LoopTree::TreeRef tr, int depth) {
+            ss << n++ << " [shape=record,";
+            ss << "label=\"{";
+            ss << "'id':" << tr << ",";
+            ss << "'ann': '" << lt.annotation(tr) << "',";
+            auto tn = lt.tree_node(tr);
+            // ss << "'name':" << lt.ir.var(tn.loop.var).name() << ",";
+            ss << "'name':" << tn.loop.var << ",";
+            ss << "'size':" << tn.loop.size << ",";
+            ss << "'tail':" << tn.loop.tail << ",";
+            ss << "}\"];\n";
+
+            for (auto out : lt.children(tr)) {
+              ss << " " << tr << " -> " << out << ";\n";
+            }
+          },
+          0);
+
+    ss << "}\n";
+    return ss.str();
+  }
+
+
   std::string dump_dot() const {
     int loop_id = 0;
     std::unordered_map<std::string, int> iter_id;

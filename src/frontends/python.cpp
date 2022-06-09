@@ -230,7 +230,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("eval", &loop_tool::LoopTreeAgent::eval)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)
-      .def("dot", &loop_tool::LoopTreeAgent::dump_dot);
+      .def("dot", &loop_tool::LoopTreeAgent::dump_dot)
+      .def("dot_simple", &loop_tool::LoopTreeAgent::dump_dot_simple);
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())

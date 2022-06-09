@@ -401,8 +401,8 @@ struct LoopTree {
   }
 
   std::vector<IR::NodeRef> collect_nodes(LoopTree::TreeRef ref) const {
-    ASSERT(kind(ref) == LoopTree::LOOP)
-        << "can only collect nodes within loops";
+    // ASSERT(kind(ref) == LoopTree::LOOP)
+    //     << "can only collect nodes within loops";
     std::vector<IR::NodeRef> node_refs;
     walk(
         [&](LoopTree::TreeRef tr, int depth) {
@@ -415,20 +415,28 @@ struct LoopTree {
   }
 
   std::vector<std::pair<IR::NodeRef, int>> get_ir_coordinates(LoopTree::TreeRef ref) const {
-    ASSERT(kind(ref) == LoopTree::LOOP) << "can only split loops";
+    // ASSERT(kind(ref) == LoopTree::LOOP) << "can only split loops";
     std::vector<std::pair<IR::NodeRef, int>> ir_ref_map;
 
     auto node_refs = collect_nodes(ref);
-    auto ref_loop = loop(ref);
 
-    for (auto node_ref : node_refs) {
-      auto node_loop_order = loop_order(node_ref);
-      for (auto i = 0; i < node_loop_order.size(); ++i) {
-        if (node_loop_order.at(i) == ref_loop) {
-          ir_ref_map.push_back(std::make_pair(node_ref, i));
+    if (kind(ref) == LoopTree::LOOP){
+      auto ref_loop = loop(ref);
+
+      for (auto node_ref : node_refs) {
+        auto node_loop_order = loop_order(node_ref);
+        for (auto i = 0; i < node_loop_order.size(); ++i) {
+          if (node_loop_order.at(i) == ref_loop) {
+            ir_ref_map.push_back(std::make_pair(node_ref, i));
+          }
         }
       }
+    }else if (kind(ref) == LoopTree::NODE){
+      for (auto node_ref : node_refs) {
+        ir_ref_map.push_back(std::make_pair(node_ref, -1));
+      }
     }
+    
     return ir_ref_map;
   }
 
