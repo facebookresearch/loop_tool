@@ -113,6 +113,44 @@ public:
     });
   }
 
+  // TODO: Figure out how to get strides patterns of loops rather than size, tail
+  // void find_strides(){
+  //   // Iterate over all operations
+  //   auto muls = find(lt.ir, Operation::multiply);
+  //   const auto& mul = lt.ir.node(muls.at(0));
+  //   auto ref = lt.parent(lt.scheduled.at(muls.at(0)));
+
+
+  //   std::vector<std::pair<std::string, int>> order;
+  //   std::vector<std::pair<std::string, int>> sizes;
+  //   for (auto v : lt.ir.vars()) {
+  //     auto size = var_sizes.at(v);
+  //     auto size_name = lt.ir.var(v).name();
+  //     sizes.emplace_back(size_name, (int)size);
+  //   }
+
+  //   while (ref != -1) {
+  //     auto loop = lt.loop(ref);
+  //     auto order_size = inner_sizes.at(ref);
+  //     auto order_name = lt.ir.var(loop.var).name();
+  //     order.emplace(order.begin(), order_name, order_size);
+  //     ref = lt.parent(ref);
+  //   }
+
+
+  //   for (auto const& loop: order)
+  //   {
+  //     std::cout << "loop_name = " << loop.first <<  ", increment = " << loop.second << std::endl;
+  //     // order.first = variable name
+  //     // order.second = variable increment step size
+  //     // to compute:
+  //     // Number of steps = sizes[variable name] / order.second
+  //     // A_stride = A_strides[variable name] * order.second
+  //     // ----- || ------
+  //   }
+
+  // }
+
   std::string dump_dot_simple() const {
     int loop_id = 0;
     std::unordered_map<std::string, int> iter_id;
@@ -150,6 +188,8 @@ public:
               ss << "'size':" << tn.loop.size << ",";
               ss << "'tail':" << tn.loop.tail << ",";
             }
+            ss << "'cursor':" << (tr == cursor) << ",";
+
             ss << "}\"];\n";
 
             for (auto out : lt.children(tr)) {
