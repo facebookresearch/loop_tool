@@ -130,15 +130,26 @@ public:
     int n = 0;
       lt.walk(
         [&](LoopTree::TreeRef tr, int depth) {
+            auto tn = lt.tree_node(tr);
+
             ss << n++ << " [shape=record,";
             ss << "label=\"{";
-            ss << "'id':" << tr << ",";
-            ss << "'ann': '" << lt.annotation(tr) << "',";
-            auto tn = lt.tree_node(tr);
-            // ss << "'name':" << lt.ir.var(tn.loop.var).name() << ",";
-            ss << "'name':" << tn.loop.var << ",";
-            ss << "'size':" << tn.loop.size << ",";
-            ss << "'tail':" << tn.loop.tail << ",";
+
+            if (tn.kind == LoopTree::NODE){
+              ss << "'type':" << LoopTree::NODE << ",";
+              ss << "'vectorize':" << 0 << ",";
+              ss << "'unroll':" << 0 << ",";
+              ss << "'name':" << 0 << ",";
+              ss << "'size':" << 0 << ",";
+              ss << "'tail':" << 0 << ",";
+            }else if (tn.kind == LoopTree::LOOP){
+              ss << "'type':" << LoopTree::LOOP << ",";
+              ss << "'vectorize':" << (lt.annotation(tr) == "vectorize") << ",";
+              ss << "'unroll': " << (lt.annotation(tr) == "unroll") << ",";
+              ss << "'name':" << tn.loop.var << ",";
+              ss << "'size':" << tn.loop.size << ",";
+              ss << "'tail':" << tn.loop.tail << ",";
+            }
             ss << "}\"];\n";
 
             for (auto out : lt.children(tr)) {
