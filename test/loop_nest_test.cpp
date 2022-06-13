@@ -116,9 +116,9 @@ TEST(LoopNestEmbedded) {
     return C.sum(K);
   };
 
-  auto M = 16;
-  auto N = 16;
-  auto K = 16;
+  auto M = 6;
+  auto N = 6;
+  auto K = 6;
 
   lz::Tensor A(M, K);
   lz::Tensor B(K, N);
@@ -127,12 +127,15 @@ TEST(LoopNestEmbedded) {
 
   auto C = mm(A, B);
   auto tree = C.loop_tree();
-  tree = annotate(tree, tree.roots[0], "[loop_nest]");
+  tree = annotate(tree, tree.children(tree.roots[0])[0], "[loop_nest]");
   C.set(tree);
-  std::cerr << "TRE IS " << tree.dump() << "\n";
+  std::cerr << "TRE IS \n" << tree.dump() << "\n";
   lz::Tensor C_ref(M * N);
   ref_mm(A.data<float>(), B.data<float>(), M, N, K, C_ref.data<float>());
 
+  for (auto i = 0; i < M * N; ++i) {
+    std::cerr << "expected " << C_ref.data<float>()[i] << " got " << C.data<float>()[i] << "\n";;
+  }
   ASSERT(all_close(C_ref.data<float>(), C.data<float>(), M * N));
   C.clear_cache();
 }

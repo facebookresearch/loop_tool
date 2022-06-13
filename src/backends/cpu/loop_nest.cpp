@@ -39,6 +39,7 @@ struct LoopNestCompiler : public Compiler {
     }                                 \
   }
   bool is_fma_nest() const {
+    std::cerr << dot(lt.ir) << "\n";
     auto reads = find(lt.ir, Operation::read);
     REQUIRE(reads.size() == 2);
     REQUIRE(lt.scheduled.count(reads.at(0)) == 0);

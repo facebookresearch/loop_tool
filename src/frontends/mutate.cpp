@@ -93,8 +93,8 @@ std::vector<IR::NodeRef> collect_nodes(const LoopTree& lt,
 }
 
 LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
-                 std::unordered_map<IR::NodeRef, IR::NodeRef> node_map,
-                 std::unordered_map<IR::VarRef, IR::VarRef> var_map) {
+                 std::unordered_map<IR::NodeRef, IR::NodeRef>& node_map,
+                 std::unordered_map<IR::VarRef, IR::VarRef>& var_map) {
   auto keep_nodes = [&]() {
     if (lt.kind(ref) == LoopTree::NODE) {
       return std::unordered_set<IR::NodeRef>(lt.node(ref));
@@ -102,6 +102,8 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
     return to_set(collect_nodes(lt, ref));
   }();
   IR new_ir;
+  // keeps track of injected write nodes (mapping would-be outputs to new write nodes)
+  std::unordered_map<IR::NodeRef, IR::NodeRef> written;
   auto nodes = lt.ir.nodes();
   for (auto nr : nodes) {
     const auto& n = lt.ir.node(nr);
@@ -165,6 +167,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
       const auto out =
           new_ir.create_node(Operation::write, {node_map.at(nr)}, vars);
       new_ir.add_output(out);
+      written[node_map.at(nr)] = out;
     }
   }
   ASSERT(new_ir.outputs().size() > 0);
@@ -175,6 +178,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
     }
     std::vector<std::pair<IR::VarRef, IR::LoopSize>> order;
     std::vector<std::string> annotations;
+    ASSERT(0) << "TODO: implement correct order deduction including missing loops";
     const auto& old_order = lt.ir.order(nr);
     const auto& old_annot = lt.ir.loop_annotations(nr);
     for (auto i = 0; i < old_order.size(); ++i) {
@@ -182,17 +186,25 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
       // NB: ignore removed scheduled loops
       if (!var_map.count(p.first)) {
         std::cerr << "WARNING, REUSE DISABLE NOT PRESERVED\n";
+        ASSERT(0);
         continue;
       }
       order.emplace_back(var_map.at(p.first), p.second);
       annotations.emplace_back(old_annot.at(i));
     }
+    auto schedule = [&](IR::NodeRef new_nr) {
+      new_ir.set_order(new_nr, order, annotations);
+      new_ir.annotate(new_nr, lt.ir.annotation(nr));
+      // TODO: this should skip the skipped indices above
+      for (auto i : lt.ir.not_reusable(nr)) {
+        new_ir.disable_reuse(new_nr, i);
+      }
+    };
     auto new_nr = node_map.at(nr);
-    new_ir.set_order(new_nr, order, annotations);
-    new_ir.annotate(new_nr, lt.ir.annotation(nr));
-    // TODO: this should skip the skipped indices above
-    for (auto i : lt.ir.not_reusable(nr)) {
-      new_ir.disable_reuse(new_nr, i);
+    schedule(new_nr);
+    // schedule injected write nodes identically
+    if (written.count(new_nr)) {
+      schedule(written.at(new_nr));
     }
   }
 

@@ -100,6 +100,8 @@ TEST(MutateSubTree) {
   auto I = mm(G, H);
   auto lt = I.loop_tree();
   std::cerr << "old loop_tree" << lt.dump() << "\n";
-  lt = subtree(lt, lt.roots[1]);
+  std::unordered_map<loop_tool::IR::NodeRef, loop_tool::IR::NodeRef> nm;
+  std::unordered_map<loop_tool::IR::VarRef,  loop_tool::IR::VarRef> vm;
+  lt = subtree(lt, lt.roots[1], nm, vm);
   std::cerr << "new loop_tree: " << lt.dump() << "\n";
 }

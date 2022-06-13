@@ -17,8 +17,8 @@ IR swap_vars(const IR& ir, IR::NodeRef node_ref, IR::VarRef a, IR::VarRef b);
 
 // split out a subtree at the ref
 LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
-                 std::unordered_map<IR::NodeRef, IR::NodeRef> node_map = {},
-                 std::unordered_map<IR::VarRef, IR::VarRef> var_map = {});
+                 std::unordered_map<IR::NodeRef, IR::NodeRef>& node_map,
+                 std::unordered_map<IR::VarRef, IR::VarRef>& var_map);
 
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 // merges upward

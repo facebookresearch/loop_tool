@@ -264,6 +264,7 @@ InnerFnType Compiler::gen_reset(LoopTree::TreeRef ref) const {
   return [=](const std::vector<void *> &memory, int indices[MAX_DEPTH]) {
     for (const auto &reset : resets) {
       for (int64_t i = 0; i < std::get<1>(reset); ++i) {
+        std::cerr << "reseting " << std::get<0>(reset) << "\n";
         reinterpret_cast<float *>(memory[std::get<0>(reset)])[i] =
             std::get<2>(reset);
       }
@@ -314,63 +315,91 @@ InnerFnType Compiler::gen_backend_exec(
   // generate a mapping from index to stride for the node
   std::unordered_map<int, int64_t> mutations;
   auto update_mutations = [&](IR::NodeRef old_nr, IR::NodeRef new_nr) {
+    std::cerr << node_map.at(old_nr) << " vs " << new_nr << "\n";
     ASSERT(node_map.at(old_nr) == new_nr);
     auto depth = lt.depth(ref);
     const auto &node = lt.ir.node(old_nr);
     const auto &sub_node = sub_lt.ir.node(new_nr);
     auto strides = get_induced_strides(node.vars(), sub_node.vars());
+    std::cerr << "ref is " << ref << " and depth is " << depth << "\n";
     auto sym_strides = get_symbol_strides(ref, -1);
+    std::cerr << "sym strides size: " << sym_strides.size() << "\n";
+    for (auto& p : sym_strides) {
+      std::cerr << "GOT STRIDES FOR " << Expr(p.first).dump() << "\n";
+    }
 
     for (auto i = 0; i < strides.size(); ++i) {
       auto v = node.vars().at(i);
       auto stride = strides.at(i);
       auto sym = var_to_sym.at(v);
-      for (const auto &p : sym_strides.at(sym)) {
-        if (p.first >= depth) {
-          continue;
+      std::cerr << Expr(sym).dump() << " in sym strides? " << sym_strides.count(sym) << "\n";
+      if (sym_strides.count(sym)) {
+        for (const auto &p : sym_strides.at(sym)) {
+          if (p.first >= depth) {
+            continue;
+          }
+          mutations[p.first] = p.second * stride;
         }
-        mutations[p.first] = p.second * stride;
       }
     }
   };
 
+  for (auto & p : node_map) {
+    std::cerr << " old node " << p.first << " maps to " << p.second << "\n";
+  }
+
   for (const auto &sn : sub_lt.ir.inputs()) {
-    auto idx = 0;
     bool found = false;
-    for (const auto &n : lt.ir.inputs()) {
-      if (n == node_map[sn]) {
-        memory_map[sub_tree_idx] = idx;
+    for (const auto &n : lt.ir.nodes()) {
+      if (node_map.count(n) && node_map.at(n) == sn) {
+        const auto& alloc = allocations.at(n);
+        memory_map[sub_tree_idx] = alloc.mem_idx;
         update_mutations(n, sn);
         found = true;
         break;
       }
-      idx++;
     }
     ASSERT(found);
     sub_tree_idx++;
   }
   for (const auto &sn : sub_lt.ir.outputs()) {
-    auto idx = 0;
     bool found = false;
-    for (const auto &n : lt.ir.outputs()) {
-      if (n == node_map[sn]) {
-        memory_map[sub_tree_idx] = idx;
-        update_mutations(n, sn);
+    const auto& sub_node = sub_lt.ir.node(sn);
+    ASSERT(sub_node.op() == Operation::write && sub_node.inputs().size() == 1);
+    auto out_sn = sub_node.inputs().at(0);
+    for (const auto &n : lt.ir.nodes()) {
+      // not all outputs are captured
+      if (node_map.count(n) && node_map.at(n) == out_sn) {
+        const auto& alloc = allocations.at(n);
+        memory_map[sub_tree_idx] = alloc.mem_idx;
+        update_mutations(n, out_sn);
         found = true;
         break;
       }
-      idx++;
     }
     ASSERT(found);
     sub_tree_idx++;
   }
 
   auto cc = std::shared_ptr<Compiled>(backends.at(backend)->compile(sub_lt));
+  std::cerr << "REF OS SUBTREE IS L" << ref << "\n";
+  std::cerr << "RUNNING SUBTREE:\n" << sub_lt.dump() << "\n";
+  std::cerr << "mutations " << mutations.size() << "\n";
+  for (const auto & p : mutations) {
+    std::cerr << p.first << " stride " << p.second << "\n";
+  }
+
+  for (const auto& p : memory_map) {
+    std::cerr << "memm mapping " << p.first << " -> " << p.second << "\n";
+  }
   auto mutate_memory = [memory_map, mutations](
                            int i, const std::vector<void *> &memory,
                            int indices[MAX_DEPTH]) {
+    std::cerr << "memorhy map at " << i << "\n";
+    std::cerr << "memory map " << memory_map.count(i) << " of size " << memory_map.size() << "\n";
     float *base_memory = (float *)memory[memory_map.at(i)];
     for (const auto &p : mutations) {
+      std::cerr << "mutating for index " << p.first << " is " << p.second << "\n";
       base_memory += indices[p.first] * p.second;
     }
     return base_memory;
@@ -380,6 +409,7 @@ InnerFnType Compiler::gen_backend_exec(
                                        int indices[MAX_DEPTH]) {
     std::vector<void *> mutated_memory(mem_size);
     for (auto i = 0; i < mutated_memory.size(); ++i) {
+      std::cerr << "MEM " << i << " " << mutate_memory(i, memory, indices) << "\n";
       mutated_memory[i] = mutate_memory(i, memory, indices);
     }
     cc->run(mutated_memory);
@@ -453,6 +483,7 @@ Compiler::get_symbol_strides(LoopTree::TreeRef ref,
   while (p != root) {
     const auto &l = lt.loop(p);
     auto sym = var_to_sym.at(l.var);
+    std::cerr << "checking out " << Expr(sym).dump() << "\n";
     auto stride = inner_sizes.at(p);
     sym_strides[sym].emplace_back(p, stride);
     p = lt.parent(p);
