@@ -2,3 +2,6 @@
 build/
 dist/
 loop_tool_py.egg-info/
+.eggs
+.vscode
+loop_tool.egg-info

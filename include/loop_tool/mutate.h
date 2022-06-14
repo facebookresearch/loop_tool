@@ -23,6 +23,7 @@ LoopTree subtree(const LoopTree& lt, LoopTree::TreeRef ref,
 LoopTree split(const LoopTree& lt, LoopTree::TreeRef ref, int64_t size);
 // merges upward
 LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref);
+std::vector<IR::NodeRef> get_inputs(const LoopTree& lt, LoopTree::TreeRef ref);
 LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx);
 LoopTree delete_copy(const LoopTree& lt, LoopTree::TreeRef ref);
 // generic swap for addressable loops and nodes, may fail silently
@@ -55,7 +56,10 @@ LoopTree maximize_reuse(const LoopTree& lt);
 LoopTree unroll_inner_loops(const LoopTree& lt, int32_t unroll_amount);
 
 // Informational functions
-int64_t flops(const LoopTree& lt);
+double eval_runtime(const LoopTree& lt);
+int64_t FLOPs(const LoopTree& lt);
+double FLOPS(const LoopTree& lt);
+
 bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref);
 std::vector<IR::NodeRef> find(const IR& ir, Operation op);
 

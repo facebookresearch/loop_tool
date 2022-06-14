@@ -7,3 +7,6 @@
 [submodule "extern/wasm-micro-runtime"]
 	path = extern/wasm-micro-runtime
 	url = https://github.com/bytecodealliance/wasm-micro-runtime.git
+[submodule "extern/libsysml"]
+	path = extern/libsysml
+	url = https://github.com/facebookresearch/libsysml.git

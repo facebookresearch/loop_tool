@@ -322,8 +322,8 @@ class Tensor {
     return this.loop_tree.wasm();
   }
 
-  get flops() {
-    return this.loop_tree.flops();
+  get FLOPs() {
+    return this.loop_tree.FLOPs();
   }
 
   serialize_loop_tree() {

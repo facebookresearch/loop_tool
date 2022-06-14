@@ -28,6 +28,13 @@ const NullStream &operator<<(NullStream &&os, const T &value) {
   return os;
 }
 
+struct NullOut {
+  template <typename T>
+  NullOut &operator<<(T const &) {
+    return *this;
+  }
+};
+
 struct StreamOut {
   std::stringstream ss;
   bool failure = false;
@@ -58,7 +65,9 @@ struct StreamOut {
 }  // namespace loop_tool
 
 #ifdef NOEXCEPTIONS
-#define ASSERT(x) assert(x)
+#define ASSERT(x) \
+  { assert(x); }  \
+  loop_tool::NullOut {}
 #else
 #define ASSERT(x) loop_tool::StreamOut(x, LOCATION, #x)
 #endif

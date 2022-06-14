@@ -31,7 +31,7 @@ def get_versions(loop):
     return versions
 
 
-def benchmark(tensor, limit_ms=100):
+def benchmark(tensor, limit_ms=1000):
     start = time.time() * 1000
     iters = 1
     t = 0
@@ -157,13 +157,14 @@ def ui_impl(stdscr, tensor, fn):
             if fn:
                 with open(fn, "w") as f:
                     f.write(tensor.code)
-            _ = benchmark(tensor, 10)  # warmup
+            # _ = benchmark(tensor, 10)  # warmup
             iters_sec = benchmark(tensor)
-            flops = tree.flops()
+            # flops = tree.FLOPs()
         tree_pad.addstr(
             i,
             len(info) + 1,
-            f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)",
+            # f"{flops * iters_sec / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total flops)",
+            f"{tree.FLOPS() / 1e9:.2f} GFlops, ({iters_sec:.2f} iters/sec, {flops} total Flos)",
         )
 
         def _render_ref(ref):
@@ -171,7 +172,7 @@ def ui_impl(stdscr, tensor, fn):
                 loop = tree.loop(ref)
                 v = tree.ir.dump_var(loop.var)
                 r = f" r {loop.tail}" if loop.tail else ""
-                return f"for {v} in {loop.size}{r}"
+                return f"for {v} in {loop.size}{r} {tree.annotation(ref)}"
             return tree.dump(ref)
 
         def _r(ref, depth):
@@ -197,6 +198,7 @@ def ui_impl(stdscr, tensor, fn):
     while True:
         key = stdscr.getkey()
         changed = False
+
         if key == "q":
             break
         elif key == "s":
@@ -205,7 +207,7 @@ def ui_impl(stdscr, tensor, fn):
                 update_tree(tree.split(highlighted, split_size))
             except:
                 pass
-        elif key == "u" and len(trees) > 1:
+        elif key == "U" and len(trees) > 1:
             trees = trees[:-1]
             update_tree(trees[-1])
         elif key == "KEY_DOWN":
@@ -229,12 +231,25 @@ def ui_impl(stdscr, tensor, fn):
             changed = True
         elif key in ("KEY_BACKSPACE", "\b", "\x7f"):
             update_tree(tree.merge(highlighted))
+        elif key == "v" :
+            if tree.annotation(highlighted) == "vectorize":
+                update_tree(tree.annotate(highlighted, ""))
+            else:    
+                update_tree(tree.annotate(highlighted, "vectorize"))
+
+        elif key == "u" :
+            if tree.annotation(highlighted) == "unroll":
+                update_tree(tree.annotate(highlighted, ""))    
+            else:
+                update_tree(tree.annotate(highlighted, "unroll"))
+            
         elif key == "\n":
             key = "ENTER"
             drag = None if drag else loop_version(tree, highlighted)
         render(changed)
-        if key == "u":
+        if key == "U":
             trees = trees[:-1]
+
     return tree
 
 

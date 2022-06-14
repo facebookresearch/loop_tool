@@ -40,7 +40,15 @@ if (BUILD_WASM)
 endif()
 
 option(BUILD_LOOP_NEST "Build loop_nest backend for fast contractions on CPU" OFF)
+
 if (BUILD_LOOP_NEST)
+  find_package(Boost 1.66.0)
+  if(Boost_FOUND)
+    include_directories(loop_tool PUBLIC ${Boost_INCLUDE_DIRS})
+  else()
+    message(FATAL_ERROR "Can't find boost libraries")
+  endif()
+
   list(APPEND CORE_SRCS "${SRC_DIR}/backends/cpu/loop_nest.cpp")
   set(DABUN_BUILD_APPS_FOR_ALL_SUPPORTED_VEX OFF)
   set(DABUN_BUILD_TESTS_FOR_ALL_ARCH_VEX OFF)
@@ -71,6 +79,9 @@ if (BUILD_WASM_RUNTIME)
   target_link_libraries(loop_tool PUBLIC iwasm_shared)
   target_include_directories(loop_tool PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/wasm-micro-runtime/core/iwasm/include")
 endif()
+
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/extern/libsysml/sysmlcpp")
+target_link_libraries(loop_tool PUBLIC sysmlcpp)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
