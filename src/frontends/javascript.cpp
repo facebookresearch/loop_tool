@@ -81,7 +81,18 @@ lazy::Tensor prod_impl(const lazy::Tensor &t,
   return t.prod(symbols);
 }
 
+lazy::Tensor flatten_impl(const lazy::Tensor &t,
+                          const std::vector<lazy::Symbol> &symbols,
+                          const lazy::Symbol &sym) {
+  return t.flatten(symbols, sym);
+}
+
 lazy::Tensor sqrt_impl(const lazy::Tensor &t) { return t.sqrt(); }
+
+lazy::Tensor pad_impl(const lazy::Tensor &t, lazy::Symbol sym, int32_t pre,
+                      int32_t post) {
+  return t.pad(sym, pre, post);
+}
 
 lazy::Tensor tensor_constructor(const std::vector<int32_t> &sv) {
   std::vector<int64_t> inp;
@@ -283,9 +294,10 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Tensor>("Tensor")
       .constructor(&tensor_constructor)
       .function("to", &to_impl)
-      .function("transpose",
-                js::select_overload<lazy::Tensor(std::vector<lazy::Symbol>)>(
-                    &lazy::Tensor::transpose))
+      .function(
+          "transpose",
+          js::select_overload<lazy::Tensor(std::vector<lazy::Symbol>) const>(
+              &lazy::Tensor::transpose))
       .function("as", &as_impl)
       .function("shape", &sizes_impl)
       .function("symbolic_shape", &shape_impl)
@@ -305,10 +317,12 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
       .function("max_reduce", &max_impl)
       .function("min_reduce", &min_impl)
       .function("prod", &prod_impl)
+      .function("flatten", &flatten_impl)
       .function("neg", js::select_overload<lazy::Tensor() const>(
                            &lazy::Tensor::operator-))
       .function("sqrt", &sqrt_impl)
       .function("abs", &lazy::Tensor::abs)
+      .function("pad", &pad_impl)
       .function("graphviz", &graphviz)
       .function("loop_tree", &lazy::Tensor::loop_tree)
       .function("numel", &lazy::Tensor::numel)

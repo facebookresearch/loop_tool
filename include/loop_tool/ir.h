@@ -200,6 +200,7 @@ class IR {
   std::string dump(NodeRef ref) const;
   std::vector<VarRef> pointwise_vars(NodeRef ref) const;
   std::vector<VarRef> reduction_vars(NodeRef ref) const;
+  std::vector<VarRef> view_reduction_vars(NodeRef idx) const;
   std::vector<VarRef> loop_vars(NodeRef ref) const;
   std::vector<VarRef> all_vars(NodeRef ref) const;
   void reify_deletions();

@@ -140,13 +140,13 @@ int64_t TensorImpl::size(int dim) const {
   ASSERT(size_constraints().count(id))
       << "couldn't find size of " << Expr(shape().at(dim)).dump() << "\n";
   auto expr = size_constraints().at(id);
-  if (expr.type() != Expr::Type::value) {
+  if (!expr.can_evaluate()) {
     const_cast<TensorImpl*>(this)->unify(true);
     expr = size_constraints().at(id);
   }
   ASSERT(expr.can_evaluate())
-      << "cannot resolve symbol " << shape().at(dim).name() << " got expr "
-      << expr.dump();
+      << "cannot resolve symbol " << Expr(shape().at(dim)).dump()
+      << " got expr " << expr.dump();
   return expr.evaluate();
 }
 
@@ -193,7 +193,17 @@ IR::NodeRef TensorImpl::resolve(
   for (const auto& p : var_map) {
     sym_var_map[p.first] = p.second.first;
   }
+  auto hash_constraint = [](const Constraint& c) {
+    return symbolic::hash_combine(c.first.hash(true), c.second.hash(true));
+  };
+  std::unordered_set<int64_t> constraint_hashes;
+
   for (const auto& c : constraints_) {
+    const auto& h = hash_constraint(c);
+    if (constraint_hashes.count(h)) {
+      continue;
+    }
+    constraint_hashes.insert(h);
     auto in_map = [&](const Expr& e) {
       for (const auto& s : e.symbols()) {
         if (!sym_var_map.count(s.id())) {

@@ -6,9 +6,9 @@ LICENSE file in the root directory of this source tree.
 */
 #include "loop_tool/symbolic.h"
 
-#include <limits>
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -61,17 +61,17 @@ size_t Expr::hash(bool symbol_sensitive) const {
   }
   size_t h = symbolic::hash((int)op_);
   if (type_ == Type::value) {
-    h = symbolic::hash(h ^ symbolic::hash(val_));
+    h = symbolic::hash_combine(h, symbolic::hash(val_));
   } else if (type_ == Type::symbol) {
     // for exprs, we usually pretend all symbols are the same
     if (symbol_sensitive) {
-      h = symbolic::hash(h ^ symbol().hash());
+      h = symbolic::hash_combine(h, symbol().hash());
     } else {
-      h = symbolic::hash(h ^ symbolic::hash(1337));
+      h = symbolic::hash_combine(h, symbolic::hash(1337));
     }
   }
   for (const auto& expr : exprs_) {
-    h = symbolic::hash(h ^ expr.hash());
+    h = symbolic::hash_combine(h, expr.hash(symbol_sensitive));
   }
   if (symbol_sensitive) {
     symbol_hash_ = h;
@@ -291,6 +291,13 @@ bool Expr::associative() const {
 
 bool Expr::can_evaluate() const {
   bool can = true;
+  if (type() == Expr::Type::function && op() == Op::max) {
+    auto lhs = args().at(0);
+    auto rhs = args().at(1);
+    const auto lhs_can = lhs.can_evaluate();
+    const auto rhs_can = rhs.can_evaluate();
+    return lhs_can || rhs_can;
+  }
   walk([&](const Expr& e) {
     if (e.type() == Expr::Type::symbol) {
       can = false;
@@ -322,10 +329,23 @@ float Expr::evaluate() const {
       auto rhs = args().at(1).evaluate();
       return lhs / rhs;
     }
-    case Op::max: {
+    case Op::modulo: {
       auto lhs = args().at(0).evaluate();
       auto rhs = args().at(1).evaluate();
-      return std::max(lhs, rhs);
+      std::cerr << "WARNING: evaluating modular arithmetic";
+      return ((int64_t)lhs % int64_t(rhs));
+    }
+    case Op::max: {
+      auto lhs = args().at(0);
+      auto rhs = args().at(1);
+      const auto lhs_can = lhs.can_evaluate();
+      const auto rhs_can = rhs.can_evaluate();
+      if (lhs_can && !rhs_can) {
+        return lhs.evaluate();
+      } else if (!lhs_can && rhs_can) {
+        return rhs.evaluate();
+      }
+      return std::max(lhs.evaluate(), rhs.evaluate());
     }
     case Op::negate: {
       return -args().at(0).evaluate();
@@ -410,6 +430,21 @@ Expr Expr::simplify() const {
       }
       return Expr(op(), sorted_args);
     }
+    case Op::modulo: {
+      auto lhs = sorted_args.at(0);
+      auto rhs = sorted_args.at(1);
+      if (lhs.type() == Expr::Type::value) {
+        if (rhs.type() == Expr::Type::value) {
+          if (rhs.value() && lhs.value() % rhs.value() == 0) {
+            return Expr(lhs.value() % rhs.value());
+          }
+        }
+      }
+      if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
+        return Expr(0);
+      }
+      return Expr(op(), sorted_args);
+    }
     case Op::max: {
       auto lhs = sorted_args.at(0);
       auto rhs = sorted_args.at(1);
@@ -475,6 +510,10 @@ Expr Expr::reciprocal() const {
 
 Expr Expr::operator/(const Expr& rhs) const {
   return Expr(Op::divide, {*this, rhs}).simplify();
+}
+
+Expr Expr::operator%(const Expr& rhs) const {
+  return Expr(Op::modulo, {*this, rhs}).simplify();
 }
 
 bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
@@ -558,6 +597,8 @@ std::string Expr::dump(
       ss << "*";
     } else if (op_ == Op::divide) {
       ss << "/";
+    } else if (op_ == Op::modulo) {
+      ss << "%";
     } else {
       ASSERT(0) << "can't print this op id " << (int)op_;
     }

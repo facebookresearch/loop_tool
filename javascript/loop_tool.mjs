@@ -200,7 +200,7 @@ function relu(x) {
   return x.max(0);
 }
 
-function maxpool(x, spatial_dims, k) {
+function maxpool(x, spatial_dims, k, stride=1) {
   const constraints = [];
   const outer_dims = [];
   const new_dims = [];
@@ -210,7 +210,7 @@ function maxpool(x, spatial_dims, k) {
     const new_k = symbol(dim.name() + "k");
     new_dims.push(new_dim);
     window_dims.push(new_k);
-    const c = new_dim.expr().add(new_k.expr());
+    const c = new_dim.expr().mul(expr(stride)).add(new_k.expr());
     constraints.push([dim.expr(), c]);
     constraints.push([size(new_k), expr(k)]);
   }
@@ -513,6 +513,15 @@ class Tensor {
 
   sqrt() {
     let out_t = new Tensor(this._tensor.sqrt());
+    out_t._inputs = this.collect_inputs(this);
+    return out_t;
+  }
+
+  pad(sym, pre, post=null) {
+    if (post === null) {
+      post = pre;
+    }
+    let out_t = new Tensor(this._tensor.pad(sym, pre, post));
     out_t._inputs = this.collect_inputs(this);
     return out_t;
   }

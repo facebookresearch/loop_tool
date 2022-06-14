@@ -191,6 +191,77 @@ std::vector<IR::VarRef> IR::pointwise_vars(IR::NodeRef idx) const {
   return pointwise_vars;
 }
 
+// in the case of views we need to determine if the
+// variables "overlap"
+std::vector<IR::VarRef> IR::view_reduction_vars(IR::NodeRef idx) const {
+  auto var_vec = node(idx).vars();
+  std::unordered_set<IR::VarRef> output_vars = {var_vec.begin(), var_vec.end()};
+  std::vector<IR::VarRef> reduction_vars;
+
+  // collect rhs symbols
+  auto constraints = node(idx).constraints();
+  std::unordered_set<Symbol, Hash<Symbol>> rhs_symbols;
+  for (const auto &c : constraints) {
+    if (c.first.type() != Expr::Type::symbol) {
+      continue;
+    }
+    auto sym = c.first.symbol();
+    if (!output_vars.count(node(idx).var(sym))) {
+      continue;
+    }
+    for (const auto &sym : c.second.symbols()) {
+      if (output_vars.count(node(idx).var(sym))) {
+        continue;
+      }
+      rhs_symbols.insert(sym);
+    }
+  }
+
+  for (const auto &c : constraints) {
+    if (c.first.type() != Expr::Type::symbol) {
+      continue;
+    }
+    auto sym = c.first.symbol();
+    if (!output_vars.count(node(idx).var(sym))) {
+      continue;
+    }
+    std::unordered_map<Symbol, Expr, Hash<Symbol>> strides;
+    for (const auto &s : rhs_symbols) {
+      const auto &stride = differentiate(c.second, s);
+      strides.emplace(s, stride);
+    }
+    for (const auto &s : rhs_symbols) {
+      std::vector<Symbol> contiguous;
+      for (const auto &p : strides) {
+        if (p.second.can_evaluate() && p.second.evaluate() <= 1) {
+          contiguous.emplace_back(p.first);
+        }
+      }
+      for (const auto &sym : contiguous) {
+        strides.erase(sym);
+      }
+      for (const auto &p : strides) {
+        // TODO audit
+        if (p.second.contains(s)) {
+          strides.erase(p.first);
+          strides.emplace(p.first, (p.second / Expr::size(s)).simplify());
+        }
+      }
+      if (contiguous.size() > 1) {
+        for (const auto &sym : contiguous) {
+          reduction_vars.emplace_back(node(idx).var(sym));
+        }
+      }
+    }
+    if (strides.size() > 1) {
+      for (auto &p : strides) {
+        reduction_vars.emplace_back(node(idx).var(p.first));
+      }
+    }
+  }
+  return reduction_vars;
+}
+
 std::vector<IR::VarRef> IR::reduction_vars(IR::NodeRef idx) const {
   auto var_vec = node(idx).vars();
   std::unordered_set<IR::VarRef> vars = {var_vec.begin(), var_vec.end()};
@@ -202,6 +273,9 @@ std::vector<IR::VarRef> IR::reduction_vars(IR::NodeRef idx) const {
         vars.insert(v);
       }
     }
+  }
+  if (node(idx).op() == Operation::view) {
+    return view_reduction_vars(idx);
   }
   return reduction_vars;
 }

@@ -84,9 +84,10 @@ struct TensorImpl {
     auto h = symbolic::hash((size_t)op_);
     h = symbolic::hash(h ^ shape_.size());
     auto cm = constraints();
+    // TODO known error with subtlely similar constraints but disimilar layouts
     for (auto& p : cm) {
-      h = symbolic::hash(h ^ p.first.hash());
-      h = symbolic::hash(h ^ p.second.hash());
+      h = symbolic::hash_combine(h, p.first.hash());
+      h = symbolic::hash_combine(h, p.second.hash());
     }
     std::unordered_map<symbolic::Symbol, int, symbolic::Hash<symbolic::Symbol>>
         unique_syms;
@@ -97,13 +98,13 @@ struct TensorImpl {
       return symbolic::hash(unique_syms.at(sym));
     };
     for (const auto& d : deps_) {
-      h = symbolic::hash(h ^ d->hash());
+      h = symbolic::hash_combine(h, d->hash());
       for (const auto& sym : d->shape()) {
-        h = symbolic::hash(h ^ hash_sym(sym));
+        h = symbolic::hash_combine(h, hash_sym(sym));
       }
     }
     for (const auto& sym : shape()) {
-      h = symbolic::hash(h ^ hash_sym(sym));
+      h = symbolic::hash_combine(h, hash_sym(sym));
     }
     hash_ = h;
   }
@@ -448,7 +449,7 @@ struct Tensor {
     return this->to(out_shape, constraints) + rhs.to(out_shape, constraints);
   }
 
-  Tensor pad(Symbol padded_dim, int64_t pre, int64_t post) {
+  Tensor pad(Symbol padded_dim, int64_t pre, int64_t post) const {
     ASSERT(pre >= 0) << "cannot pad by a negative number";
     ASSERT(post >= 0) << "cannot pad by a negative number";
     if (pre == 0 && post == 0) {
@@ -469,11 +470,11 @@ struct Tensor {
                                Expr::size(padded_dim) + Expr(post + pre)));
   }
 
-  Tensor pad(Symbol padded_dim, int64_t amount) {
+  Tensor pad(Symbol padded_dim, int64_t amount) const {
     return pad(padded_dim, amount, amount);
   }
 
-  Tensor transpose(std::vector<int> order) {
+  Tensor transpose(std::vector<int> order) const {
     ASSERT(order.size() == shape().size()) << "invalid transpose";
     std::vector<Symbol> new_shape;
     for (auto idx : order) {
@@ -485,11 +486,45 @@ struct Tensor {
     return Tensor(new_impl);
   }
 
-  Tensor transpose(std::vector<Symbol> new_shape) {
+  Tensor transpose(std::vector<Symbol> new_shape) const {
     ASSERT(new_shape.size() == shape().size()) << "invalid transpose";
     auto new_impl = std::make_shared<TensorImpl>(*impl_);
     new_impl->shape_ = new_shape;
     return Tensor(new_impl);
+  }
+
+  Tensor flatten(std::vector<Symbol> symbols, Symbol new_symbol) const {
+    ASSERT(symbols.size() >= 1);
+    auto contained = to_set<Symbol, symbolic::Hash>(symbols);
+    std::vector<Symbol> new_shape;
+    std::vector<Symbol> output_shape;
+    bool contiguous = false;
+    bool ended = false;
+    for (const auto& sym : shape()) {
+      if (contained.count(sym)) {
+        ASSERT(!ended) << "flatten only works on contiguous dimensions. "
+                          "Otherwise, transpose first.";
+        contiguous = true;
+        continue;
+      }
+      if (contiguous) {
+        ended = true;
+      }
+      new_shape.emplace_back(sym);
+      output_shape.emplace_back(sym);
+    }
+    output_shape.emplace_back(new_symbol);
+    for (const auto& sym : symbols) {
+      new_shape.emplace_back(sym);
+    }
+    std::reverse(symbols.begin(), symbols.end());
+    auto flattened_dim = Expr(0);
+    auto running_size = Expr(1);
+    for (const auto& sym : symbols) {
+      flattened_dim = sym * running_size + flattened_dim;
+      running_size = Expr::size(sym) * running_size;
+    }
+    return to(output_shape, Constraint(new_symbol, flattened_dim));
   }
 
   Tensor reduce(Operation op, const std::vector<Symbol>& reduction_vars) const {

@@ -22,6 +22,11 @@ inline uint64_t hash(uint64_t x) {
   return x;
 }
 
+inline uint64_t hash_combine(uint64_t a, uint64_t b) {
+  a ^= b + 0x9e3779b9 + (a << 6) + (a >> 2);
+  return a;
+}
+
 template <typename T>
 struct Hash {
   std::size_t operator()(const T& k) const { return k.hash(); }
@@ -38,7 +43,8 @@ enum struct Op {
   // binary
   add,
   multiply,
-  divide
+  divide,
+  modulo
 };
 
 struct Expr;
@@ -110,6 +116,7 @@ struct Expr {
   Expr operator-(const Expr& rhs) const;
   Expr operator-() const;
   Expr operator/(const Expr& rhs) const;
+  Expr operator%(const Expr& rhs) const;
   Expr reciprocal() const;
   bool operator!=(const Expr& rhs) const;
   bool operator==(const Expr& rhs) const;

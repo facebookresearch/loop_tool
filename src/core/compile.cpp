@@ -81,9 +81,8 @@ Compiler::Compiler(const LoopTree &lt_) : lt(lt_) {
       if (c.first.op() == Op::size) {
         auto sym = c.first.args().at(0);
         auto val = c.second;
-        if (sym.type() == Expr::Type::symbol &&
-            val.type() == Expr::Type::value) {
-          var_sizes[sym_to_var.at(sym.symbol())] = val.value();
+        if (sym.type() == Expr::Type::symbol && val.can_evaluate()) {
+          var_sizes[sym_to_var.at(sym.symbol())] = val.evaluate();
         }
       }
     }
@@ -653,6 +652,29 @@ std::pair<std::vector<Expr>, std::vector<Expr>> Compiler::gen_index_equations(
         } else if (toward_input && only_input_vars) {
           return c.second;
         }
+        // try to convert non-output vars to output vars
+        // we can only do this if the view is bijective
+        if (!toward_input && lt.ir.reduction_vars(node_ref).size() == 0) {
+          auto expr = c.second;
+          for (const auto &s : expr.symbols(false)) {
+            if (!out_vars.count(sym_to_var.at(s))) {
+              auto mod = -differentiate(expr, s);
+              expr = expr.replace(s, Expr(0)).simplify();
+              if (mod.can_evaluate() && mod.evaluate() > 1) {
+                expr = expr % mod;
+              }
+            }
+          }
+          bool only_output_vars = true;
+          for (const auto &s : expr.symbols(false)) {
+            if (!out_vars.count(sym_to_var.at(s))) {
+              only_output_vars = false;
+            }
+          }
+          if (only_output_vars) {
+            return expr;
+          }
+        }
       }
     }
     // default case there is no mapping for this variable
@@ -758,10 +780,10 @@ int64_t Compiler::get_expr_max(const Expr &expr) const {
                    return e;
                  })
                  .simplify();
-  ASSERT(max.type() == Expr::Type::value)
+  ASSERT(max.can_evaluate())
       << "Couldn't derive explicit upper bound for expr " << expr.dump()
       << " (simplified to " << max.dump() << ")";
-  return max.value() + 1;
+  return max.evaluate() + 1;
 }
 
 int64_t Compiler::get_expr_min(const Expr &expr) const {

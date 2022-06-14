@@ -415,6 +415,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
              }
              return t.sum(vars);
            })
+      .def("flatten",
+           [](lazy::Tensor &t, py::args args) {
+             std::vector<lazy::Symbol> vars;
+             for (const auto &arg : args) {
+               vars.emplace_back(py::cast<lazy::Symbol>(arg));
+             }
+             lazy::Symbol x;
+             return t.flatten(vars, x);
+           })
       .def("max_reduce",
            [](lazy::Tensor &t, py::args args) {
              std::vector<lazy::Symbol> vars;

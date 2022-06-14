@@ -268,9 +268,35 @@ TEST(LazyTranspose) {
   lz::Symbol K;
   // K = N * size(M) + M
   // M = K - N * size(M)
+  // TRANSPOSE!
   B = A.to({K}, lz::Constraint(K, N * lz::Expr::size(M) + M));  // ugly flatten
   A.bind(nullptr, {8, 8});
+  for (auto i = 0; i < 64; ++i) {
+    A.data<float>()[i] = i % 8 * 8 + i / 8;
+  }
   ASSERT(B.size(0) == 64);
+  std::cerr << B.code() << "\n";
+  for (auto i = 0; i < 64; ++i) {
+    ASSERT(B.data<float>()[i] == i);
+  }
+}
+
+TEST(LazyFlatten) {
+  namespace lz = ::loop_tool::lazy;
+  lz::Symbol M("M"), N("N"), K("K");
+  lz::Tensor A(M, N);
+  auto B = A.flatten({M, N}, K);
+  A.bind(nullptr, {8, 8});
+  for (auto i = 0; i < 64; ++i) {
+    A.data<float>()[i] = i;
+  }
+  ASSERT(B.size(0) == 64);
+  std::cerr << B.code() << "\n";
+  std::cerr << "!!!! see the TODO in lazy.h:updateHash -- necessary for this "
+               "to work !!!!\n";
+  for (auto i = 0; i < 64; ++i) {
+    ASSERT(B.data<float>()[i] == i);
+  }
 }
 
 TEST(LazyConv) {

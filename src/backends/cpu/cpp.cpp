@@ -350,10 +350,6 @@ std::string CppCompiler::gen_loop_string(
   return ss.str();
 }
 
-extern "C" {
-void call_me(int i) { std::cerr << "CALLED WITH " << i << "\n"; }
-}
-
 std::string CppCompiler::gen_string_impl(
     LoopTree::TreeRef ref,
     std::unordered_map<IR::VarRef, int> overrides) const {
@@ -380,7 +376,6 @@ std::string CppCompiler::gen_string_impl(
 #include <stdio.h>
 #include <stdlib.h>
 
-extern void call_me(int);
 )""";
     if (define_max) {
       ss << R"""(
