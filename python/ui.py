@@ -159,7 +159,7 @@ def ui_impl(stdscr, tensor, fn):
                     f.write(tensor.code)
             # _ = benchmark(tensor, 10)  # warmup
             iters_sec = benchmark(tensor)
-            # flops = tree.FLOPs()
+            flops = tree.FLOPs()
         tree_pad.addstr(
             i,
             len(info) + 1,

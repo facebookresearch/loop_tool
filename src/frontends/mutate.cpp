@@ -586,7 +586,8 @@ LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
 
 LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
   auto next = next_ref_impl(lt, ref, true);
-  return (next == -1) ? ref : next;
+  ASSERT(next != -1);
+  return (next == -1) ? ref : next;;
 }
 
 LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
@@ -601,9 +602,10 @@ LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
   idx--;
   if (idx < 0) {
     auto parent = lt.parent(ref);
-    if (parent == -1) {
-      return ref;
-    }
+    ASSERT(parent != -1);
+    // if (parent == -1) {
+    //   return ref;
+    // }
     return parent;
   }
   auto next = siblings.at(idx);
@@ -612,6 +614,7 @@ LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
     trailing_next = next;
     next = next_ref(lt, next);
   }
+  ASSERT(trailing_next != ref);
   return trailing_next;
 }
 
