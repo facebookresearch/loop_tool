@@ -559,7 +559,14 @@ LoopTree::LoopTree(const IR &ir_) : ir(ir_) {
       for (const auto &sym : syms) {
         auto v = n.var(sym);
         if (reduction_vars.count(v)) {
-          ASSERT(base_var == -1);
+          if (base_var != -1) {
+            ASSERT(view_base.at(v) == base_var)
+                << "found impossible lowering condition in view! "
+                << ir.var(v).name() << " and " << ir.var(base_var).name()
+                << " are both base variables to a view in node "
+                << ir.dump(node_ref) << " (constraint: " << c.first.dump()
+                << "=" << c.second.dump() << ")";
+          }
           ASSERT(view_base.count(v));
           base_var = view_base.at(v);
           continue;
