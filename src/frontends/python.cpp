@@ -12,13 +12,16 @@ LICENSE file in the root directory of this source tree.
 #include <random>
 #include <sstream>
 
+#include "loop_tool/agent.h"
 #include "loop_tool/backend.h"
 #include "loop_tool/compile.h"
 #include "loop_tool/error.h"
 #include "loop_tool/ir.h"
 #include "loop_tool/lazy.h"
 #include "loop_tool/mutate.h"
+#include "loop_tool/serialization.h"
 #include "loop_tool/tensor.h"
+#include "sysml/measure.hpp"
 
 #ifdef ENABLE_CUDA
 #include <cuda.h>
@@ -107,6 +110,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         [](std::string backend) { setDefaultBackend(backend); });
   m.def("get_default_backend",
         []() -> std::string { return getDefaultBackend()->name(); });
+  m.def("deserialize", &deserialize);
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -138,6 +142,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__repr__", &dot)
       .def("dump", &IR::dump)
       .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
+      .def("serialize", &serialize)
       .def_property_readonly("vars", &IR::vars)
       .def_property_readonly("nodes", &IR::nodes)
       .def_property_readonly(
@@ -215,11 +220,22 @@ PYBIND11_MODULE(loop_tool_py, m) {
                              [](LoopTree::Loop &loop) { return loop.tail; })
       .def("__eq__", &LoopTree::Loop::operator==);
 
+  py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
+      .def(py::init<const LoopTree &>())
+      .def("apply_action", &loop_tool::LoopTreeAgent::apply_action)
+      .def("get_available_actions",
+           &loop_tool::LoopTreeAgent::get_available_actions)
+      .def("dump", &loop_tool::LoopTreeAgent::dump);
+
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())
       .def("annotate",
            [](LoopTree &lt, LoopTree::TreeRef ref, std::string annot) {
              return annotate(lt, ref, annot);
+           })
+      .def("annotation",
+           [](LoopTree &lt, LoopTree::TreeRef ref) {
+             return lt.annotation(ref);
            })
       .def_property_readonly("roots",
                              [](const LoopTree &lt) { return lt.roots; })
@@ -284,9 +300,13 @@ PYBIND11_MODULE(loop_tool_py, m) {
            [](const LoopTree &lt, LoopTree::TreeRef ref) {
              return is_trivially_parallel(lt, ref);
            })
-      .def("flops", &flops)
+      .def("get_available_actions", &get_available_actions)
+      .def("FLOPs", &FLOPs)
+      .def("FLOPS", &FLOPS)
+      .def("eval", &eval_runtime)
       .def("split", &split)
       .def("merge", &merge)
+      .def("get_inputs", &get_inputs)
       .def("copy_input", &copy_input)
       .def("delete_copy", &delete_copy)
       .def("remove_loop", &remove_loop)

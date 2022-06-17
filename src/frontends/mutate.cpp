@@ -5,11 +5,94 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 
+#include <loop_tool/backend.h>
 #include <loop_tool/mutate.h>
 
 #include <algorithm>
+#include <string>
+
+#include "sysml/measure.hpp"
 
 namespace loop_tool {
+
+std::vector<std::string> get_available_actions(const LoopTree& lt,
+                                               LoopTree::TreeRef ref) {
+  std::vector<std::string> avail_actions;
+
+  LoopTree::TreeRef p_ref = previous_ref(lt, ref);
+  LoopTree::TreeRef n_ref = next_ref(lt, ref);
+
+  if (p_ref == ref) {
+    p_ref = -1;
+  }
+  if (n_ref == ref) {
+    n_ref = -1;
+  }
+
+  // General operations
+  if (p_ref != -1) {
+    avail_actions.push_back("up");
+  }
+  if (n_ref != -1) {
+    avail_actions.push_back("down");
+  }
+
+  // Loop operations
+  if (lt.kind(ref) == LoopTree::LOOP) {
+    // split
+    int max_vec_size = 1;
+
+    // the most inner-loop
+    if (all_of(lt.children(ref).begin(), lt.children(ref).end(),
+               [&](int i) { return lt.kind(i) == LoopTree::NODE; })) {
+      max_vec_size = isa_traits<DABUN_ISA>().vector_size;
+    }
+    auto loop_iter = lt.loop(ref).size;
+    while (loop_iter >= max_vec_size) {
+      avail_actions.push_back("split_" + std::to_string(loop_iter));
+      loop_iter /= 2;
+    }
+
+    // merge
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP &&
+        lt.loop(ref).var == lt.loop(p_ref).var) {
+      avail_actions.push_back("merge");
+    }
+
+    // swap loops
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::LOOP) {
+      avail_actions.push_back("swap_up");
+    }
+    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::LOOP) {
+      avail_actions.push_back("swap_down");
+    }
+
+    // Loop annotations
+    avail_actions.push_back("vectorize");
+    avail_actions.push_back("unroll");
+  }
+  if (lt.kind(ref) == LoopTree::NODE) {
+    // swap nodes
+    if (p_ref != -1 && lt.kind(p_ref) == LoopTree::NODE) {
+      avail_actions.push_back("swap_up");
+    }
+    if (n_ref != -1 && lt.kind(n_ref) == LoopTree::NODE) {
+      avail_actions.push_back("swap_down");
+    }
+
+    // copy input
+    for (int i = 0; i < get_inputs(lt, ref).size(); i++) {
+      avail_actions.push_back("copy_input_" + std::to_string(i));
+    }
+
+    // increase - decrease reuse
+    avail_actions.push_back("increase_reuse");
+
+    avail_actions.push_back("decrease_reuse");
+  }
+
+  return avail_actions;
+}
 
 IR split_node(const IR& ir, IR::NodeRef node_ref,
               std::vector<IR::VarRef> injected) {
@@ -334,6 +417,13 @@ LoopTree merge(const LoopTree& lt, LoopTree::TreeRef ref) {
   return LoopTree(new_ir);
 }
 
+std::vector<IR::NodeRef> get_inputs(const LoopTree& lt, LoopTree::TreeRef ref) {
+  ASSERT(lt.kind(ref) == LoopTree::NODE);
+  auto node_ref = lt.node(ref);
+  auto& node = lt.ir.node(node_ref);
+  return node.inputs();
+}
+
 LoopTree copy_input(const LoopTree& lt, LoopTree::TreeRef ref, int idx) {
   ASSERT(lt.kind(ref) == LoopTree::NODE);
   auto node_ref = lt.node(ref);
@@ -619,7 +709,30 @@ LoopTree::TreeRef previous_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
   return trailing_next;
 }
 
-int64_t flops(const LoopTree& lt) {
+double eval_runtime(const LoopTree& lt) {
+  auto c = Compiler(lt);
+  auto sizes = c.memory_sizes(true);
+  std::vector<void*> memory;
+  std::vector<std::vector<float>> data;
+
+  for (int i = 0; i < lt.ir.inputs().size() + lt.ir.outputs().size(); i++) {
+    data.emplace_back(std::vector<float>(sizes[i]));
+  }
+
+  for (const auto& v : data) {
+    memory.emplace_back((void*)(v.data()));
+  }
+
+  auto cc = getDefaultBackend()->compile(lt);
+
+  // TODO: Run 100 times and get mean, std:
+  unsigned iterations = 100;
+  unsigned warmup_iterations = 5;
+  return sysml::measure_median([&]() { cc->run(memory); }, iterations,
+                               warmup_iterations);
+}
+
+int64_t FLOPs(const LoopTree& lt) {
   int64_t total = 0;
   std::vector<LoopTree::Loop> running_loops;
   auto fn = [&](const LoopTree::TreeRef& ref, int depth) {
@@ -655,6 +768,8 @@ int64_t flops(const LoopTree& lt) {
   lt.walk(fn);
   return total;
 }
+
+double FLOPS(const LoopTree& lt) { return FLOPs(lt) / eval_runtime(lt); }
 
 bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref) {
   bool trivially_parallel = true;
