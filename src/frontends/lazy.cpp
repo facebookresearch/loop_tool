@@ -271,9 +271,15 @@ IR::NodeRef TensorImpl::resolve(
   return node_ref;
 }
 
-void TensorImpl::collectConstraints(std::vector<Constraint>& constraints,
-                                    std::unordered_set<TensorImpl*>& seen) {
+void TensorImpl::collectConstraints(
+    std::vector<Constraint>& constraints, std::unordered_set<TensorImpl*>& seen,
+    std::unordered_set<int64_t>& seen_constraint_hashes) {
   for (const auto& c : constraints_) {
+    auto h = symbolic::hash_combine(c.first.hash(true), c.second.hash(true));
+    if (seen_constraint_hashes.count(h)) {
+      continue;
+    }
+    seen_constraint_hashes.insert(h);
     constraints.emplace_back(c);
   }
   seen.insert(this);
@@ -281,7 +287,7 @@ void TensorImpl::collectConstraints(std::vector<Constraint>& constraints,
     if (seen.count(d.get())) {
       continue;
     }
-    d->collectConstraints(constraints, seen);
+    d->collectConstraints(constraints, seen, seen_constraint_hashes);
   }
 }
 
@@ -322,7 +328,8 @@ void TensorImpl::propagateConstraints(
 void TensorImpl::unifyConstraints() {
   std::vector<Constraint> constraints;
   std::unordered_set<TensorImpl*> seen;
-  collectConstraints(constraints, seen);
+  std::unordered_set<int64_t> seen_constraint_hashes;
+  collectConstraints(constraints, seen, seen_constraint_hashes);
   auto unified_constraints = symbolic::unify(constraints);
   auto eval_constraints = symbolic::evaluate(unified_constraints);
   seen.clear();
@@ -395,12 +402,16 @@ void TensorImpl::unify(bool force) {
   if (!force && unified_) {
     return;
   }
+  for (const auto& d : deps_) {
+    d->unify(force);
+  }
   unified_ = true;
   unifySymbols();
   unifyConstraints();
 }
 
 void TensorImpl::populateLoweredCache() {
+  auto h = hash();
   IR ir;
   std::unordered_map<int, std::pair<IR::VarRef, int64_t>> var_map;
   std::tie(ir, var_map) = lower();
@@ -412,7 +423,7 @@ void TensorImpl::populateLoweredCache() {
     size *= size_;
     sizes.emplace_back(size_);
   }
-  getLoweredCache().emplace(hash(), CachedLowered{ir, loop_tree, size, sizes});
+  getLoweredCache().emplace(h, CachedLowered{ir, loop_tree, size, sizes});
 }
 
 void TensorImpl::populateCompilationCache() {

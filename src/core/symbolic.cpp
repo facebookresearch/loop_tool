@@ -753,6 +753,7 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
 
   // 3. Remap size expressions in the constraint list
   std::vector<Constraint> constraints;
+  std::unordered_set<int64_t> seen_hashes;
 
   for (const auto& c : constraints_) {
     auto lhs = c.first;
@@ -762,6 +763,11 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       lhs = lhs.replace(size_expr, p.second);
       rhs = rhs.replace(size_expr, p.second);
     }
+    auto h = symbolic::hash_combine(lhs.hash(true), rhs.hash(true));
+    if (seen_hashes.count(h)) {
+      continue;
+    }
+    seen_hashes.insert(h);
     constraints.emplace_back(lhs, rhs);
   }
 
@@ -838,7 +844,7 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       p.second.clear();
       for (const auto& expr_ : exprs) {
         auto expr = expr_;
-        for (auto& s : sized_syms()) {
+        for (const auto& s : sized_syms()) {
           expr = expr.replace(size_sym_map.at(s.first), s.second);
         }
         p.second.insert(expr.simplify());
@@ -970,6 +976,11 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       output_constraints.emplace_back(sym, expr);
     }
   }
+  std::sort(output_constraints.begin(), output_constraints.end(),
+            [](const std::pair<Expr, Expr>& a, const std::pair<Expr, Expr>& b) {
+              return hash_combine(a.first.hash(), a.second.hash()) <
+                     hash_combine(b.first.hash(), b.second.hash());
+            });
 
   return output_constraints;
 }

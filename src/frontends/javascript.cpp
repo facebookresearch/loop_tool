@@ -226,6 +226,8 @@ int32_t loop_size(const LoopTree::Loop &loop) { return loop.size; }
 
 int32_t loop_tail(const LoopTree::Loop &loop) { return loop.tail; }
 
+std::string dump_sym(const lazy::Symbol &sym) { return lazy::Expr(sym).dump(); }
+
 EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Expr>("Expr")
       .constructor(&expr_constructor)
@@ -240,6 +242,7 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
   js::class_<lazy::Symbol>("Symbol")
       .constructor<std::string>()
       .function("name", &lazy::Symbol::name)
+      .function("dump", &dump_sym)
       .function("expr", &expr_from_sym)
       .function("id", &lazy::Symbol::id);
   js::class_<LoopTree::Loop>("Loop")
@@ -330,4 +333,6 @@ EMSCRIPTEN_BINDINGS(loop_tool) {
   js::function("size", &to_size_expr);
   js::function("deserialize", &deserialize_loop_tree);
   js::function("getExceptionMessage", &getExceptionMessage);
+  js::function("convolve", nn::convolve);
+  js::function("maxpool", nn::maxpool);
 }

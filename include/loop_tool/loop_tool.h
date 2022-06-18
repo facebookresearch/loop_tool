@@ -15,3 +15,4 @@ LICENSE file in the root directory of this source tree.
 // default frontends
 #include "lazy.h"
 #include "mutate.h"
+#include "nn.h"

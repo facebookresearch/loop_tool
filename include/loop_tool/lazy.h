@@ -52,7 +52,7 @@ std::unordered_map<size_t, CachedLowered>& getLoweredCache();
 
 // wrapped by shared ptr for convenience
 struct TensorImpl {
-  size_t hash_ = 0;
+  uint64_t hash_ = 0;
   bool unified_ = false;
   Operation op_ = Operation::constant;
   mutable Memory memory_;
@@ -80,9 +80,11 @@ struct TensorImpl {
   std::vector<Constraint> constraints() const { return constraints_; }
 
   void updateHash(bool force_unify = false) {
-    const_cast<TensorImpl*>(this)->unify(force_unify);
+    if (force_unify) {
+      const_cast<TensorImpl*>(this)->unify(force_unify);
+    }
     auto h = symbolic::hash((size_t)op_);
-    h = symbolic::hash(h ^ shape_.size());
+    h = symbolic::hash_combine(h, symbolic::hash(shape_.size()));
     auto cm = constraints();
     // TODO known error with subtlely similar constraints but disimilar layouts
     for (auto& p : cm) {
@@ -92,6 +94,9 @@ struct TensorImpl {
     std::unordered_map<symbolic::Symbol, int, symbolic::Hash<symbolic::Symbol>>
         unique_syms;
     auto hash_sym = [&](const symbolic::Symbol& sym) {
+      if (op_ == Operation::name) {
+        return symbolic::hash(0);
+      }
       if (!unique_syms.count(sym)) {
         unique_syms[sym] = unique_syms.size();
       }
@@ -109,7 +114,7 @@ struct TensorImpl {
     hash_ = h;
   }
 
-  inline size_t hash() const { return hash_; }
+  inline uint64_t hash() const { return hash_; }
   inline bool owning() const { return owning_; }
 
   ~TensorImpl() {
@@ -141,7 +146,7 @@ struct TensorImpl {
 
     // collect all the known symbols
     std::unordered_map<int, Symbol> sym_lhs;
-    for (auto& p : constraints) {
+    for (const auto& p : constraints) {
       p.first.walk([&](const Expr& e) {
         if (e.type() == Expr::Type::symbol) {
           sym_lhs[e.symbol().id()] = e.symbol();
@@ -150,12 +155,12 @@ struct TensorImpl {
       });
     }
     // assume all input shapes are calculated
-    for (auto& dep : deps_) {
-      for (auto& sym : dep->shape()) {
+    for (const auto& dep : deps_) {
+      for (const auto& sym : dep->shape()) {
         sym_lhs[sym.id()] = sym;
       }
     }
-    for (auto& sym : shape_) {
+    for (const auto& sym : shape_) {
       if (sym_lhs.count(sym.id())) {
         continue;
       }
@@ -184,7 +189,8 @@ struct TensorImpl {
                           std::unordered_set<TensorImpl*>& seen);
   void unifySymbols();
   void collectConstraints(std::vector<Constraint>& constraints,
-                          std::unordered_set<TensorImpl*>& seen);
+                          std::unordered_set<TensorImpl*>& seen,
+                          std::unordered_set<int64_t>& seen_constraint_hashes);
   void propagateConstraints(const std::vector<Constraint>& constraints,
                             std::unordered_set<TensorImpl*>& seen);
   void unifyConstraints();
@@ -203,6 +209,11 @@ struct TensorImpl {
       cache.erase(h);
     }
     ASSERT(getCompilationCache().count(h) == 0);
+    auto& lcache = getLoweredCache();
+    if (lcache.count(h)) {
+      lcache.erase(h);
+    }
+    ASSERT(getLoweredCache().count(h) == 0);
   }
 
   template <typename T>
@@ -453,6 +464,7 @@ struct Tensor {
     ASSERT(pre >= 0) << "cannot pad by a negative number";
     ASSERT(post >= 0) << "cannot pad by a negative number";
     if (pre == 0 && post == 0) {
+      ASSERT(0) << "unecessary pad operation (padded by zero)";
       return *this;
     }
     auto new_sym = Symbol(padded_dim.name() + "_p_" + std::to_string(pre) +

@@ -12,6 +12,7 @@ file(GLOB CORE_SRCS
 )
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/lazy.cpp")
 list(APPEND CORE_SRCS "${SRC_DIR}/frontends/mutate.cpp")
+list(APPEND CORE_SRCS "${SRC_DIR}/frontends/nn.cpp")
 
 option(BUILD_WASM "Build a WebAssembly compilation target" ON)
 option(BUILD_WASM_RUNTIME "Build a WebAssembly runtime with WAMR" OFF)

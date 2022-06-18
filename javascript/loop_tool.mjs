@@ -130,6 +130,19 @@ class CompilationCache {
 let _tensor_id = 0;
 let cc = new CompilationCache();
 
+function collect_inputs(...ts) {
+  let inputs = [];
+  for (let t of ts) {
+    if (t._inputs.length) {
+      inputs = inputs.concat(t._inputs);
+    } else {
+      inputs.push(t);
+    }
+  }
+  return inputs;
+}
+
+
 function fill(val) {
   const t = new Tensor();
   t.buffer[0] = val;
@@ -145,55 +158,9 @@ function rand(...args) {
 }
 
 function convolve(x, w, spatial_dims, window_dims, stride = 1) {
-  if (spatial_dims.length != window_dims.length) {
-    throw "invalid call to conv: mismatched dim length";
-  }
-  const new_spatial = [];
-  const constraints = [];
-  for (let i = 0; i < spatial_dims.length; ++i) {
-    const dim = spatial_dims[i];
-    const k = window_dims[i];
-    const new_dim = new Symbol(dim.name() + "o");
-    new_spatial.push(new_dim);
-    constraints.push([
-      dim.expr(),
-      new_dim.expr().mul(expr(stride)).add(k.expr()),
-    ]);
-  }
-
-  const outer_dims = [];
-  const reduction_dims = [...window_dims];
-  const x_ids = x.symbolic_shape.map((d) => d.id());
-  const spatial_ids = spatial_dims.map((d) => d.id());
-  const window_ids = window_dims.map((d) => d.id());
-
-  for (let dim of x.symbolic_shape) {
-    if (spatial_ids.includes(dim.id())) {
-      continue;
-    }
-    outer_dims.push(dim);
-  }
-
-  for (let dim of w.symbolic_shape) {
-    if (window_ids.includes(dim.id())) {
-      if (x_ids.includes(dim.id())) {
-        throw `invalid window dim: ${dim.name()}`;
-      }
-      continue;
-    }
-    if (x_ids.includes(dim.id())) {
-      reduction_dims.push(dim);
-      continue;
-    }
-  }
-
-  const im2col = x.to(
-    ...outer_dims,
-    ...new_spatial,
-    ...window_dims,
-    constraints
-  );
-  return im2col.mul(w).sum(...reduction_dims);
+  let out_t = new Tensor(lt.convolve(x._tensor, w._tensor, spatial_dims, window_dims, stride));
+  out_t._inputs = collect_inputs(x, w);
+  return out_t;
 }
 
 function relu(x) {
@@ -201,29 +168,9 @@ function relu(x) {
 }
 
 function maxpool(x, spatial_dims, k, stride=1) {
-  const constraints = [];
-  const outer_dims = [];
-  const new_dims = [];
-  const window_dims = [];
-  for (let dim of spatial_dims) {
-    const new_dim = symbol(dim.name() + "p");
-    const new_k = symbol(dim.name() + "k");
-    new_dims.push(new_dim);
-    window_dims.push(new_k);
-    const c = new_dim.expr().mul(expr(stride)).add(new_k.expr());
-    constraints.push([dim.expr(), c]);
-    constraints.push([size(new_k), expr(k)]);
-  }
-  const spatial_ids = spatial_dims.map((d) => d.id());
-  for (let dim of x.symbolic_shape) {
-    if (spatial_ids.includes(dim.id())) {
-      continue;
-    }
-    outer_dims.push(dim);
-  }
-  return x
-    .to(...outer_dims, ...new_dims, ...window_dims, constraints)
-    .max(...window_dims);
+  let out_t = new Tensor(lt.maxpool(x._tensor, spatial_dims, k, stride));
+  out_t._inputs = collect_inputs(x);
+  return out_t;
 }
 
 function avgpool(x, spatial_dims, k) {
@@ -373,7 +320,9 @@ class Tensor {
       }
       let [mem_map, fn] = await this.compile();
       this.data_ = mem_map[this._id];
+      const t0 = performance.now();
       fn();
+      const t1 = performance.now();
       return this.data_;
     })().catch((e) => {
       throw e;
@@ -415,43 +364,31 @@ class Tensor {
     this.set_loop_tree(unroll_loop_tree);
   }
 
-  collect_inputs(...ts) {
-    let inputs = [];
-    for (let t of ts) {
-      if (t._inputs.length) {
-        inputs = inputs.concat(t._inputs);
-      } else {
-        inputs.push(t);
-      }
-    }
-    return inputs;
-  }
-
   mul(t) {
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.mul(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
   div(t) {
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.div(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
   add(t) {
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.add(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
   sub(t) {
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.sub(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
@@ -461,13 +398,13 @@ class Tensor {
 
   min_reduce(...syms) {
     let out_t = new Tensor(this._tensor.min_reduce(syms));
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
   max_reduce(...syms) {
     let out_t = new Tensor(this._tensor.max_reduce(syms));
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
@@ -478,7 +415,7 @@ class Tensor {
     let t = args[0];
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.min(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
@@ -489,31 +426,31 @@ class Tensor {
     let t = args[0];
     t = t.constructor === Number ? fill(t) : t;
     let out_t = new Tensor(this._tensor.max(t._tensor));
-    out_t._inputs = this.collect_inputs(this, t);
+    out_t._inputs = collect_inputs(this, t);
     return out_t;
   }
 
   sum(...syms) {
     let out_t = new Tensor(this._tensor.sum(syms));
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
   neg() {
     let out_t = new Tensor(this._tensor.neg());
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
   abs() {
     let out_t = new Tensor(this._tensor.abs());
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
   sqrt() {
     let out_t = new Tensor(this._tensor.sqrt());
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
@@ -522,7 +459,7 @@ class Tensor {
       post = pre;
     }
     let out_t = new Tensor(this._tensor.pad(sym, pre, post));
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 
@@ -534,16 +471,17 @@ class Tensor {
         throw "invalid arguments! requires to(...syms) or to(...syms, constraints[])";
       }
       let out_t = new Tensor(this._tensor.to(syms.slice(0, -1), constraints));
-      out_t._inputs = this.collect_inputs(this);
+      out_t._inputs = collect_inputs(this);
       return out_t;
     }
-    this._tensor = this._tensor.as(syms);
-    return this;
+    let out_t = new Tensor(this._tensor.as(syms));
+    out_t._inputs = collect_inputs(this);
+    return out_t;
   }
 
   transpose(...syms) {
     let out_t = new Tensor(this._tensor.transpose(syms));
-    out_t._inputs = this.collect_inputs(this);
+    out_t._inputs = collect_inputs(this);
     return out_t;
   }
 

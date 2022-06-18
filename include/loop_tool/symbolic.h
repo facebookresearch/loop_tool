@@ -16,6 +16,7 @@ namespace loop_tool {
 namespace symbolic {
 
 inline uint64_t hash(uint64_t x) {
+  x += 1337;
   x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
   x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
   x = x ^ (x >> 31);
@@ -23,8 +24,13 @@ inline uint64_t hash(uint64_t x) {
 }
 
 inline uint64_t hash_combine(uint64_t a, uint64_t b) {
-  a ^= b + 0x9e3779b9 + (a << 6) + (a >> 2);
-  return a;
+  std::hash<uint64_t> hasher;
+  const uint64_t kMul = 0x9ddfea08eb382d69ULL;
+  uint64_t x = (hasher(b) ^ a) * kMul;
+  x ^= (x >> 47);
+  uint64_t y = (a ^ x) * kMul;
+  y ^= (y >> 47);
+  return y * kMul;
 }
 
 template <typename T>
