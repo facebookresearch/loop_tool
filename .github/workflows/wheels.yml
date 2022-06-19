@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
             CMAKE_OSX_ARCHITECTURES=${{ matrix.cibw-arch == 'macosx_x86_64' && 'x86_64' || matrix.cibw-arch == 'macosx_arm64' && 'arm64' || matrix.cibw-arch == 'macosx_universal2' && '"arm64;x86_64"' || '' }}
-            echo "CIBW_SKIP=\"cp36-* pp*\"" >> $GITHUB_ENV
+            echo "CIBW_SKIP=\"pp* cp36-*\"" >> $GITHUB_ENV
             echo "CIBW_ARCHS_LINUX=x86_64 aarch64" >> $GITHUB_ENV
             echo "CIBW_ARCHS_MACOS=x86_64 arm64" >> $GITHUB_ENV
             echo "CIBW_BUILD=*-${{ matrix.cibw-arch }}" >> $GITHUB_ENV
