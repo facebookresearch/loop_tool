@@ -137,11 +137,19 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("enable_reuse", &IR::enable_reuse)
       .def("__repr__", &dot)
       .def("dump", &IR::dump)
-      .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
+      .def("dump_var",
+           [](const IR &ir, IR::VarRef v) { return ir.var(v).name(); })
+      .def("op", [](const IR &ir, IR::NodeRef nr) { return ir.node(nr).op(); })
+      .def("inputs",
+           [](const IR &ir, IR::NodeRef nr) { return ir.node(nr).inputs(); })
+      .def("outputs",
+           [](const IR &ir, IR::NodeRef nr) { return ir.node(nr).outputs(); })
       .def_property_readonly("vars", &IR::vars)
       .def_property_readonly("nodes", &IR::nodes)
+      .def("inputs", [](const IR &ir) { return ir.inputs(); })
+      .def("outputs", [](const IR &ir) { return ir.outputs(); })
       .def_property_readonly(
-          "order",
+          "orders",
           [](IR &ir) {
             std::unordered_map<
                 IR::NodeRef,
@@ -154,6 +162,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
               }
             }
             return order;
+          })
+      .def_property_readonly(
+          "priorities",
+          [](const IR &ir) {
+            std::unordered_map<IR::NodeRef, float> priorities;
+            for (const auto &n : ir.nodes()) {
+              priorities[n] = ir.priority(n);
+            }
+            return priorities;
           })
       .def("pointwise_vars", &IR::pointwise_vars)
       .def("loop_vars", &IR::loop_vars)
@@ -267,11 +284,11 @@ PYBIND11_MODULE(loop_tool_py, m) {
              if (lt.kind(ref) == LoopTree::LOOP) {
                auto loop = lt.loop(ref);
                std::stringstream ss;
-               ss << "L{" << lt.ir.var(loop.var).name() << ":" << loop.size;
+               ss << "loop over " << lt.ir.var(loop.var).name() << ":"
+                  << loop.size;
                if (loop.tail) {
                  ss << "r" << loop.tail;
                }
-               ss << "}";
                return ss.str();
              }
              return lt.ir.dump(lt.node(ref));
