@@ -56,6 +56,7 @@ auto mm = [](lz::Tensor A, lz::Tensor B) {
   auto C = A.as(M, K) * B.as(K, N);
   return C.sum(K);
 };
+
 lz::Tensor A(128, 128);
 lz::Tensor B(128, 128);
 rand(A.data<float>(), 128 * 128);
