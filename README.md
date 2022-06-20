@@ -138,7 +138,15 @@ https://user-images.githubusercontent.com/4842908/172877041-fd4b9ed8-7164-49f6-8
 - `negate`
 - `reciprocal`
 
-It is straight-forward to add operator support if needed.
+It is straight-forward to add arithmetic support if needed.
+
+With the constraint-based quasi-linear indexing system, far more complex operations can easily be defined, such as
+
+- Padding
+- Concatenation
+- Matrix multiplication
+- Convolution (group, strided, dilated)
+- Pooling (max, average)
 
 ## License
 
