@@ -120,6 +120,25 @@ Additionally, a curses-based UI is provided (in Python `lt.ui(tensor)`) to inter
 
 https://user-images.githubusercontent.com/4842908/172877041-fd4b9ed8-7164-49f6-810f-b14f169e2ca9.mp4
 
+## Arithmetic Support
+
+`loop_tool` is built on fixed-range loop iterations over quasi-linear index equations.  Within these loops, the following operations are currently supported:
+
+- `copy`
+- `add`
+- `subtract`
+- `multiply`
+- `divide`
+- `min`
+- `max`
+- `log`
+- `exp`
+- `sqrt`
+- `abs`
+- `negate`
+- `reciprocal`
+
+It is straight-forward to add operator support if needed.
 
 ## License
 
