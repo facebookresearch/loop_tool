@@ -114,7 +114,7 @@ can be written as highly optimized bounded loops,
     - Transparent JIT compilation
 2. A simple functional IR
     - Optimized through local node-level annotations
-    - Lowered to various backends (currently CPU and CUDA)
+    - Lowered to various backends (currently C, WASM)
 
 Additionally, a curses-based UI is provided (in Python `lt.ui(tensor)`) to interactively optimize loop structures on the fly:
 
