@@ -5,7 +5,7 @@ A tiny linear algebra code-generator and optimization toolkit.  Try it out here:
 
 ![](https://user-images.githubusercontent.com/4842908/174701426-5e479bad-821e-4395-ae1a-91c48776efd9.gif)
 
-
+Preprint on [arxiv](https://arxiv.org/abs/2205.00618)
 
 ## Installation
 
