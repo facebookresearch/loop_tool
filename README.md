@@ -3,7 +3,7 @@
 A tiny linear algebra code-generator and optimization toolkit.  Try it out here: http://loop-tool.glitch.me
 
 
-https://user-images.githubusercontent.com/4842908/174682947-7179bd78-2c54-47aa-80f0-9e99531df065.mp4
+![](https://user-images.githubusercontent.com/4842908/174682947-7179bd78-2c54-47aa-80f0-9e99531df065.mp4)
 
 
 
