@@ -199,7 +199,7 @@ public:
     ss << "]\n";
     return ss.str();
   }
-  enum { INST = 0, LOOP = 1, DATA = 2 };
+  enum { INST_NODE = 0, LOOP_NODE = 1, DATA_NODE = 2 };
 
   std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const {
     // int n = 0;
@@ -261,26 +261,50 @@ public:
 
   std::string create_data_node(LoopTree::TreeRef tr, IR::NodeRef nr)const{
     auto &node_in = lt.ir.node(nr);
-    std::stringstream ss_data_node;
-    ss_data_node << "D" << nr << " [shape=ellipse,";
-    ss_data_node << "label=\"" << "%" << nr << "[ ";
+    std::stringstream ss;
 
-    for (auto &v : node_in.vars()) {
-      ss_data_node << lt.ir.var(v).name() << " ";
-    }
-    ss_data_node << "]\",";
 
-    ss_data_node << "feature_dict=\"{";
-    ss_data_node << "'type':" << DATA << ",";
-    ss_data_node << "}\"];\n";
+    std::string node_str = "D" + std::to_string(nr);
+    std::string shape = "ellipse";
+    std::string label = [&]() {
+            std::stringstream ss_tmp;
+            ss_tmp << "%" << nr << "[ ";
+            for (auto &v : node_in.vars()) {
+              ss_tmp << lt.ir.var(v).name() << " ";
+            }
+            ss_tmp << "]";
+            return ss_tmp.str();
+        }();
+    const std::map<std::string, int> feature_dict = 
+      {
+        {"type", DATA_NODE}
+      };
+    ss << create_lt_node( node_str, shape, label, feature_dict);
 
 
     for (auto &var : node_in.vars()) {
       for (auto loop_tr: lt.get_var_trs(tr, var)){
-        ss_data_node << " " << "L" << loop_tr << " -> " << "D" << nr << "[label=1];\n";                  
+        ss << " " << "L" << loop_tr << " -> " << "D" << nr << "[label=1];\n";                  
       }
     }
-    return ss_data_node.str();
+    return ss.str();
+  }
+
+  std::string create_lt_node(
+    std::string node_str, 
+    std::string shape, 
+    std::string label, 
+    std::map<std::string, int> feature_dict
+    )const{
+    std::stringstream ss;
+    ss << node_str << " [shape=" << shape << ",";
+    ss << "label=\"" << label << "\",";
+    ss << "feature_dict=\"{";
+    for (const auto &item: feature_dict){
+      ss << "'" << item.first << "':" << item.second << ",";
+    }
+    ss << "}\"];\n";
+    return ss.str();
   }
 
   std::string dump_dot_graph() const {
@@ -328,24 +352,31 @@ public:
             ss_data_node << " " << "L" << tr << " -> " << "D" << tn.node << "[label=1];\n";
 
 
-            ss_node << "L" << tr << " [shape=hexagon,";
-            ss_node << "label=\"" << lt.ir.dump(tn.node) << "\",";
-            ss_node << "feature_dict=\"{";
-            ss_node << "'type':" << INST << ",";
-            ss_node << "'cursor':" << (tr == cursor) << ",";
-            ss_node << "}\"];\n";
+            std::string node_str = "L" + std::to_string(tr);
+            std::string shape = "hexagon";
+            std::string label = lt.ir.dump(tn.node);
+            const std::map<std::string, int> feature_dict = 
+              {
+                {"type", INST_NODE},
+                {"cursor", tr == cursor}
+              };
+            ss_node << create_lt_node( node_str, shape, label, feature_dict);
+
 
           }else if (tn.kind == LoopTree::LOOP){
-            ss_node << "L" << tr << " [shape=record,";
-            ss_node << "label=\""<< "for " << lt.ir.var(tn.loop.var).name() << " in " << tn.loop.size << " r " << tn.loop.tail << "\",";
-            ss_node << "feature_dict=\"{";                  
-            ss_node << "'type':" << LOOP << ",";
-            ss_node << "'vectorize':" << (lt.annotation(tr) == "vectorize") << ",";
-            ss_node << "'unroll': " << (lt.annotation(tr) == "unroll") << ",";
-            ss_node << "'size':" << tn.loop.size << ",";
-            ss_node << "'tail':" << tn.loop.tail << ",";
-            ss_node << "'cursor':" << (tr == cursor) << ",";
-            ss_node << "}\"];\n";
+            std::string node_str = "L" + std::to_string(tr);
+            std::string shape = "record";
+            std::string label = "for " + lt.ir.var(tn.loop.var).name() + " in " + std::to_string(tn.loop.size) + " r " + std::to_string(tn.loop.tail); 
+            const std::map<std::string, int> feature_dict = 
+              {
+                {"type", LOOP_NODE},
+                {"cursor", tr == cursor},
+                {"vectorize", (lt.annotation(tr) == "vectorize")},
+                {"unroll", (lt.annotation(tr) == "unroll")},
+                {"size", tn.loop.size},
+                {"tail", tn.loop.tail}
+              };
+            ss_node << create_lt_node( node_str, shape, label, feature_dict);
           }
 
 
