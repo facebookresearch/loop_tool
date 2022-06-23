@@ -453,6 +453,26 @@ struct LoopTree {
       const std::function<std::string(LoopTree::TreeRef)> &fn = {}) const;
   IR ir;
 
+  using VarRef = int32_t;
+  std::vector<TreeRef> get_var_trs(TreeRef tr, VarRef var)const{ // Get TreeRef to Loops
+    std::vector<TreeRef> var_trs;
+    if (kind(tr) != LoopTree::NODE){
+      return var_trs;
+    }
+
+    tr = parent(tr);
+    
+    while(tr != -1){
+      auto tn = tree_node(tr);
+      if (var == tn.loop.var){
+        var_trs.push_back(tr);
+      }
+      tr = parent(tr);
+    }
+    return var_trs;
+  }
+
+
   LoopTree(){}
   LoopTree(const IR &ir_);
 

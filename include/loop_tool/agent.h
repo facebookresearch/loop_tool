@@ -6,6 +6,7 @@ LICENSE file in the root directory of this source tree.
 */
 #pragma once
 
+#include <bitset>
 #include <map>
 
 #include "ir.h"
@@ -21,25 +22,26 @@ public:
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
       void);
   const std::map<std::string, ActionFn> actions_fn = {
+      {"dummy", &LoopTreeAgent::dummy},
       {"up", &LoopTreeAgent::up},
       {"down", &LoopTreeAgent::down},
       {"swap_down", &LoopTreeAgent::swap_down},
       {"swap_up", &LoopTreeAgent::swap_up},
-      {"split_2", &LoopTreeAgent::split_2},
-      {"split_4", &LoopTreeAgent::split_4},
-      {"split_8", &LoopTreeAgent::split_8},
-      {"split_16", &LoopTreeAgent::split_16},
-      {"split_32", &LoopTreeAgent::split_32},
-      {"split_64", &LoopTreeAgent::split_64},
-      {"split_128", &LoopTreeAgent::split_128},
-      {"split_256", &LoopTreeAgent::split_256},
-      {"merge", &LoopTreeAgent::merge},
-      {"vectorize", &LoopTreeAgent::vectorize},
-      {"unroll", &LoopTreeAgent::unroll},
-      {"copy_input_0", &LoopTreeAgent::copy_input_0},
-      {"copy_input_1", &LoopTreeAgent::copy_input_1},
-      {"increase_reuse", &LoopTreeAgent::increase_reuse},
-      {"decrease_reuse", &LoopTreeAgent::decrease_reuse},
+      // {"split_2", &LoopTreeAgent::split_2},
+      // {"split_4", &LoopTreeAgent::split_4},
+      // {"split_8", &LoopTreeAgent::split_8},
+      // {"split_16", &LoopTreeAgent::split_16},
+      // {"split_32", &LoopTreeAgent::split_32},
+      // {"split_64", &LoopTreeAgent::split_64},
+      // {"split_128", &LoopTreeAgent::split_128},
+      // {"split_256", &LoopTreeAgent::split_256},
+      // {"merge", &LoopTreeAgent::merge},
+      // {"vectorize", &LoopTreeAgent::vectorize},
+      // {"unroll", &LoopTreeAgent::unroll},
+      // {"copy_input_0", &LoopTreeAgent::copy_input_0},
+      // {"copy_input_1", &LoopTreeAgent::copy_input_1},
+      // {"increase_reuse", &LoopTreeAgent::increase_reuse},
+      // {"decrease_reuse", &LoopTreeAgent::decrease_reuse},
   };
 
   typedef double (LoopTreeAgent::*EvalFn)(void);
@@ -82,9 +84,15 @@ public:
 
     for (auto& action : actions_fn) {
       try {
+        // std::cout << "Action: "<< action.first << std::endl;
         apply_action(action.first);
+        // std::cout << dump();
+        FLOPS();
+        // eval_runtime(lt);
         available_actions.push_back(action.first);
-      } catch (std::runtime_error e) {}
+      } catch (std::exception& e) {
+        // std::cout << "Action: "<< action.first << " Error:: " << e.what() << std::endl;
+      }
       lt = lt_copy;
       cursor = cursor_copy;
     }
@@ -151,7 +159,88 @@ public:
 
   // }
 
-  std::string dump_dot_simple() const {
+  std::string dump_tensor() const {
+    int loop_id = 0;
+    std::unordered_map<std::string, int> iter_id;
+    std::stringstream ss;
+    auto ir_coordinates = lt.get_ir_coordinates(cursor);
+
+
+    ss << "[\n";
+    auto short_name = [](std::string name) {
+      return name.substr(0, name.find("_"));
+    };
+      lt.walk(
+        [&](LoopTree::TreeRef tr, int depth) {
+            auto tn = lt.tree_node(tr);
+            if (tn.kind == LoopTree::NODE){
+              return;
+            }
+            
+            // ss << "[";
+            ss << "0" << ",";            
+            ss << (tr == cursor) << ",";            
+            ss << (lt.annotation(tr) == "vectorize") << ",";
+            ss << (lt.annotation(tr) == "unroll") << ",";
+
+            for(auto &ch: std::bitset< 4 >(  tn.loop.var ).to_string()){
+              ss << ch << ",";
+            } 
+            for(auto &ch: std::bitset< 16 >(  tn.loop.size ).to_string()){
+              ss << ch << ",";
+            }
+            for(auto &ch: std::bitset< 16 >(  tn.loop.tail ).to_string()){
+              ss << ch << ",";
+            }
+            // ss << "],";
+          },
+          0);
+
+    ss << "]\n";
+    return ss.str();
+  }
+  enum { INST = 0, LOOP = 1, DATA = 2 };
+
+  std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const {
+    // int n = 0;
+    std::stringstream ss;
+
+    lt.walk(
+      [&](LoopTree::TreeRef tr, int depth) {
+          auto tn = lt.tree_node(tr);
+
+          ss << "L" << root_tr++ << " [shape=record,";
+          ss << "label=\"{";
+
+          if (tn.kind == LoopTree::NODE){
+            ss << "'type':" << LoopTree::NODE << ",";
+            ss << "'vectorize':" << 0 << ",";
+            ss << "'unroll':" << 0 << ",";
+            ss << "'name':" << 0 << ",";
+            ss << "'size':" << 0 << ",";
+            ss << "'tail':" << 0 << ",";
+          }else if (tn.kind == LoopTree::LOOP){
+            ss << "'type':" << LoopTree::LOOP << ",";
+            ss << "'vectorize':" << (lt.annotation(tr) == "vectorize") << ",";
+            ss << "'unroll': " << (lt.annotation(tr) == "unroll") << ",";
+            ss << "'name':" << tn.loop.var << ",";
+            ss << "'size':" << tn.loop.size << ",";
+            ss << "'tail':" << tn.loop.tail << ",";
+          }
+          ss << "'cursor':" << (tr == cursor) << ",";
+
+          ss << "}\"];\n";
+
+          for (auto out : lt.children(tr)) {
+            ss << " " << tr << " -> " << out << ";\n";
+          }
+        },
+        root_tr);
+
+    return ss.str();
+  } 
+
+  std::string dump_dot_tree() const {
     int loop_id = 0;
     std::unordered_map<std::string, int> iter_id;
     std::stringstream ss;
@@ -164,44 +253,181 @@ public:
       return name.substr(0, name.find("_"));
     };
 
-
-    int n = 0;
-      lt.walk(
-        [&](LoopTree::TreeRef tr, int depth) {
-            auto tn = lt.tree_node(tr);
-
-            ss << n++ << " [shape=record,";
-            ss << "label=\"{";
-
-            if (tn.kind == LoopTree::NODE){
-              ss << "'type':" << LoopTree::NODE << ",";
-              ss << "'vectorize':" << 0 << ",";
-              ss << "'unroll':" << 0 << ",";
-              ss << "'name':" << 0 << ",";
-              ss << "'size':" << 0 << ",";
-              ss << "'tail':" << 0 << ",";
-            }else if (tn.kind == LoopTree::LOOP){
-              ss << "'type':" << LoopTree::LOOP << ",";
-              ss << "'vectorize':" << (lt.annotation(tr) == "vectorize") << ",";
-              ss << "'unroll': " << (lt.annotation(tr) == "unroll") << ",";
-              ss << "'name':" << tn.loop.var << ",";
-              ss << "'size':" << tn.loop.size << ",";
-              ss << "'tail':" << tn.loop.tail << ",";
-            }
-            ss << "'cursor':" << (tr == cursor) << ",";
-
-            ss << "}\"];\n";
-
-            for (auto out : lt.children(tr)) {
-              ss << " " << tr << " -> " << out << ";\n";
-            }
-          },
-          0);
+    ss << dump_dot_tree_core();
 
     ss << "}\n";
     return ss.str();
   }
 
+  std::string create_data_node(LoopTree::TreeRef tr, IR::NodeRef nr)const{
+    auto &node_in = lt.ir.node(nr);
+    std::stringstream ss_data_node;
+    ss_data_node << "D" << nr << " [shape=ellipse,";
+    ss_data_node << "label=\"" << "%" << nr << "[ ";
+
+    for (auto &v : node_in.vars()) {
+      ss_data_node << lt.ir.var(v).name() << " ";
+    }
+    ss_data_node << "]\",";
+
+    ss_data_node << "feature_dict=\"{";
+    ss_data_node << "'type':" << DATA << ",";
+    ss_data_node << "}\"];\n";
+
+
+    for (auto &var : node_in.vars()) {
+      for (auto loop_tr: lt.get_var_trs(tr, var)){
+        ss_data_node << " " << "L" << loop_tr << " -> " << "D" << nr << "[label=1];\n";                  
+      }
+    }
+    return ss_data_node.str();
+  }
+
+  std::string dump_dot_graph() const {
+    int loop_id = 0;
+    std::unordered_map<std::string, int> iter_id;
+    std::vector<int> created_data_nodes;
+    
+    std::stringstream ss, ss_print;
+    auto ir_coordinates = lt.get_ir_coordinates(cursor);
+    int prev_node = 0;
+
+
+    ss << "digraph G {\n";
+    ss << " node [fontname = \"courier\", fontsize=12];\n";
+    auto short_name = [](std::string name) {
+      return name.substr(0, name.find("_"));
+    };
+
+    
+    int n = 0;
+    lt.walk(
+      [&](LoopTree::TreeRef tr, int depth) {
+          std::stringstream ss_node;
+          std::stringstream ss_data_node;
+
+          auto tn = lt.tree_node(tr);
+
+          if (tn.kind == LoopTree::NODE){
+            auto &node = lt.ir.node(tn.node);
+
+            // Create data_in nodes
+            for (const auto &inp : node.inputs()) {
+              if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), inp)){
+                ss_data_node << create_data_node(tr, inp);
+                created_data_nodes.push_back(inp);              
+              }              
+              ss_data_node << " " << "D" << inp <<  " -> " << "L" << tr << "[label=1];\n";
+            }
+
+            // Create data_out nodes
+            if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), tn.node)){
+              ss_data_node << create_data_node(tr, tn.node);
+              created_data_nodes.push_back(tn.node);              
+            }                   
+            ss_data_node << " " << "L" << tr << " -> " << "D" << tn.node << "[label=1];\n";
+
+
+            ss_node << "L" << tr << " [shape=hexagon,";
+            ss_node << "label=\"" << lt.ir.dump(tn.node) << "\",";
+            ss_node << "feature_dict=\"{";
+            ss_node << "'type':" << INST << ",";
+            ss_node << "'cursor':" << (tr == cursor) << ",";
+            ss_node << "}\"];\n";
+
+          }else if (tn.kind == LoopTree::LOOP){
+            ss_node << "L" << tr << " [shape=record,";
+            ss_node << "label=\""<< "for " << lt.ir.var(tn.loop.var).name() << " in " << tn.loop.size << " r " << tn.loop.tail << "\",";
+            ss_node << "feature_dict=\"{";                  
+            ss_node << "'type':" << LOOP << ",";
+            ss_node << "'vectorize':" << (lt.annotation(tr) == "vectorize") << ",";
+            ss_node << "'unroll': " << (lt.annotation(tr) == "unroll") << ",";
+            ss_node << "'size':" << tn.loop.size << ",";
+            ss_node << "'tail':" << tn.loop.tail << ",";
+            ss_node << "'cursor':" << (tr == cursor) << ",";
+            ss_node << "}\"];\n";
+          }
+
+
+          // Control flow graph
+          if (tr != 0){
+            ss_node << " " << "L" << prev_node << " -> " << "L" << tr << "[label=0];\n";
+          }
+          prev_node = tr;
+          ss << ss_node.str();
+          ss << ss_data_node.str();
+        },
+        0);
+
+    ss << "}\n";
+    return ss.str();
+  }
+
+  // std::string dump_dot_ir_core() const {
+  //   std::stringstream ss;
+  //   for (auto n : toposort(lt.ir)) {
+
+  //     ss << " ";
+  //     ss << "I" << n << "[shape=record,";
+  //     ss << "label=\"{";
+
+  //     ss << "'type':" << LoopTree::NODE << ",";
+
+  //     ss << "'name':'" << loop_tool::dump(lt.ir.node(n).op()) << "',";
+  //     // ss << "'iters': [";
+  //     // auto vars = lt.ir.node(n).vars();
+  //     // for (auto &v : vars) {
+  //     //   ss << "'" << short_name(lt.ir.var(v).name()) << "'";
+  //     //   if (&v != &vars.back()) {
+  //     //     ss << ", ";
+  //     //   }
+  //     // }
+  //     // ss << "],";
+
+
+  //     auto order = lt.ir.order(n);
+  //     int i = 0;
+  //     for (auto &p : order) {
+  //       ss << "'L" << i << "':{";
+
+  //       std::string iter_name = short_name(lt.ir.var(p.first).name());
+  //       if (iter_id.count(iter_name) == 0) {
+  //         iter_id[iter_name] = iter_id.size();
+  //       }
+
+  //       ss << "'name':" << iter_id[iter_name] << ",";
+
+  //       if (p.second.size >= 0) {
+  //         ss << "'range':" << p.second.size << ",";
+  //       }
+
+  //       if (p.second.tail >= 0) {
+  //         ss << "'tail':" << p.second.tail << ",";
+  //       }
+
+  //       // ss << "'vectorize':" << (lt.ir.loop_annotations(n)[i] == "vectorize") << ",";
+  //       // ss << "'unroll':" << (lt.ir.loop_annotations(n)[i] == "unroll") << ",";
+
+  //       // bool is_cursor = std::count(ir_coordinates.begin(), ir_coordinates.end(), std::make_pair(n, i));
+  //       // ss << "'cursor':" << is_cursor << ",";
+        
+
+  //       i++;
+  //       ss << "},";
+  //     }
+  //     i = 0;
+
+  //     ss << "}\"];\n";
+  //     for (auto out : lt.ir.node(n).outputs()) {
+  //       ss << " " << n << " -> " << out << ";\n";
+  //     }
+  //   }
+  //   ss << "}\n";
+  //   return ss.str();
+
+
+    
+  // }
 
   std::string dump_dot() const {
     int loop_id = 0;
@@ -275,6 +501,10 @@ public:
   /**********************************************
    * Actions
    **********************************************/
+  LoopTreeAgent& dummy() {
+    return *this;
+  }
+
   LoopTreeAgent& up() {
     cursor = loop_tool::previous_ref(lt, cursor);
     return *this;
@@ -287,11 +517,13 @@ public:
 
   LoopTreeAgent& swap_up() {
     lt = loop_tool::try_swap(lt, cursor, previous_ref(lt, cursor));
+    up();
     return *this;
   }
 
   LoopTreeAgent& swap_down() {
     lt = loop_tool::try_swap(lt, cursor, next_ref(lt, cursor));
+    down();
     return *this;
   }
 

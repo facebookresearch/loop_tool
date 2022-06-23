@@ -587,6 +587,8 @@ LoopTree::TreeRef next_ref_impl(const LoopTree& lt, LoopTree::TreeRef ref,
 LoopTree::TreeRef next_ref(const LoopTree& lt, LoopTree::TreeRef ref) {
   auto next = next_ref_impl(lt, ref, true);
   ASSERT(next != -1);
+  ASSERT(lt.kind(next) != LoopTree::NODE);
+
   return (next == -1) ? ref : next;;
 }
 
@@ -637,8 +639,11 @@ double eval_runtime(const LoopTree& lt) {
   // TODO: Run 100 times and get mean, std:
   unsigned iterations = 100;
   unsigned warmup_iterations = 5;
-  return sysml::measure_median([&]() { cc->run(memory); }, iterations,
-                               warmup_iterations);
+  double seconds = 0.1; 
+  // return sysml::measure_median_time_limited([&]() { cc->run(memory); }, iterations,
+  //                              warmup_iterations, seconds);
+  return sysml::measure_fastest_time_limited([&]() { cc->run(memory); }, iterations,
+                               seconds);
 }
 
 int64_t FLOPs(const LoopTree& lt) {

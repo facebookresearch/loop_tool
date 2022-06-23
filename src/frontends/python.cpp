@@ -232,7 +232,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
            &loop_tool::LoopTreeAgent::get_available_actions)
       .def("dump", &loop_tool::LoopTreeAgent::dump)     
       .def("dot", &loop_tool::LoopTreeAgent::dump_dot)
-      .def("dot_simple", &loop_tool::LoopTreeAgent::dump_dot_simple);
+      .def("dot_tensor", &loop_tool::LoopTreeAgent::dump_tensor)
+      .def("dot_tree", &loop_tool::LoopTreeAgent::dump_dot_tree)
+      .def("dot_graph", &loop_tool::LoopTreeAgent::dump_dot_graph);
 
   py::class_<LoopTree>(m, "LoopTree")
       .def(py::init<const IR &>())

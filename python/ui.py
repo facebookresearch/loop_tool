@@ -255,3 +255,4 @@ def ui_impl(stdscr, tensor, fn):
 
 def ui(T, path=""):
     T.set(wrapper(ui_impl, T, path))
+    return T
