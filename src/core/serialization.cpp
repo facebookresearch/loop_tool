@@ -66,7 +66,7 @@ Expr deserialize_expr(const std::string& str,
       idx_map.emplace(idx, Expr(parse_val<int64_t>(toks.at(2))));
     } else if (type == "f") {
       auto arg_idxs = parse_vec<int32_t>(toks.at(2));
-      std::vector<Expr> args;
+      smallvec<Expr, 2> args;
       for (const auto& idx : arg_idxs) {
         if (idx_to_sym.count(idx)) {
           args.emplace_back(Expr(idx_to_sym.at(idx)));

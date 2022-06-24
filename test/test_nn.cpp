@@ -18,6 +18,7 @@ using namespace loop_tool::symbolic;
 using namespace loop_tool::testing;
 
 TEST(MNIST) {
+  loop_tool::ScopedBackend sb("wasm");
   auto conv = [](Tensor X, Tensor W, Tensor B, int stride, int padding) {
     auto inp_shape = X.shape();
     if (padding > 0) {
@@ -57,7 +58,8 @@ TEST(MNIST) {
     X = maxp(X, 2, 2);
     X = conv(X, W1, B1, 1, 2);
     X = maxp(X, 2, 2);
-    (void)X.sizes()[0];
+    //(void)X.sizes()[0];
+    X.compile();
     X.clear_cache();
     std::cerr << "hash is " << X.hash() << "\n";
   }

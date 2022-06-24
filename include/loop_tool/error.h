@@ -57,5 +57,5 @@ struct StreamOut : public NullStream {
 #define ASSERT(x) loop_tool::NullStream()
 #else
 #define ASSERT(x) \
-  ((!(x)) ? loop_tool::StreamOut(x, LOCATION, #x) : loop_tool::NullStream())
+  if (!(x)) loop_tool::StreamOut(x, LOCATION, #x)
 #endif

@@ -11,6 +11,19 @@ LICENSE file in the root directory of this source tree.
 using namespace loop_tool;
 using namespace loop_tool::testing;
 
+TEST(SymbolicReplace) {
+  namespace lz = loop_tool::lazy;
+  lz::Symbol A("A");
+  lz::Symbol B("B");
+  lz::Expr C = A + B;
+  std::cerr << C.dump() << "\n";
+  auto D = C.replace(A, 4);
+  std::cerr << D.dump() << "\n";
+  D = D.replace(B, 4);
+  auto E = D.simplify();
+  std::cerr << E.dump() << "\n";
+}
+
 TEST(SymbolicBasic) {
   namespace lz = loop_tool::lazy;
   std::vector<lz::Constraint> constraints;
@@ -124,3 +137,56 @@ TEST(SymbolicConcat) {
 }
 
 TEST(SymbolicCanonicalization) {}
+
+TEST(SymbolicNewImpl) {
+  using namespace loop_tool::symbolic;
+  const auto& s = Symbol("X");
+  auto e0 = Expr(s);
+  auto e1 = Expr(1234LL);
+  auto e2 = e0 + e1;
+  std::cerr << e2.args().size() << "\n";
+  std::cerr << e2.contains(s) << "\n";
+  std::cerr << e2.dump() << "\n";
+  std::cerr << e2.hash() << "\n";
+  std::cerr << e2.hash(true) << "\n";
+  e2.visit([&](const Expr& e) { std::cerr << e.dump() << "\n"; });
+  std::cerr << "NUM SYM " << e2.symbols().size() << "\n";
+
+  constexpr int N = 1;
+  {
+    auto start = std::chrono::steady_clock::now();
+    auto e = Expr(s);
+    for (auto i = 0; i < N; ++i) {
+      e = e + Expr(1234LL);
+      e = Expr(1234LL) + e;
+    }
+    e = e.walk([](const Expr& e) {
+      if (e.type() == Expr::Type::symbol) {
+        return Expr(0);
+      }
+      return e;
+    });
+    std::cerr << e.contains(s) << "\n";
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    std::cerr << "expr_: " << (1e6 * diff.count()) << "us\n";
+  }
+  {
+    auto start = std::chrono::steady_clock::now();
+    auto e = Expr(s);
+    for (auto i = 0; i < N; ++i) {
+      e = e + Expr(1234LL);
+      e = Expr(1234LL) + e;
+    }
+    e = e.walk([](const Expr& e) {
+      if (e.type() == Expr::Type::symbol) {
+        return Expr(0LL);
+      }
+      return e;
+    });
+    std::cerr << e.contains(s) << "\n";
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff = end - start;
+    std::cerr << "expr: " << (1e6 * diff.count()) << "us\n";
+  }
+}

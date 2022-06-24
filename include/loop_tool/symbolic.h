@@ -7,10 +7,14 @@ LICENSE file in the root directory of this source tree.
 #pragma once
 
 #include <functional>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "error.h"
+#include "smallvec.h"
 
 namespace loop_tool {
 namespace symbolic {
@@ -76,60 +80,157 @@ struct Symbol {
   Expr operator*(const Expr& rhs) const;
 };
 
-struct Expr {
+struct Expr;
+
+struct ExprImpl {
   enum class Type { value, symbol, function } type_;
-  Op op_ = Op::constant;  // val_ and symbol_ are constant functions
+  Op op_ = Op::constant;
   int64_t val_;
   Symbol symbol_;
-  std::vector<Expr> exprs_;
-  mutable size_t hash_ = 0;
-  mutable size_t symbol_hash_ = 0;
+  smallvec<std::shared_ptr<ExprImpl>, 2> args_;
+  uint64_t hash_ = 0;
+  uint64_t symbol_hash_ = 0;
+  explicit ExprImpl(int64_t val) : type_(Type::value), val_(val) { init(); }
+  explicit ExprImpl(const Symbol& symbol)
+      : type_(Type::symbol), symbol_(symbol) {
+    init();
+  }
+  explicit ExprImpl(Op op, const Expr&);
+  explicit ExprImpl(Op op, const Expr&, const Expr&);
   void init();
-  explicit Expr(int64_t val) : type_(Type::value), val_(val) { init(); };
-  explicit Expr(const Symbol& symbol) : type_(Type::symbol), symbol_(symbol) {
-    init();
-  };
-  explicit Expr(Op op, std::vector<Expr> exprs)
-      : type_(Type::function), op_(op), exprs_(exprs) {
-    init();
-  };
-  Expr() = delete;
-  size_t hash(bool symbol_sensitive = false) const;
-  int64_t value() const;
-  Symbol symbol() const;
-  Op op() const;
-  const std::vector<Expr>& args() const;
-  Type type() const;
-  // returns a new expr
+  inline uint64_t hash(bool symbol_sensitive) {
+    if (symbol_sensitive) {
+      return symbol_hash_;
+    }
+    return hash_;
+  }
+
+  size_t contains(const Symbol& s) const {
+    switch (type_) {
+      case Type::symbol:
+        if (symbol_ == s) {
+          return 1;
+        }
+        return 0;
+      case Type::function: {
+        size_t count = 0;
+        for (const auto& arg : args_) {
+          count += arg->contains(s);
+        }
+        return count;
+      }
+      default:
+        return 0;
+    }
+  }
+};
+
+struct Expr {
+  std::shared_ptr<ExprImpl> impl_;
+  using Type = ExprImpl::Type;
+
+  explicit Expr() : impl_(std::make_shared<ExprImpl>(-1)) {}
+  explicit Expr(std::shared_ptr<ExprImpl> impl) : impl_(impl) {}
+
+  explicit Expr(Op op, const smallvec<Expr, 2>& args) {
+    if (args.size() == 2) {
+      impl_ = std::make_shared<ExprImpl>(op, args.at(0), args.at(1));
+    } else if (args.size() == 1) {
+      impl_ = std::make_shared<ExprImpl>(op, args.at(0));
+    }
+  }
+
+  template <typename... Args>
+  explicit Expr(Args... args)
+      : impl_(std::make_shared<ExprImpl>(std::forward<Args>(args)...)) {}
+
+  inline smallvec<Expr, 2> args() const {
+    smallvec<Expr, 2> out;
+    for (const auto& impl : impl_->args_) {
+      out.emplace_back(Expr(impl));
+    }
+    return out;
+  }
+
+  Expr arg(int idx) const { return Expr(impl_->args_.at(idx)); }
+
+  inline const smallvec<std::shared_ptr<ExprImpl>, 2>& impl_args() const {
+    return impl_->args_;
+  }
+
+  inline Type type() const { return impl_->type_; }
+  inline Op op() const { return impl_->op_; }
+  inline int64_t value() const {
+    if (type() != Type::value) {
+      ASSERT(type() == Type::value)
+          << "attempted to get real value from symbolic or unsimplified "
+             "expression: "
+          << dump();
+    }
+    return impl_->val_;
+  }
+
+  inline const Symbol& symbol() const {
+    if (type() != Type::symbol) {
+      ASSERT(type() == Type::symbol)
+          << "attempted to get symbol from value or unsimplified "
+             "expression: "
+          << dump();
+    }
+    return impl_->symbol_;
+  }
+
   Expr walk(std::function<Expr(const Expr&)> f) const;
+  void visit(std::function<void(const Expr&)> f) const;
   Expr replace(Symbol A, Symbol B) const;
   Expr replace(Symbol A, Expr e) const;
   Expr replace(const Expr& e, Symbol B) const;
   Expr replace(const Expr& e, int64_t c) const;
   Expr replace(Symbol A, int64_t c) const;
-  // actually returns count
-  size_t contains(Symbol s) const;
-  std::vector<Symbol> symbols(bool include_sized = true) const;
 
-  static Expr size(const Expr& expr);
-  static Expr max(const Expr& lhs, const Expr& rhs);
-  Expr simplify() const;
-  bool associative() const;
-  bool can_evaluate() const;
-  float evaluate() const;
-  Expr operator+(const Expr& rhs) const;
-  Expr operator*(const Expr& rhs) const;
-  Expr operator-(const Expr& rhs) const;
-  Expr operator-() const;
-  Expr operator/(const Expr& rhs) const;
-  Expr operator%(const Expr& rhs) const;
-  Expr reciprocal() const;
-  bool operator!=(const Expr& rhs) const;
-  bool operator==(const Expr& rhs) const;
   std::string dump(bool short_form = false,
                    const std::unordered_map<Symbol, std::string, Hash<Symbol>>&
                        replacements = {}) const;
-  size_t size() const;
+
+  inline uint64_t hash(bool symbol_sensitive = false) const {
+    return impl_->hash(symbol_sensitive);
+  }
+
+  inline size_t contains(const Symbol& s) const { return impl_->contains(s); }
+  std::vector<Symbol> symbols(bool include_sized = true) const;
+
+  inline Expr operator+(const Expr& rhs) const {
+    return Expr(Op::add, *this, rhs);
+  }
+  inline Expr operator*(const Expr& rhs) const {
+    return Expr(Op::multiply, *this, rhs);
+  }
+  inline Expr operator-() const { return Expr(Op::negate, *this); }
+  inline Expr operator-(const Expr& rhs) const { return *this + (-rhs); }
+  inline Expr operator/(const Expr& rhs) const {
+    return Expr(Op::divide, *this, rhs);
+  }
+  inline Expr operator%(const Expr& rhs) const {
+    return Expr(Op::modulo, *this, rhs);
+  }
+  static Expr size(const Expr& arg) {
+    ASSERT(arg.type() == Type::symbol);
+    return Expr(Op::size, arg);
+  }
+  static Expr max(const Expr& lhs, const Expr& rhs) {
+    return Expr(Op::max, lhs, rhs);
+  }
+  inline Expr reciprocal() const {
+    if (type() == Type::value) {
+      ASSERT(value() != 0) << "cannot calculate 1/0";
+    }
+    return Expr(Op::reciprocal, *this);
+  }
+  bool operator!=(const Expr& rhs) const;
+  bool operator==(const Expr& rhs) const;
+  Expr simplify() const;
+  bool can_evaluate() const;
+  float evaluate() const;
 };
 
 // This might seem generic, but it should be limited to either:

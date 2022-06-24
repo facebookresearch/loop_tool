@@ -17,6 +17,17 @@ LICENSE file in the root directory of this source tree.
 namespace loop_tool {
 namespace symbolic {
 
+bool associative(Op op) {
+  switch (op) {
+    case Op::add:
+    case Op::multiply:
+      return true;
+    default:
+      return false;
+  }
+  return false;
+}
+
 const int32_t Symbol::getNewId() {
   static int32_t symbol_count_ = 0;
   return symbol_count_++;
@@ -39,215 +50,157 @@ Expr Symbol::operator*(const Symbol& rhs) const {
 Expr Symbol::operator+(const Expr& rhs) const { return Expr(*this) + rhs; }
 Expr Symbol::operator*(const Expr& rhs) const { return Expr(*this) * rhs; }
 
-void Expr::init() {
-  if (associative()) {
-    std::sort(exprs_.begin(), exprs_.end(), [](const Expr& a, const Expr& b) {
-      if (a.type() != b.type()) {
-        return (int)a.type() < (int)b.type();
-      }
-      if (a.op() != b.op()) {
-        return (int)a.op() < (int)b.op();
-      }
-      return a.hash(true) > b.hash(true);
-    });
-  }
+ExprImpl::ExprImpl(Op op, const Expr& e) : type_(Type::function), op_(op) {
+  args_.emplace_back(e.impl_);
+  init();
 }
 
-size_t Expr::hash(bool symbol_sensitive) const {
-  if (!symbol_sensitive && hash_) {
-    return hash_;
-  } else if (symbol_sensitive && symbol_hash_) {
-    return symbol_hash_;
-  }
-  size_t h = symbolic::hash((int)op_);
-  if (type_ == Type::value) {
-    h = symbolic::hash_combine(h, symbolic::hash(val_));
-  } else if (type_ == Type::symbol) {
-    // for exprs, we usually pretend all symbols are the same
-    if (symbol_sensitive) {
-      h = symbolic::hash_combine(h, symbol().hash());
-    } else {
-      h = symbolic::hash_combine(h, symbolic::hash(1337));
-    }
-  }
-  for (const auto& expr : exprs_) {
-    h = symbolic::hash_combine(h, expr.hash(symbol_sensitive));
-  }
-  if (symbol_sensitive) {
-    symbol_hash_ = h;
+ExprImpl::ExprImpl(Op op, const Expr& a, const Expr& b)
+    : type_(Type::function), op_(op) {
+  if (!associative(op) || (a.hash() > b.hash())) {
+    args_.emplace_back(a.impl_);
+    args_.emplace_back(b.impl_);
   } else {
-    hash_ = h;
+    args_.emplace_back(b.impl_);
+    args_.emplace_back(a.impl_);
   }
-  return h;
+  init();
 }
 
-int64_t Expr::value() const {
-  if (type_ != Expr::Type::value) {
-    ASSERT(type_ == Expr::Type::value)
-        << "attempted to get real value from symbolic or unsimplified "
-           "expression: "
-        << dump();
+void ExprImpl::init() {
+  hash_ = symbolic::hash((int)op_);
+  if (type_ == Type::value) {
+    hash_ = symbolic::hash_combine(hash_, symbolic::hash(val_));
+  } else if (type_ == Type::symbol) {
+    hash_ = symbolic::hash_combine(hash_, symbolic::hash(1337));
+    symbol_hash_ = symbolic::hash_combine(hash_, symbol_.hash());
   }
-  return val_;
+  for (const auto& expr : args_) {
+    hash_ = symbolic::hash_combine(hash_, expr->hash(false));
+    symbol_hash_ = symbolic::hash_combine(symbol_hash_, expr->hash(true));
+  }
 }
 
-Symbol Expr::symbol() const {
-  ASSERT(type_ == Expr::Type::symbol);
-  return symbol_;
-}
-
-Op Expr::op() const { return op_; }
-
-const std::vector<Expr>& Expr::args() const {
-  ASSERT(type_ == Expr::Type::function);
-  return exprs_;
-}
-
-Expr::Type Expr::type() const { return type_; }
-
-Expr Expr::replace(Symbol A, Expr e) const {
-  switch (type()) {
-    case Expr::Type::symbol:
-      if (symbol() == A) {
-        return e;
+Expr Expr::walk(std::function<Expr(const Expr&)> f) const {
+  if (type() == Type::function) {
+    const auto& args_ = impl_->args_;
+    if (args_.size() == 2) {
+      const auto& a = Expr(args_[0]).walk(f);
+      const auto& b = Expr(args_[1]).walk(f);
+      if (a.impl_.get() != args_[0].get() || b.impl_.get() != args_[1].get()) {
+        return f(Expr(op(), a, b));
       }
-      return symbol();
-    case Expr::Type::value:
-      return *this;
-    case Expr::Type::function: {
-      std::vector<Expr> new_args;
-      for (const auto& arg : args()) {
-        new_args.emplace_back(arg.replace(A, e));
+    } else if (args_.size() == 1) {
+      const auto& a = Expr(args_[0]).walk(f);
+      if (a.impl_.get() != args_[0].get()) {
+        return f(Expr(op(), a));
       }
-      return Expr(op(), new_args);
     }
-    default:
-      ASSERT(0) << "couldn't process replacement! from " << dump() << " "
-                << Expr(A).dump() << " with " << e.dump();
-      return e;
   }
-}
-Expr Expr::replace(Symbol A, Symbol B) const {
-  switch (type()) {
-    case Expr::Type::symbol:
-      if (symbol() == A) {
-        return B;
-      }
-      return symbol();
-    case Expr::Type::value:
-      return *this;
-    case Expr::Type::function: {
-      std::vector<Expr> new_args;
-      for (const auto& arg : args()) {
-        new_args.emplace_back(arg.replace(A, B));
-      }
-      return Expr(op(), new_args);
-    }
-    default:
-      ASSERT(0) << "couldn't process replacement!";
-      return B;
-  }
+  return f(*this);
 }
 
-Expr Expr::replace(const Expr& e, Symbol B) const {
-  if (*this == e) {
-    return B;
-  }
-  switch (type()) {
-    case Expr::Type::symbol:
-    case Expr::Type::value:
-      return *this;
-    case Expr::Type::function: {
-      std::vector<Expr> new_args;
-      for (const auto& arg : args()) {
-        new_args.emplace_back(arg.replace(e, B));
-      }
-      return Expr(op(), new_args);
+void Expr::visit(std::function<void(const Expr&)> f) const {
+  if (type() == Type::function) {
+    for (const auto& arg : impl_args()) {
+      Expr(arg).visit(f);
     }
-    default:
-      ASSERT(0) << "couldn't process replacement!";
-      return B;
   }
+  f(*this);
 }
 
-Expr Expr::replace(const Expr& e, int64_t c) const {
-  if (*this == e) {
-    return Expr(c);
-  }
-  switch (type()) {
-    case Expr::Type::symbol:
-    case Expr::Type::value:
-      return *this;
-    case Expr::Type::function: {
-      std::vector<Expr> new_args;
-      for (const auto& arg : args()) {
-        new_args.emplace_back(arg.replace(e, c));
+std::string Expr::dump(
+    bool short_form,
+    const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements)
+    const {
+  std::stringstream ss;
+  if (type() == Type::value) {
+    ss << value();
+  } else if (type() == Type::symbol) {
+    auto sym = symbol();
+    if (replacements.count(sym)) {
+      ss << replacements.at(sym);
+    } else {
+      ss << symbol().name();
+      if (!short_form) {
+        ss << "[id:" << symbol().id() << "]";
       }
-      return Expr(op(), new_args);
     }
-    default:
-      ASSERT(0) << "couldn't process replacement!";
-      return Expr(c);
-  }
-}
+  } else if (op() == Op::size) {
+    ASSERT(impl_args().size() == 1)
+        << "invalid size function found: " << impl_args().size()
+        << " arguments";
+    ss << "|" << Expr(impl_args().at(0)).dump(short_form, replacements) << "|";
+  } else if (op() == Op::max) {
+    ASSERT(impl_args().size() == 2);
+    ss << "max(" << Expr(impl_args().at(0)).dump(short_form, replacements)
+       << ", " << Expr(impl_args().at(1)).dump(short_form, replacements) << ")";
+  } else if (op() == Op::negate) {
+    ASSERT(impl_args().size() == 1);
+    auto arg = Expr(impl_args().at(0));
+    ss << "-";
+    if (arg.type() == Type::function) {
+      ss << "(" << Expr(impl_args().at(0)).dump(short_form, replacements)
+         << ")";
+    } else {
+      ss << Expr(impl_args().at(0)).dump(short_form, replacements);
+    }
+  } else if (op() == Op::reciprocal) {
+    ASSERT(impl_args().size() == 1);
+    ss << "(1 / " << Expr(impl_args().at(0)).dump(short_form, replacements)
+       << ")";
+  } else {
+    ASSERT(impl_args().size() == 2);
+    auto lhs = Expr(impl_args().at(0));
+    auto rhs = Expr(impl_args().at(1));
+    if (lhs.op() == Op::constant || lhs.impl_args().size() == 1) {
+      ss << lhs.dump(short_form, replacements);
+    } else {
+      ss << "(" << lhs.dump(short_form, replacements) << ")";
+    }
+    // we pretty print addition of negatives
+    if (op() == Op::add) {
+      ss << "+";
+    } else if (op() == Op::multiply) {
+      ss << "*";
+    } else if (op() == Op::divide) {
+      ss << "/";
+    } else if (op() == Op::modulo) {
+      ss << "%";
+    } else {
+      ASSERT(0) << "can't print this op id " << (int)op();
+    }
 
-Expr Expr::replace(Symbol A, int64_t c) const {
-  switch (type()) {
-    case Expr::Type::symbol:
-      if (symbol() == A) {
-        return Expr(c);
-      }
-      return symbol();
-    case Expr::Type::value:
-      return *this;
-    case Expr::Type::function: {
-      std::vector<Expr> new_args;
-      for (const auto& arg : args()) {
-        new_args.emplace_back(arg.replace(A, c));
-      }
-      return Expr(op(), new_args);
+    if (rhs.op() == Op::constant || rhs.impl_args().size() == 1) {
+      ss << rhs.dump(short_form, replacements);
+    } else {
+      ss << "(" << rhs.dump(short_form, replacements) << ")";
     }
-    default:
-      ASSERT(0) << "couldn't process replacement!";
-      return Expr(c);
   }
-}
-
-size_t Expr::contains(Symbol s) const {
-  switch (type()) {
-    case Expr::Type::symbol:
-      if (symbol() == s) {
-        return 1;
-      }
-      return 0;
-    case Expr::Type::function: {
-      size_t count = 0;
-      for (const auto& arg : args()) {
-        count += arg.contains(s);
-      }
-      return count;
-    }
-    default:
-      return 0;
-  }
+  return ss.str();
 }
 
 std::vector<Symbol> Expr::symbols(bool include_sized) const {
   std::vector<Symbol> out;
-  std::unordered_set<Symbol, Hash<Symbol>> seen;
-  auto size_removed_expr = walk([&](const Expr& e) {
-    if (!include_sized && e.op() == Op::size) {
-      return Expr(0);
+  std::unordered_set<int32_t> seen;
+  auto size_removed_expr = [&]() {
+    if (!include_sized) {
+      return this->walk([&](const Expr& e) {
+        if (e.op() == Op::size) {
+          return Expr(0);
+        }
+        return e;
+      });
     }
-    return e;
-  });
-  size_removed_expr.walk([&](const Expr& e) {
-    if (e.type() == Expr::Type::symbol) {
-      auto sym = e.symbol();
-      if (seen.count(sym)) {
+    return *this;
+  }();
+  size_removed_expr.visit([&](const Expr& e) {
+    if (e.type() == Type::symbol) {
+      const auto& sym = e.symbol();
+      if (seen.count(sym.id())) {
         return e;
       }
-      seen.insert(sym);
+      seen.insert(sym.id());
       out.emplace_back(sym);
     }
     return e;
@@ -255,54 +208,94 @@ std::vector<Symbol> Expr::symbols(bool include_sized) const {
   return out;
 }
 
-Expr Expr::walk(std::function<Expr(const Expr&)> f) const {
-  if (type() == Expr::Type::function) {
-    std::vector<Expr> new_args;
-    for (const auto& arg : args()) {
-      new_args.emplace_back(arg.walk(f));
-    }
-    return f(Expr(op(), new_args));
-  }
-  return f(*this);
-}
+bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
 
-Expr Expr::size(const Expr& expr) {
-  ASSERT(expr.type() == Expr::Type::symbol) << "size() only works on symbols";
-  return Expr(Op::size, {expr}).simplify();
-}
-
-Expr Expr::max(const Expr& lhs, const Expr& rhs) {
-  return Expr(Op::max, {lhs, rhs}).simplify();
-}
-
-bool Expr::associative() const {
-  if (type() != Expr::Type::function) {
+bool Expr::operator==(const Expr& rhs) const {
+  if (hash(true) != rhs.hash(true)) {
     return false;
   }
-  switch (op()) {
-    case Op::add:
-    case Op::multiply:
-      return true;
-    default:
-      return false;
+  if (impl_.get() == rhs.impl_.get()) {
+    return true;
   }
-  return false;
+  if (type() == Type::value) {
+    return rhs.type() == Type::value && rhs.value() == value();
+  } else if (type() == Type::symbol) {
+    return rhs.type() == Type::symbol && rhs.symbol() == symbol();
+  }
+  if (rhs.type() != Type::function) {
+    return false;
+  }
+  bool match = true;
+  if (impl_args().size() == rhs.impl_args().size()) {
+    auto lhs_args = impl_args();
+    auto rhs_args = rhs.impl_args();
+    for (auto i = 0; i < lhs_args.size(); ++i) {
+      match &= Expr(lhs_args.at(i)) == Expr(rhs_args.at(i));
+    }
+  } else {
+    match = false;
+  }
+  return rhs.op() == op() && match;
+}
+
+Expr Expr::replace(const Expr& target_e, Symbol B) const {
+  return walk([&](const Expr& e) {
+    if (target_e == e) {
+      return Expr(B);
+    }
+    return e;
+  });
+}
+
+Expr Expr::replace(const Expr& target_e, int64_t c) const {
+  return walk([&](const Expr& e) {
+    if (target_e == e) {
+      return Expr(c);
+    }
+    return e;
+  });
+}
+
+Expr Expr::replace(Symbol A, Expr new_e) const {
+  return walk([&](const Expr& e) {
+    if (e.type() == Type::symbol && e.symbol() == A) {
+      return new_e;
+    }
+    return e;
+  });
+}
+
+Expr Expr::replace(Symbol A, Symbol B) const {
+  return walk([&](const Expr& e) {
+    if (e.type() == Type::symbol && e.symbol() == A) {
+      return Expr(B);
+    }
+    return e;
+  });
+}
+
+Expr Expr::replace(Symbol A, int64_t c) const {
+  return walk([&](const Expr& e) {
+    if (e.type() == Type::symbol && e.symbol() == A) {
+      return Expr(c);
+    }
+    return e;
+  });
 }
 
 bool Expr::can_evaluate() const {
   bool can = true;
   if (type() == Expr::Type::function && op() == Op::max) {
-    auto lhs = args().at(0);
-    auto rhs = args().at(1);
+    auto lhs = Expr(impl_args().at(0));
+    auto rhs = Expr(impl_args().at(1));
     const auto lhs_can = lhs.can_evaluate();
     const auto rhs_can = rhs.can_evaluate();
     return lhs_can || rhs_can;
   }
-  walk([&](const Expr& e) {
+  visit([&](const Expr& e) {
     if (e.type() == Expr::Type::symbol) {
       can = false;
     }
-    return e;
   });
   return can;
 }
@@ -315,29 +308,29 @@ float Expr::evaluate() const {
   }
   switch (op()) {
     case Op::add: {
-      auto lhs = args().at(0).evaluate();
-      auto rhs = args().at(1).evaluate();
+      auto lhs = Expr(impl_args().at(0)).evaluate();
+      auto rhs = Expr(impl_args().at(1)).evaluate();
       return lhs + rhs;
     }
     case Op::multiply: {
-      auto lhs = args().at(0).evaluate();
-      auto rhs = args().at(1).evaluate();
+      auto lhs = Expr(impl_args().at(0)).evaluate();
+      auto rhs = Expr(impl_args().at(1)).evaluate();
       return lhs * rhs;
     }
     case Op::divide: {
-      auto lhs = args().at(0).evaluate();
-      auto rhs = args().at(1).evaluate();
+      auto lhs = Expr(impl_args().at(0)).evaluate();
+      auto rhs = Expr(impl_args().at(1)).evaluate();
       return lhs / rhs;
     }
     case Op::modulo: {
-      auto lhs = args().at(0).evaluate();
-      auto rhs = args().at(1).evaluate();
+      auto lhs = Expr(impl_args().at(0)).evaluate();
+      auto rhs = Expr(impl_args().at(1)).evaluate();
       std::cerr << "WARNING: evaluating modular arithmetic";
       return ((int64_t)lhs % int64_t(rhs));
     }
     case Op::max: {
-      auto lhs = args().at(0);
-      auto rhs = args().at(1);
+      auto lhs = Expr(impl_args().at(0));
+      auto rhs = Expr(impl_args().at(1));
       const auto lhs_can = lhs.can_evaluate();
       const auto rhs_can = rhs.can_evaluate();
       if (lhs_can && !rhs_can) {
@@ -348,7 +341,7 @@ float Expr::evaluate() const {
       return std::max(lhs.evaluate(), rhs.evaluate());
     }
     case Op::negate: {
-      return -args().at(0).evaluate();
+      return -Expr(impl_args().at(0)).evaluate();
     }
     default:
       ASSERT(0) << "couldn't evaluate expression " << dump();
@@ -361,14 +354,14 @@ Expr Expr::simplify() const {
   if (type() != Expr::Type::function) {
     return *this;
   }
-  auto sorted_args = args();
-  for (auto& arg : sorted_args) {
+  auto args_ = args();
+  for (auto& arg : args_) {
     arg = arg.simplify();
   }
   switch (op()) {
     case Op::add: {
-      auto lhs = sorted_args.at(0);
-      auto rhs = sorted_args.at(1);
+      auto lhs = args_.at(0);
+      auto rhs = args_.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(lhs.value() + rhs.value());
@@ -389,11 +382,11 @@ Expr Expr::simplify() const {
           return lhs;
         }
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::multiply: {
-      auto lhs = sorted_args.at(0);
-      auto rhs = sorted_args.at(1);
+      auto lhs = args_.at(0);
+      auto rhs = args_.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(lhs.value() * rhs.value());
@@ -413,11 +406,11 @@ Expr Expr::simplify() const {
           return lhs;
         }
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::divide: {
-      auto lhs = sorted_args.at(0);
-      auto rhs = sorted_args.at(1);
+      auto lhs = args_.at(0);
+      auto rhs = args_.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           if (rhs.value() && lhs.value() % rhs.value() == 0) {
@@ -428,11 +421,11 @@ Expr Expr::simplify() const {
       if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
         return lhs;
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::modulo: {
-      auto lhs = sorted_args.at(0);
-      auto rhs = sorted_args.at(1);
+      auto lhs = args_.at(0);
+      auto rhs = args_.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           if (rhs.value() && lhs.value() % rhs.value() == 0) {
@@ -443,11 +436,11 @@ Expr Expr::simplify() const {
       if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
         return Expr(0);
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::max: {
-      auto lhs = sorted_args.at(0);
-      auto rhs = sorted_args.at(1);
+      auto lhs = args_.at(0);
+      auto rhs = args_.at(1);
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(std::max(lhs.value(), rhs.value()));
@@ -459,10 +452,10 @@ Expr Expr::simplify() const {
       if (lhs == rhs) {
         return lhs;
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::negate: {
-      const auto& arg = sorted_args.at(0);
+      const auto& arg = args_.at(0);
       if (arg.type() == Expr::Type::value) {
         return Expr(-arg.value());
       }
@@ -472,153 +465,21 @@ Expr Expr::simplify() const {
       if (arg.type() == Expr::Type::function && arg.op() == Op::add) {
         return (-arg.args().at(0) - arg.args().at(1)).simplify();
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     case Op::size: {
-      const auto& arg = sorted_args.at(0);
+      const auto& arg = args_.at(0);
       if (arg.type() == Expr::Type::value) {
         return Expr(arg.value());
       }
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
     default: {
-      return Expr(op(), sorted_args);
+      return Expr(op(), args_);
     }
   };
   ASSERT(0);
   return *this;
-}
-
-Expr Expr::operator+(const Expr& rhs) const {
-  return Expr(Op::add, {*this, rhs}).simplify();
-}
-
-Expr Expr::operator*(const Expr& rhs) const {
-  return Expr(Op::multiply, {*this, rhs}).simplify();
-}
-
-Expr Expr::operator-() const { return Expr(Op::negate, {*this}).simplify(); }
-
-Expr Expr::operator-(const Expr& rhs) const { return *this + (-rhs); }
-
-Expr Expr::reciprocal() const {
-  if (type() == Expr::Type::value) {
-    ASSERT(value() != 0) << "cannot calculate 1/0";
-  }
-  return Expr(Op::reciprocal, {*this});
-}
-
-Expr Expr::operator/(const Expr& rhs) const {
-  return Expr(Op::divide, {*this, rhs}).simplify();
-}
-
-Expr Expr::operator%(const Expr& rhs) const {
-  return Expr(Op::modulo, {*this, rhs}).simplify();
-}
-
-bool Expr::operator!=(const Expr& rhs) const { return !(*this == rhs); }
-
-bool Expr::operator==(const Expr& rhs) const {
-  if (hash(true) != rhs.hash(true)) {
-    return false;
-  }
-  if (type_ == Expr::Type::value) {
-    return rhs.type() == Expr::Type::value && rhs.value() == value();
-  } else if (type_ == Expr::Type::symbol) {
-    return rhs.type() == Expr::Type::symbol && rhs.symbol() == symbol();
-  }
-  ASSERT(type_ == Expr::Type::function);
-  if (rhs.type() != Expr::Type::function) {
-    return false;
-  }
-  bool match = true;
-  if (args().size() == rhs.args().size()) {
-    auto lhs_args = args();
-    auto rhs_args = rhs.args();
-    for (auto i = 0; i < lhs_args.size(); ++i) {
-      match &= lhs_args.at(i) == rhs_args.at(i);
-    }
-  } else {
-    match = false;
-  }
-  return rhs.op() == op() && match;
-}
-
-std::string Expr::dump(
-    bool short_form,
-    const std::unordered_map<Symbol, std::string, Hash<Symbol>>& replacements)
-    const {
-  std::stringstream ss;
-  if (type_ == Expr::Type::value) {
-    ss << value();
-  } else if (type_ == Expr::Type::symbol) {
-    auto sym = symbol();
-    if (replacements.count(sym)) {
-      ss << replacements.at(sym);
-    } else {
-      ss << symbol().name();
-      if (!short_form) {
-        ss << "[id:" << symbol().id() << "]";
-      }
-    }
-  } else if (op_ == Op::size) {
-    ASSERT(args().size() == 1)
-        << "invalid size function found: " << args().size() << " arguments";
-    ss << "|" << args().at(0).dump(short_form, replacements) << "|";
-  } else if (op_ == Op::max) {
-    ASSERT(args().size() == 2);
-    ss << "max(" << args().at(0).dump(short_form, replacements) << ", "
-       << args().at(1).dump(short_form, replacements) << ")";
-  } else if (op_ == Op::negate) {
-    ASSERT(args().size() == 1);
-    auto arg = args().at(0);
-    ss << "-";
-    if (arg.type() == Expr::Type::function) {
-      ss << "(" << args().at(0).dump(short_form, replacements) << ")";
-    } else {
-      ss << args().at(0).dump(short_form, replacements);
-    }
-  } else if (op_ == Op::reciprocal) {
-    ASSERT(args().size() == 1);
-    ss << "(1 / " << args().at(0).dump(short_form, replacements) << ")";
-  } else {
-    ASSERT(args().size() == 2);
-    auto lhs = args().at(0);
-    auto rhs = args().at(1);
-    if (lhs.op() == Op::constant || lhs.args().size() == 1) {
-      ss << lhs.dump(short_form, replacements);
-    } else {
-      ss << "(" << lhs.dump(short_form, replacements) << ")";
-    }
-    // we pretty print addition of negatives
-    if (op_ == Op::add) {
-      ss << "+";
-    } else if (op_ == Op::multiply) {
-      ss << "*";
-    } else if (op_ == Op::divide) {
-      ss << "/";
-    } else if (op_ == Op::modulo) {
-      ss << "%";
-    } else {
-      ASSERT(0) << "can't print this op id " << (int)op_;
-    }
-
-    if (rhs.op() == Op::constant || rhs.args().size() == 1) {
-      ss << rhs.dump(short_form, replacements);
-    } else {
-      ss << "(" << rhs.dump(short_form, replacements) << ")";
-    }
-  }
-  return ss.str();
-}
-
-size_t Expr::size() const {
-  size_t s = 0;
-  walk([&](const Expr& e) {
-    s++;
-    return e;
-  });
-  return s;
 }
 
 bool can_isolate(const Expr& e, const Symbol& sym) {
@@ -726,11 +587,10 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
 
   auto get_all_syms = [](const Expr& expr) {
     std::vector<Symbol> syms;
-    expr.walk([&](const Expr& e) {
+    expr.visit([&](const Expr& e) {
       if (e.type() == Expr::Type::symbol) {
         syms.emplace_back(e.symbol());
       }
-      return e;
     });
     return syms;
   };
@@ -998,9 +858,9 @@ std::vector<Constraint> evaluate(
     // find evaluations
     for (const auto& c : constraints) {
       if (c.first.op() == symbolic::Op::size && c.second.can_evaluate()) {
-        ASSERT(c.first.args().size() == 1);
-        ASSERT(c.first.args().at(0).type() == Expr::Type::symbol);
-        const auto& sym = c.first.args().at(0).symbol();
+        ASSERT(c.first.impl_args().size() == 1);
+        ASSERT(Expr(c.first.impl_args().at(0)).type() == Expr::Type::symbol);
+        const auto& sym = c.first.arg(0).symbol();
         if (evaluated_sizes.count(sym)) {
           continue;
         }
@@ -1041,9 +901,9 @@ Expr differentiate(Expr e, Symbol sym) {
   }
 
   if (e.type() == Expr::Type::function) {
-    if (e.args().size() == 2) {
-      const auto& a = e.args().at(0);
-      const auto& b = e.args().at(1);
+    if (e.impl_args().size() == 2) {
+      const auto& a = e.arg(0);
+      const auto& b = e.arg(1);
       if (e.op() == Op::add) {
         if (a.contains(sym) && !b.contains(sym)) {
           return differentiate(a, sym);
@@ -1073,8 +933,8 @@ Expr differentiate(Expr e, Symbol sym) {
                  (b * b);
         }
       }
-    } else if (e.args().size() == 1) {
-      const auto& arg = e.args().at(0);
+    } else if (e.impl_args().size() == 1) {
+      const auto& arg = e.arg(0);
       if (e.op() == Op::negate) {
         return -differentiate(arg, sym);
       } else if (e.op() == Op::reciprocal) {
