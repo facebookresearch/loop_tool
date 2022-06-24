@@ -12,6 +12,8 @@ LICENSE file in the root directory of this source tree.
 #include "ir.h"
 #include "mutate.h"
 #include "serialization.h"
+#include "loop_tool/compile.h"
+
 
 namespace loop_tool {
 
@@ -19,6 +21,8 @@ class LoopTreeAgent {
 public:
   LoopTree lt;
   LoopTree::TreeRef cursor;
+  loop_tool::Compiler compiler;
+
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
       void);
   const std::map<std::string, ActionFn> actions_fn = {
@@ -51,14 +55,13 @@ public:
       {"seconds", &LoopTreeAgent::seconds},
     };
 
-  LoopTreeAgent() {}
+  // LoopTreeAgent() {}
   LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor = 0)
-      : lt(lt), cursor(cursor) {}
+      : lt(lt), cursor(cursor), compiler(loop_tool::Compiler(lt)) {}
 
-  LoopTreeAgent(const LoopTreeAgent& agent) {
-    lt = LoopTree(agent.lt.ir);
-    cursor = agent.cursor;
-  }
+  LoopTreeAgent(const LoopTreeAgent& agent)
+      :lt(agent.lt), cursor(cursor), compiler(loop_tool::Compiler(agent.lt)) {}
+
   ~LoopTreeAgent() {}
 
   /**********************************************
@@ -199,7 +202,7 @@ public:
     ss << "]\n";
     return ss.str();
   }
-  enum { INST_NODE = 0, LOOP_NODE = 1, DATA_NODE = 2 };
+  enum { INST_NODE = 0, LOOP_NODE = 1, DATA_NODE = 2, CONTROL_EDGE = 3, DATA_EDGE = 4 };
 
   std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const {
     // int n = 0;
@@ -261,15 +264,16 @@ public:
 
   std::string create_data_node(LoopTree::TreeRef tr, IR::NodeRef nr)const{
     auto &node_in = lt.ir.node(nr);
-    std::stringstream ss;
+    auto ir_vars = node_in.vars();
 
+    std::stringstream ss;
 
     std::string node_str = "D" + std::to_string(nr);
     std::string shape = "ellipse";
     std::string label = [&]() {
             std::stringstream ss_tmp;
             ss_tmp << "%" << nr << "[ ";
-            for (auto &v : node_in.vars()) {
+            for (auto &v : ir_vars) {
               ss_tmp << lt.ir.var(v).name() << " ";
             }
             ss_tmp << "]";
@@ -282,11 +286,57 @@ public:
     ss << create_lt_node( node_str, shape, label, feature_dict);
 
 
-    for (auto &var : node_in.vars()) {
-      for (auto loop_tr: lt.get_var_trs(tr, var)){
-        ss << " " << "L" << loop_tr << " -> " << "D" << nr << "[label=1];\n";                  
+
+    // Connect the node with loop nodes that access it
+    auto access = compiler.gen_access(nr, tr);
+    const auto& idx_expr = compiler.get_scoped_expr(access);
+    auto sym_strides = compiler.get_symbol_strides(tr, access.alloc.lca);
+    std::cout << "NODE = " << tr << "\n";
+    std::cout << idx_expr.dump() << '\n';
+
+    std::cout << "^^^^^^^^^^^^^^^^^^^^^^NodeIR = " << nr << std::endl;
+
+    for (auto &sym_stride: sym_strides){
+      std::cout << sym_stride.first.name_ << " === " << sym_stride.first.id() << "\n";
+      auto base_stride = differentiate(idx_expr, sym_stride.first);
+      ASSERT(base_stride.can_evaluate());
+      for (auto &tr_stride: sym_stride.second){
+
+        std::cout << tr_stride.first << ", " << tr_stride.second << "\n"; 
+          ss << create_lt_edge(
+            "L" + std::to_string(tr_stride.first), 
+            "D" + std::to_string(nr),
+            "red", 
+            std::to_string(tr_stride.second * base_stride.evaluate()), 
+            { 
+              {"type", DATA_EDGE},
+              {"stride", tr_stride.second}
+            });
       }
+      std::cout << "+++++++++++++\n";
     }
+
+
+
+    return ss.str();
+  }
+
+  std::string create_lt_edge(
+    std::string node_from,
+    std::string node_to, 
+    std::string color, 
+    std::string label, 
+    std::map<std::string, int> feature_dict
+    )const{
+    std::stringstream ss;
+    ss << node_from << " -> " << node_to << " [";
+    ss << "color=\"" << color << "\",";
+    ss << "label=\"" << label << "\",";
+    ss << "feature_dict=\"{";
+    for (const auto &item: feature_dict){
+      ss << "'" << item.first << "':" << item.second << ",";
+    }
+    ss << "}\"];\n";
     return ss.str();
   }
 
@@ -314,7 +364,6 @@ public:
     
     std::stringstream ss, ss_print;
     auto ir_coordinates = lt.get_ir_coordinates(cursor);
-    int prev_node = 0;
 
 
     ss << "digraph G {\n";
@@ -327,66 +376,83 @@ public:
     int n = 0;
     lt.walk(
       [&](LoopTree::TreeRef tr, int depth) {
-          std::stringstream ss_node;
-          std::stringstream ss_data_node;
-
           auto tn = lt.tree_node(tr);
 
           if (tn.kind == LoopTree::NODE){
             auto &node = lt.ir.node(tn.node);
 
-            // Create data_in nodes
-            for (const auto &inp : node.inputs()) {
-              if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), inp)){
-                ss_data_node << create_data_node(tr, inp);
-                created_data_nodes.push_back(inp);              
-              }              
-              ss_data_node << " " << "D" << inp <<  " -> " << "L" << tr << "[label=1];\n";
-            }
-
-            // Create data_out nodes
-            if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), tn.node)){
-              ss_data_node << create_data_node(tr, tn.node);
-              created_data_nodes.push_back(tn.node);              
-            }                   
-            ss_data_node << " " << "L" << tr << " -> " << "D" << tn.node << "[label=1];\n";
-
-
-            std::string node_str = "L" + std::to_string(tr);
-            std::string shape = "hexagon";
-            std::string label = lt.ir.dump(tn.node);
-            const std::map<std::string, int> feature_dict = 
+            // Create LoopTree node
+            ss << create_lt_node( 
+              "L" + std::to_string(tr), 
+              "hexagon", 
+              lt.ir.dump(tn.node), 
               {
                 {"type", INST_NODE},
                 {"cursor", tr == cursor}
-              };
-            ss_node << create_lt_node( node_str, shape, label, feature_dict);
+              });
 
+            // Create data_in nodes
+            for (const auto &inp : node.inputs()) {              
+              if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), inp)){
+                ss << create_data_node(tr, inp);
+                created_data_nodes.push_back(inp);              
+              } 
+              // Connect current Node with data_in nodes             
+              ss << create_lt_edge( 
+                "D" + std::to_string(inp), 
+                "L" + std::to_string(tr),
+                "blue", 
+                "",
+                { 
+                  {"type", DATA_EDGE},
+                  {"stride", 1}
+                });
+            }
+
+            // Create data_out node
+            if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), tn.node)){
+              ss << create_data_node(tr, tn.node);
+              created_data_nodes.push_back(tn.node);              
+            }                   
+            // Connect current Node with data_out nodes
+            ss << create_lt_edge( 
+              "L" + std::to_string(tr), 
+              "D" + std::to_string(tn.node),
+              "blue", 
+              "", 
+              {
+                {"type", DATA_EDGE},
+                {"stride", 1}                
+              });
 
           }else if (tn.kind == LoopTree::LOOP){
-            std::string node_str = "L" + std::to_string(tr);
-            std::string shape = "record";
-            std::string label = "for " + lt.ir.var(tn.loop.var).name() + " in " + std::to_string(tn.loop.size) + " r " + std::to_string(tn.loop.tail); 
-            const std::map<std::string, int> feature_dict = 
-              {
+            // Create LoopTree node
+            ss << create_lt_node( 
+              "L" + std::to_string(tr), 
+              "record", 
+              "for " + lt.ir.var(tn.loop.var).name() + " in " + std::to_string(tn.loop.size) + " r " + std::to_string(tn.loop.tail),
+               {
                 {"type", LOOP_NODE},
                 {"cursor", tr == cursor},
                 {"vectorize", (lt.annotation(tr) == "vectorize")},
                 {"unroll", (lt.annotation(tr) == "unroll")},
                 {"size", tn.loop.size},
                 {"tail", tn.loop.tail}
-              };
-            ss_node << create_lt_node( node_str, shape, label, feature_dict);
+              });
           }
 
-
-          // Control flow graph
-          if (tr != 0){
-            ss_node << " " << "L" << prev_node << " -> " << "L" << tr << "[label=0];\n";
+          // Connect with children
+          for (auto child : lt.children(tr)) {
+            ss << create_lt_edge( 
+              "L" + std::to_string(tr), 
+              "L" + std::to_string(child),
+              "black", 
+              "", 
+              {
+                {"type", CONTROL_EDGE}
+              });
           }
-          prev_node = tr;
-          ss << ss_node.str();
-          ss << ss_data_node.str();
+
         },
         0);
 
@@ -394,71 +460,6 @@ public:
     return ss.str();
   }
 
-  // std::string dump_dot_ir_core() const {
-  //   std::stringstream ss;
-  //   for (auto n : toposort(lt.ir)) {
-
-  //     ss << " ";
-  //     ss << "I" << n << "[shape=record,";
-  //     ss << "label=\"{";
-
-  //     ss << "'type':" << LoopTree::NODE << ",";
-
-  //     ss << "'name':'" << loop_tool::dump(lt.ir.node(n).op()) << "',";
-  //     // ss << "'iters': [";
-  //     // auto vars = lt.ir.node(n).vars();
-  //     // for (auto &v : vars) {
-  //     //   ss << "'" << short_name(lt.ir.var(v).name()) << "'";
-  //     //   if (&v != &vars.back()) {
-  //     //     ss << ", ";
-  //     //   }
-  //     // }
-  //     // ss << "],";
-
-
-  //     auto order = lt.ir.order(n);
-  //     int i = 0;
-  //     for (auto &p : order) {
-  //       ss << "'L" << i << "':{";
-
-  //       std::string iter_name = short_name(lt.ir.var(p.first).name());
-  //       if (iter_id.count(iter_name) == 0) {
-  //         iter_id[iter_name] = iter_id.size();
-  //       }
-
-  //       ss << "'name':" << iter_id[iter_name] << ",";
-
-  //       if (p.second.size >= 0) {
-  //         ss << "'range':" << p.second.size << ",";
-  //       }
-
-  //       if (p.second.tail >= 0) {
-  //         ss << "'tail':" << p.second.tail << ",";
-  //       }
-
-  //       // ss << "'vectorize':" << (lt.ir.loop_annotations(n)[i] == "vectorize") << ",";
-  //       // ss << "'unroll':" << (lt.ir.loop_annotations(n)[i] == "unroll") << ",";
-
-  //       // bool is_cursor = std::count(ir_coordinates.begin(), ir_coordinates.end(), std::make_pair(n, i));
-  //       // ss << "'cursor':" << is_cursor << ",";
-        
-
-  //       i++;
-  //       ss << "},";
-  //     }
-  //     i = 0;
-
-  //     ss << "}\"];\n";
-  //     for (auto out : lt.ir.node(n).outputs()) {
-  //       ss << " " << n << " -> " << out << ";\n";
-  //     }
-  //   }
-  //   ss << "}\n";
-  //   return ss.str();
-
-
-    
-  // }
 
   std::string dump_dot() const {
     int loop_id = 0;
