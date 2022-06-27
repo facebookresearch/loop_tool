@@ -405,7 +405,7 @@ static inline void set(float* mem, float val, int64_t length) {
     }
 
     ss << "\n";
-    const auto &sizes = memory_sizes();
+    const auto &sizes = memory_sizes(true);
     auto i = 0;
     auto num_inputs = lt.ir.inputs().size();
     auto num_outputs = lt.ir.outputs().size();
