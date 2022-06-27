@@ -71,7 +71,7 @@ struct Symbol {
   size_t hash() const;
   bool operator==(const Symbol& s) const;
   bool operator!=(const Symbol& s) const;
-  const std::string& name() const;
+  std::string name() const;
 
   operator Expr() const;
   Expr operator+(const Symbol& rhs) const;
@@ -90,13 +90,17 @@ struct ExprImpl {
   smallvec<std::shared_ptr<ExprImpl>, 2> args_;
   uint64_t hash_ = 0;
   uint64_t symbol_hash_ = 0;
-  explicit ExprImpl(int64_t val) : type_(Type::value), val_(val) { init(); }
-  explicit ExprImpl(const Symbol& symbol)
-      : type_(Type::symbol), symbol_(symbol) {
+  bool simplified_ = false;
+  explicit ExprImpl(int64_t val)
+      : type_(Type::value), val_(val), simplified_(true) {
     init();
   }
-  explicit ExprImpl(Op op, const Expr&);
-  explicit ExprImpl(Op op, const Expr&, const Expr&);
+  explicit ExprImpl(const Symbol& symbol)
+      : type_(Type::symbol), symbol_(symbol), simplified_(true) {
+    init();
+  }
+  explicit ExprImpl(Op op, const Expr&, bool simplified = false);
+  explicit ExprImpl(Op op, const Expr&, const Expr&, bool simplified = false);
   void init();
   inline uint64_t hash(bool symbol_sensitive) {
     if (symbol_sensitive) {
@@ -105,22 +109,22 @@ struct ExprImpl {
     return hash_;
   }
 
-  size_t contains(const Symbol& s) const {
+  bool contains(const Symbol& s) const {
     switch (type_) {
       case Type::symbol:
         if (symbol_ == s) {
-          return 1;
+          return true;
         }
-        return 0;
+        return false;
       case Type::function: {
-        size_t count = 0;
         for (const auto& arg : args_) {
-          count += arg->contains(s);
+          if (arg->contains(s)) {
+            return true;
+          }
         }
-        return count;
       }
       default:
-        return 0;
+        return false;
     }
   }
 };
@@ -131,14 +135,6 @@ struct Expr {
 
   explicit Expr() : impl_(std::make_shared<ExprImpl>(-1)) {}
   explicit Expr(std::shared_ptr<ExprImpl> impl) : impl_(impl) {}
-
-  explicit Expr(Op op, const smallvec<Expr, 2>& args) {
-    if (args.size() == 2) {
-      impl_ = std::make_shared<ExprImpl>(op, args.at(0), args.at(1));
-    } else if (args.size() == 1) {
-      impl_ = std::make_shared<ExprImpl>(op, args.at(0));
-    }
-  }
 
   template <typename... Args>
   explicit Expr(Args... args)
@@ -157,6 +153,8 @@ struct Expr {
   inline const smallvec<std::shared_ptr<ExprImpl>, 2>& impl_args() const {
     return impl_->args_;
   }
+
+  bool simplified() const { return impl_->simplified_; }
 
   inline Type type() const { return impl_->type_; }
   inline Op op() const { return impl_->op_; }

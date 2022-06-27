@@ -76,7 +76,13 @@ Expr deserialize_expr(const std::string& str,
           args.emplace_back(idx_map.at(idx));
         }
       }
-      idx_map.emplace(idx, Expr(static_cast<Op>(op), args));
+      if (args.size() == 2) {
+        idx_map.emplace(idx, Expr(static_cast<Op>(op), args.at(0), args.at(1)));
+      } else if (args.size() == 1) {
+        idx_map.emplace(idx, Expr(static_cast<Op>(op), args.at(0)));
+      } else {
+        ASSERT(0) << "cannot parse empty function call";
+      }
     } else {
       ASSERT(0) << "invalid type " << type;
     }

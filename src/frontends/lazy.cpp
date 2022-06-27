@@ -297,14 +297,14 @@ void TensorImpl::propagateConstraints(
     std::unordered_set<TensorImpl*>& seen) {
   // collect sym deps for current constraints
   // TODO: change to set
-  std::vector<Symbol> symbols;
+  std::unordered_set<Symbol, symbolic::Hash<Symbol>> symbols;
   for (const auto& c : constraints_) {
     const auto& fs = c.first.symbols();
     const auto& ss = c.second.symbols();
-    symbols.insert(symbols.end(), fs.begin(), fs.end());
-    symbols.insert(symbols.end(), ss.begin(), ss.end());
+    symbols.insert(fs.begin(), fs.end());
+    symbols.insert(ss.begin(), ss.end());
   }
-  symbols.insert(symbols.end(), shape().begin(), shape().end());
+  symbols.insert(shape().begin(), shape().end());
   constraints_.clear();
   for (auto& c : constraints) {
     bool insert = false;

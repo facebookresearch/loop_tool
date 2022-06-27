@@ -48,7 +48,7 @@ TEST(MNIST) {
     auto s = X.shape();
     return lt::nn::maxpool(X, {s[1], s[2]}, k, stride);
   };
-  for (auto i = 0; i < 100; ++i) {
+  for (auto i = 0; i < 500; ++i) {
     Tensor X(1, 28, 28);
     Tensor W0(16, 1, 5, 5);
     Tensor B0(16);

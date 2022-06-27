@@ -37,7 +37,7 @@ const int32_t Symbol::id() const { return id_; }
 size_t Symbol::hash() const { return symbolic::hash(id_); }
 bool Symbol::operator==(const Symbol& s) const { return s.id() == id_; }
 bool Symbol::operator!=(const Symbol& s) const { return !(s.id() == id_); }
-const std::string& Symbol::name() const { return name_; }
+std::string Symbol::name() const { return name_; }
 
 Symbol::operator Expr() const { return Expr(*this); }
 Expr Symbol::operator+(const Symbol& rhs) const {
@@ -50,13 +50,14 @@ Expr Symbol::operator*(const Symbol& rhs) const {
 Expr Symbol::operator+(const Expr& rhs) const { return Expr(*this) + rhs; }
 Expr Symbol::operator*(const Expr& rhs) const { return Expr(*this) * rhs; }
 
-ExprImpl::ExprImpl(Op op, const Expr& e) : type_(Type::function), op_(op) {
+ExprImpl::ExprImpl(Op op, const Expr& e, bool simplified)
+    : type_(Type::function), op_(op), simplified_(simplified) {
   args_.emplace_back(e.impl_);
   init();
 }
 
-ExprImpl::ExprImpl(Op op, const Expr& a, const Expr& b)
-    : type_(Type::function), op_(op) {
+ExprImpl::ExprImpl(Op op, const Expr& a, const Expr& b, bool simplified)
+    : type_(Type::function), op_(op), simplified_(simplified) {
   if (!associative(op) || (a.hash() > b.hash())) {
     args_.emplace_back(a.impl_);
     args_.emplace_back(b.impl_);
@@ -137,9 +138,9 @@ std::string Expr::dump(
        << ", " << Expr(impl_args().at(1)).dump(short_form, replacements) << ")";
   } else if (op() == Op::negate) {
     ASSERT(impl_args().size() == 1);
-    auto arg = Expr(impl_args().at(0));
+    auto arg_ = arg(0);
     ss << "-";
-    if (arg.type() == Type::function) {
+    if (arg_.type() == Type::function) {
       ss << "(" << Expr(impl_args().at(0)).dump(short_form, replacements)
          << ")";
     } else {
@@ -351,17 +352,18 @@ float Expr::evaluate() const {
 }
 
 Expr Expr::simplify() const {
-  if (type() != Expr::Type::function) {
+  if (simplified()) {
     return *this;
   }
-  auto args_ = args();
-  for (auto& arg : args_) {
-    arg = arg.simplify();
-  }
+  auto get_pair = [&]() {
+    ASSERT(impl_args().size() == 2);
+    return std::make_pair(arg(0).simplify(), arg(1).simplify());
+  };
   switch (op()) {
     case Op::add: {
-      auto lhs = args_.at(0);
-      auto rhs = args_.at(1);
+      const auto& pair = get_pair();
+      const auto& lhs = pair.first;
+      const auto& rhs = pair.second;
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(lhs.value() + rhs.value());
@@ -370,8 +372,8 @@ Expr Expr::simplify() const {
           return rhs;
         }
         if (rhs.op() == Op::add) {
-          auto rlhs = rhs.args().at(0);
-          auto rrhs = rhs.args().at(1);
+          auto rlhs = rhs.arg(0);
+          auto rrhs = rhs.arg(1);
           if (rlhs.type() == Expr::Type::value) {
             return (Expr(rlhs.value() + lhs.value()) + rrhs).simplify();
           }
@@ -382,11 +384,12 @@ Expr Expr::simplify() const {
           return lhs;
         }
       }
-      return Expr(op(), args_);
+      return Expr(op(), lhs, rhs, true);
     }
     case Op::multiply: {
-      auto lhs = args_.at(0);
-      auto rhs = args_.at(1);
+      const auto& pair = get_pair();
+      const auto& lhs = pair.first;
+      const auto& rhs = pair.second;
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(lhs.value() * rhs.value());
@@ -406,11 +409,12 @@ Expr Expr::simplify() const {
           return lhs;
         }
       }
-      return Expr(op(), args_);
+      return Expr(op(), lhs, rhs, true);
     }
     case Op::divide: {
-      auto lhs = args_.at(0);
-      auto rhs = args_.at(1);
+      const auto& pair = get_pair();
+      const auto& lhs = pair.first;
+      const auto& rhs = pair.second;
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           if (rhs.value() && lhs.value() % rhs.value() == 0) {
@@ -421,11 +425,12 @@ Expr Expr::simplify() const {
       if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
         return lhs;
       }
-      return Expr(op(), args_);
+      return Expr(op(), lhs, rhs, true);
     }
     case Op::modulo: {
-      auto lhs = args_.at(0);
-      auto rhs = args_.at(1);
+      const auto& pair = get_pair();
+      const auto& lhs = pair.first;
+      const auto& rhs = pair.second;
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           if (rhs.value() && lhs.value() % rhs.value() == 0) {
@@ -436,11 +441,12 @@ Expr Expr::simplify() const {
       if (rhs.type() == Expr::Type::value && rhs.value() == 1) {
         return Expr(0);
       }
-      return Expr(op(), args_);
+      return Expr(op(), lhs, rhs, true);
     }
     case Op::max: {
-      auto lhs = args_.at(0);
-      auto rhs = args_.at(1);
+      const auto& pair = get_pair();
+      const auto& lhs = pair.first;
+      const auto& rhs = pair.second;
       if (lhs.type() == Expr::Type::value) {
         if (rhs.type() == Expr::Type::value) {
           return Expr(std::max(lhs.value(), rhs.value()));
@@ -452,30 +458,36 @@ Expr Expr::simplify() const {
       if (lhs == rhs) {
         return lhs;
       }
-      return Expr(op(), args_);
+      return Expr(op(), lhs, rhs, true);
     }
     case Op::negate: {
-      const auto& arg = args_.at(0);
-      if (arg.type() == Expr::Type::value) {
-        return Expr(-arg.value());
+      const auto& arg_ = arg(0).simplify();
+      if (arg_.type() == Expr::Type::value) {
+        return Expr(-arg_.value());
       }
-      if (arg.type() == Expr::Type::function && arg.op() == Op::negate) {
-        return arg.args().at(0).simplify();
+      if (arg_.type() == Expr::Type::function && arg_.op() == Op::negate) {
+        return arg_.arg(0).simplify();
       }
-      if (arg.type() == Expr::Type::function && arg.op() == Op::add) {
-        return (-arg.args().at(0) - arg.args().at(1)).simplify();
+      if (arg_.type() == Expr::Type::function && arg_.op() == Op::add) {
+        return (-arg_.arg(0) - arg_.arg(1)).simplify();
       }
-      return Expr(op(), args_);
+      return Expr(op(), arg_, true);
     }
     case Op::size: {
-      const auto& arg = args_.at(0);
-      if (arg.type() == Expr::Type::value) {
-        return Expr(arg.value());
+      const auto& arg_ = arg(0).simplify();
+      if (arg_.type() == Expr::Type::value) {
+        return Expr(arg_.value());
       }
-      return Expr(op(), args_);
+      return Expr(op(), arg_, true);
     }
     default: {
-      return Expr(op(), args_);
+      if (impl_args().size() == 2) {
+        const auto& pair = get_pair();
+        return Expr(op(), pair.first, pair.second);
+      } else if (impl_args().size() == 1) {
+        return Expr(op(), arg(0).simplify());
+      }
+      return *this;
     }
   };
   ASSERT(0);
@@ -496,8 +508,9 @@ bool can_isolate(const Expr& e, const Symbol& sym) {
     case Op::reciprocal:
     case Op::divide: {
       bool res = true;
-      for (const auto& arg : e.args()) {
-        res &= can_isolate(arg, sym);
+      auto args_size = e.impl_args().size();
+      for (auto i = 0; i < args_size; ++i) {
+        res &= can_isolate(e.arg(i), sym);
       }
       return res;
     }
@@ -539,16 +552,16 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
         << ", you may need to update the can_isolate function";
     switch (lhs.op()) {
       case Op::add: {
-        auto llhs = lhs.args().at(0);
-        auto lrhs = lhs.args().at(1);
+        auto llhs = lhs.arg(0);
+        auto lrhs = lhs.arg(1);
         if (llhs.contains(sym)) {
           return isolate(std::make_pair(llhs, rhs - lrhs), sym);
         }
         return isolate(std::make_pair(lrhs, rhs - llhs), sym);
       }
       case Op::multiply: {
-        auto llhs = lhs.args().at(0);
-        auto lrhs = lhs.args().at(1);
+        auto llhs = lhs.arg(0);
+        auto lrhs = lhs.arg(1);
         if (llhs.contains(sym)) {
           return isolate(std::make_pair(llhs, rhs / lrhs), sym);
         }
@@ -556,17 +569,17 @@ Constraint isolate(const Constraint& c, const Symbol& sym) {
         return isolate(std::make_pair(lrhs, rhs / llhs), sym);
       }
       case Op::divide: {
-        auto llhs = lhs.args().at(0);
-        auto lrhs = lhs.args().at(1);
+        auto llhs = lhs.arg(0);
+        auto lrhs = lhs.arg(1);
         if (llhs.contains(sym)) {
           return isolate(std::make_pair(llhs, rhs * lrhs), sym);
         }
         return isolate(std::make_pair(lrhs, rhs * llhs), sym);
       }
       case Op::negate:
-        return isolate(std::make_pair(lhs.args().at(0), -rhs), sym);
+        return isolate(std::make_pair(lhs.arg(0), -rhs), sym);
       case Op::reciprocal:
-        return isolate(std::make_pair(lhs.args().at(0), Expr(1) / rhs), sym);
+        return isolate(std::make_pair(lhs.arg(0), Expr(1) / rhs), sym);
       default:
         ASSERT(0) << "cannot isolate through " << lhs.dump();
     }
@@ -647,8 +660,8 @@ std::vector<Constraint> unify(std::vector<Constraint> constraints_) {
       continue;
     }
     for (const auto& p : size_sym_map) {
-      auto sym = p.first;
-      auto size_sym = p.second;
+      const auto& sym = p.first;
+      const auto& size_sym = p.second;
       if (!can_isolate(c, size_sym)) {
         continue;
       }
