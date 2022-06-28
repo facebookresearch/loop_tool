@@ -8,6 +8,7 @@ LICENSE file in the root directory of this source tree.
 
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
