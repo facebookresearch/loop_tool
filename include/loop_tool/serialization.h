@@ -13,4 +13,10 @@ namespace loop_tool {
 std::string serialize(const IR& ir);
 IR deserialize(const std::string& str);
 
+std::string serialize_looptree(const LoopTree looptree);
+LoopTree deserialize_looptree(const std::string str);
+
+std::string serialize_looptree_agent(const LoopTreeAgent agent);
+LoopTreeAgent deserialize_looptree_agent(const std::string str);
+
 }  // namespace loop_tool

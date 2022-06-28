@@ -10,6 +10,7 @@ LICENSE file in the root directory of this source tree.
 #include "compile.h"
 #include "hardware.h"
 #include "ir.h"
+#include "agent.h"
 #include "serialization.h"
 #include "tensor.h"
 // default frontends

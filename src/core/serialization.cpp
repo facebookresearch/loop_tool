@@ -325,6 +325,25 @@ IR deserialize(const std::string& str) {
   return ir;
 }
 
+std::string serialize_looptree(const LoopTree looptree){
+  return serialize(looptree.ir);
+}
+
+LoopTree deserialize_looptree(const std::string str){
+  return LoopTree(deserialize(str));
+}
+
+std::string serialize_looptree_agent(const LoopTreeAgent agent){
+  return std::to_string(agent.cursor) + "\n" + loop_tool::serialize(agent.lt.ir);
+}
+
+LoopTreeAgent deserialize_looptree_agent(std::string ser){
+  int delimiter_pos = ser.find('\n');
+  LoopTree::TreeRef cursor = std::stoi( ser.substr(0, delimiter_pos) );
+  LoopTree lt(loop_tool::deserialize(ser.substr(delimiter_pos+1, ser.length())));
+  return LoopTreeAgent(lt, cursor);
+}
+
 // op:t(.*)
 // 0:sym:name;
 // 0:val:number;

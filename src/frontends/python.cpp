@@ -221,6 +221,14 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("__eq__", &LoopTree::Loop::operator==);
 
   py::class_<LoopTreeAgent>(m, "LoopTreeAgent")
+        .def(py::pickle( // __getstate__
+            [](const LoopTreeAgent agent) { // dump
+              return py::str(serialize_looptree_agent(agent));
+            },
+            [](py::str s) { // __setstate__
+              return deserialize_looptree_agent(s);
+            }
+       ))
       .def("__repr__", &loop_tool::LoopTreeAgent::dump)
       .def(py::init<const LoopTree &>())
       .def(py::init<const LoopTreeAgent &>())
@@ -334,7 +342,15 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("map_ref", &map_ref)
       .def(
           "__repr__", &LoopTree::dump,
-          py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})
+          py::arg("callback") = std::function<std::string(LoopTree::TreeRef)>{})      
+      .def(py::pickle( // __getstate__
+            [](const LoopTree lt) { // dump
+              return py::str(serialize_looptree(lt));
+            },
+            [](py::str s) { // __setstate__
+              return deserialize_looptree(s);
+            }
+       ))
       .def("__call__", [](const LoopTree &lt,
                           std::vector<std::shared_ptr<Tensor>> tensors) {
         std::vector<void *> memory;
