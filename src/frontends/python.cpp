@@ -240,7 +240,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
            &loop_tool::LoopTreeAgent::get_available_actions)
       .def("dump", &loop_tool::LoopTreeAgent::dump)     
       .def("dot", &loop_tool::LoopTreeAgent::dump_dot)
-      .def("dot_tensor", &loop_tool::LoopTreeAgent::dump_tensor)
+      .def("get_loops_tensor", &loop_tool::LoopTreeAgent::get_loops_tensor)
+      .def("get_stride_frequency", [](const LoopTreeAgent &a) { return loop_tool::gen_feature(a.lt.ir);})
       .def("dot_tree", &loop_tool::LoopTreeAgent::dump_dot_tree)
       .def("dot_graph", &loop_tool::LoopTreeAgent::dump_dot_graph);
 

@@ -103,3 +103,17 @@ TEST(MutateSubTree) {
   lt = subtree(lt, lt.roots[1]);
   std::cerr << "new loop_tree: " << lt.dump() << "\n";
 }
+
+TEST(MutateGenFeature) {
+  namespace lz = ::loop_tool::lazy;
+  auto mm = [](lz::Tensor A, lz::Tensor B) {
+    auto M = lz::Symbol("m"), N = lz::Symbol("n"), K = lz::Symbol("k");
+    auto C = A.as(M, K) * B.as(K, N);
+    return C.sum(K);
+  };
+
+  lz::Tensor A(16, 16);
+  lz::Tensor B(16, 16);
+  auto C = mm(A, B);
+  gen_feature(C.ir());
+}

@@ -902,4 +902,56 @@ std::vector<IR::NodeRef> find(const IR& ir, Operation op) {
   return out;
 }
 
+// Find stride, frequency map of the IR
+std::vector<std::pair<int, int>> gen_feature(const IR& ir) {
+  std::vector<std::pair<int, int>> stride_freq_vec;
+  LoopTree lt(ir);
+  Compiler cc(lt);
+
+  for (const auto& node_ref : ir.nodes()) {
+    if (!lt.scheduled.count(node_ref)) {
+      continue;
+    }
+    const auto& node = ir.node(node_ref);
+    auto ref = lt.scheduled.at(node_ref);
+    for (const auto& inp_node_ref : node.inputs()) {
+      auto access = cc.gen_access(inp_node_ref, ref);
+      const auto& idx_expr = cc.get_scoped_expr(access);
+      auto sym_strides = cc.get_symbol_strides(ref, access.alloc.lca);
+      auto parent = lt.parent(ref);
+      auto freq = 1;
+      while (parent != -1) {
+        auto loop = lt.loop(parent);
+        freq *= loop.size;
+        parent = lt.parent(parent);
+      }
+      parent = lt.parent(ref);
+      while (parent != -1) {
+        auto loop = lt.loop(parent);
+        auto var = loop.var;
+        auto sym = cc.var_to_sym.at(var);
+        auto sym_stride = [&]() {
+          if (!sym_strides.count(sym)) {
+            return 0LL;
+          }
+          for (const auto& p : sym_strides.at(sym)) {
+            if (p.first == parent) {
+              return (long long int) p.second;
+            }
+          }
+          return 0LL;
+        }();
+        auto stride = differentiate(idx_expr, sym).evaluate() * sym_stride;
+        if (stride > 0){
+          stride_freq_vec.push_back(std::make_pair(stride, freq));
+        }
+        parent = lt.parent(parent);
+        freq /= loop.size;
+      }
+    }
+  }
+  return stride_freq_vec;
+}
+
+
 }  // namespace loop_tool

@@ -75,17 +75,14 @@ namespace loop_tool {
   }
 
 
-  std::string LoopTreeAgent::dump_tensor() const {
+  std::vector<std::vector<int>> LoopTreeAgent::get_loops_tensor() const {
+    std::vector<std::vector<int>> nodes_feature_vector;
     int loop_id = 0;
-    std::unordered_map<std::string, int> iter_id;
-    std::stringstream ss;
     auto ir_coordinates = lt.get_ir_coordinates(cursor);
-
-
-    ss << "[\n";
     auto short_name = [](std::string name) {
       return name.substr(0, name.find("_"));
     };
+
       lt.walk(
         [&](LoopTree::TreeRef tr, int depth) {
             auto tn = lt.tree_node(tr);
@@ -93,31 +90,19 @@ namespace loop_tool {
               return;
             }
             
-            // ss << "[";
-            // ss << "0" << ",";            
-            ss << (tr == cursor) << ",";            
-            ss << (lt.annotation(tr) == "vectorize") << ",";
-            ss << (lt.annotation(tr) == "unroll") << ",";
-            ss << tn.loop.var << ",";
-            ss << tn.loop.size << ",";
-            ss << tn.loop.tail << ",";
+            std::vector<int> node_vector;
+            node_vector.push_back(tr == cursor);
+            node_vector.push_back(lt.annotation(tr) == "vectorize");
+            node_vector.push_back(lt.annotation(tr) == "unroll");
+            node_vector.push_back(tn.loop.var);
+            node_vector.push_back(tn.loop.size);
+            node_vector.push_back(tn.loop.tail);
 
-            // for(auto &ch: std::bitset< 4 >(  tn.loop.var ).to_string()){
-            //   ss << ch << ",";
-            // } 
-            // for(auto &ch: std::bitset< 16 >(  tn.loop.size ).to_string()){
-            //   ss << ch << ",";
-            // }
-            // for(auto &ch: std::bitset< 16 >(  tn.loop.tail ).to_string()){
-            //   ss << ch << ",";
-            // }
-
-            // ss << "],";
+            nodes_feature_vector.push_back(node_vector);
           },
           0);
 
-    ss << "]\n";
-    return ss.str();
+    return nodes_feature_vector;
   }
 
 
