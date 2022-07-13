@@ -143,6 +143,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("dump", &IR::dump)
       .def("dump_var", [](IR &ir, IR::VarRef v) { return ir.var(v).name(); })
       .def("serialize", &serialize)
+      .def("get_stride_frequency", [](const IR &ir) { return loop_tool::gen_feature(ir);})
       .def_property_readonly("vars", &IR::vars)
       .def_property_readonly("nodes", &IR::nodes)
       .def_property_readonly(
@@ -234,7 +235,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def(py::init<const LoopTreeAgent &>())
       .def_property_readonly("lt", [](const LoopTreeAgent &a) { return a.lt; })
       .def_property_readonly("cursor", [](const LoopTreeAgent &a) { return a.cursor; })
+      .def_property_readonly("actions", [](const LoopTreeAgent &a) { return a.applied_actions; })
+
       .def("apply_action", &loop_tool::LoopTreeAgent::apply_action)
+      .def("undo_action", &loop_tool::LoopTreeAgent::undo_action)
       .def("eval", &loop_tool::LoopTreeAgent::eval)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)

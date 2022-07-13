@@ -18,9 +18,10 @@ class LoopTreeAgent {
   enum { INST_NODE = 0, LOOP_NODE = 1, DATA_NODE = 2, CONTROL_EDGE = 3, DATA_EDGE = 4 };
 
 public:
-  LoopTree lt;
+  LoopTree lt, lt_start;
   LoopTree::TreeRef cursor;
   loop_tool::Compiler compiler;
+  std::vector<std::string> applied_actions;
 
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
       void);
@@ -62,6 +63,7 @@ public:
    * Public API
    **********************************************/
   LoopTreeAgent& apply_action(std::string action);
+  LoopTreeAgent& undo_action();
 
   double eval(std::string metric);
 

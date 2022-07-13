@@ -18,10 +18,10 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
   LoopTreeAgent::LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor)
-    : lt(lt), cursor(cursor), compiler(loop_tool::Compiler(lt)) {}
+    : lt(lt), lt_start(lt), cursor(cursor), compiler(loop_tool::Compiler(lt)) {}
 
   LoopTreeAgent::LoopTreeAgent(const LoopTreeAgent& agent)
-      :lt(agent.lt), cursor(cursor), compiler(loop_tool::Compiler(agent.lt)) {}
+      :lt(agent.lt), lt_start(agent.lt), cursor(cursor), compiler(loop_tool::Compiler(agent.lt)) {}
 
   LoopTreeAgent::~LoopTreeAgent(){}
 
@@ -31,8 +31,26 @@ namespace loop_tool {
   LoopTreeAgent& LoopTreeAgent::apply_action(std::string action) {
     ASSERT(actions_fn.count(action) > 0) << help_actions();
     std::invoke(actions_fn.at(action), this);
+    applied_actions.push_back(action);
     return *this;
   }
+
+  LoopTreeAgent& LoopTreeAgent::undo_action(){
+    std::vector<std::string> applied_actions_copy(applied_actions);
+    if (applied_actions_copy.size()){
+      applied_actions_copy.pop_back();
+      lt = lt_start;
+      cursor = 0;
+      applied_actions.clear();
+
+      for (auto &action: applied_actions_copy){
+        apply_action(action);
+      }
+    }
+      
+    return *this;
+  }
+
 
   double LoopTreeAgent::eval(std::string metric){
     ASSERT(metrics_fn.count(metric) > 0) << help_metrics();
