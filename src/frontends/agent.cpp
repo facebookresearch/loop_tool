@@ -7,6 +7,7 @@ LICENSE file in the root directory of this source tree.
 
 
 #include <bitset>
+#include <cmath>
 #include <map>
 
 #include "loop_tool/agent.h"
@@ -90,6 +91,22 @@ namespace loop_tool {
       }
       return "";
     });
+  }
+
+  std::vector<float> LoopTreeAgent::get_stride_frequency(){
+    std::vector<float> stride_freq_vector(32);
+
+    auto stride_freq_pairs = gen_feature(lt.ir);
+    float total_freq = 0;
+    for (auto& stride_freq : stride_freq_pairs){
+      total_freq += stride_freq.second;
+    }
+    
+    for (auto& stride_freq : stride_freq_pairs){
+      int bucket_id = ceil(std::log2(stride_freq.first));
+      stride_freq_vector[bucket_id] += stride_freq.second / total_freq;
+    }
+    return stride_freq_vector;
   }
 
 
