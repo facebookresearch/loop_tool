@@ -245,7 +245,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("dump", &loop_tool::LoopTreeAgent::dump)     
       .def("dot", &loop_tool::LoopTreeAgent::dump_dot)
       .def("get_loops_tensor", &loop_tool::LoopTreeAgent::get_loops_tensor)
-      .def("get_stride_historgram", &loop_tool::LoopTreeAgent::get_stride_frequency)
+      .def("get_stride_histogram", &loop_tool::LoopTreeAgent::get_stride_frequency)
       .def("dot_tree", &loop_tool::LoopTreeAgent::dump_dot_tree)
       .def("dot_graph", &loop_tool::LoopTreeAgent::dump_dot_graph);
 

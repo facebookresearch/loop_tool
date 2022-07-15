@@ -62,6 +62,7 @@ double FLOPS(const LoopTree& lt);
 
 bool is_trivially_parallel(const LoopTree& lt, LoopTree::TreeRef ref);
 std::vector<IR::NodeRef> find(const IR& ir, Operation op);
+std::unordered_map<LoopTree::TreeRef, std::vector<std::pair<int, int>>> gen_loops_strides_freq(const IR& ir);
 std::vector<std::pair<int, int>> gen_feature(const IR& ir);
 
 }  // namespace loop_tool

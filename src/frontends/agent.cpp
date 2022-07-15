@@ -94,44 +94,71 @@ namespace loop_tool {
   }
 
   std::vector<float> LoopTreeAgent::get_stride_frequency(){
-    std::vector<float> stride_freq_vector(32);
+    auto stride_freq_pairs = loop_tool::gen_feature(lt.ir);
+    return create_log_histogram(stride_freq_pairs);
+  }
 
-    auto stride_freq_pairs = gen_feature(lt.ir);
+  std::vector<float> 
+  LoopTreeAgent::create_log_histogram(
+    std::vector<std::pair<int, int>> val_key_pairs,
+    bool normalize
+  )const{
+
+    std::vector<float> val_key_vector(32);
     float total_freq = 0;
-    for (auto& stride_freq : stride_freq_pairs){
-      total_freq += stride_freq.second;
+
+    if (normalize){
+      for (auto& val_key : val_key_pairs){
+        total_freq += val_key.second;
+      }
+      if (total_freq == 0){
+        return val_key_vector;
+      }
+    }else{
+      total_freq = 1;
     }
     
-    for (auto& stride_freq : stride_freq_pairs){
-      int bucket_id = ceil(std::log2(stride_freq.first));
-      stride_freq_vector[bucket_id] += stride_freq.second / total_freq;
+
+    for (auto& val_key : val_key_pairs){
+      if (val_key.first > 0){
+        int bucket_id = ceil(std::log2(val_key.first));
+        val_key_vector[bucket_id] += val_key.second / total_freq;
+      }
     }
-    return stride_freq_vector;
+    return val_key_vector;
   }
 
 
   std::vector<std::vector<int>> LoopTreeAgent::get_loops_tensor() const {
     std::vector<std::vector<int>> nodes_feature_vector;
     int loop_id = 0;
-    auto ir_coordinates = lt.get_ir_coordinates(cursor);
     auto short_name = [](std::string name) {
       return name.substr(0, name.find("_"));
     };
+    bool operation_loop = true;
+    auto loop_stride_freq_map = gen_loops_strides_freq(lt.ir);
+
 
       lt.walk(
         [&](LoopTree::TreeRef tr, int depth) {
             auto tn = lt.tree_node(tr);
             if (tn.kind == LoopTree::NODE){
+              operation_loop = false;
               return;
             }
             
             std::vector<int> node_vector;
             node_vector.push_back(tr == cursor);
-            node_vector.push_back(lt.annotation(tr) == "vectorize");
-            node_vector.push_back(lt.annotation(tr) == "unroll");
             node_vector.push_back(tn.loop.var);
             node_vector.push_back(tn.loop.size);
             node_vector.push_back(tn.loop.tail);
+            node_vector.push_back(operation_loop);
+            node_vector.push_back(lt.annotation(tr) == "vectorize");
+            node_vector.push_back(lt.annotation(tr) == "unroll");
+  
+            auto loop_strides = loop_stride_freq_map.at(tr);
+            auto loop_strides_vector = create_log_histogram(loop_strides);
+            node_vector.insert(node_vector.end(), loop_strides_vector.begin(), loop_strides_vector.end());
 
             nodes_feature_vector.push_back(node_vector);
           },

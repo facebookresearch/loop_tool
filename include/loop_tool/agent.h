@@ -71,6 +71,7 @@ public:
   std::vector<std::string> get_available_actions();
   std::string dump();
   std::vector<float> get_stride_frequency();
+  std::vector<float> create_log_histogram(std::vector<std::pair<int, int>> val_key_pairs, bool normalize=false)const;
   std::vector<std::vector<int>> get_loops_tensor() const;
   std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const;
   std::string dump_dot_tree() const;

@@ -903,7 +903,8 @@ std::vector<IR::NodeRef> find(const IR& ir, Operation op) {
 }
 
 // Find stride, frequency map of the IR
-std::vector<std::pair<int, int>> gen_feature(const IR& ir) {
+std::unordered_map<LoopTree::TreeRef, std::vector<std::pair<int, int>>> gen_loops_strides_freq(const IR& ir) {
+  std::unordered_map<LoopTree::TreeRef, std::vector<std::pair<int, int>>> loop_stride_freq_map;
   std::vector<std::pair<int, int>> stride_freq_vec;
   LoopTree lt(ir);
   Compiler cc(lt);
@@ -942,14 +943,39 @@ std::vector<std::pair<int, int>> gen_feature(const IR& ir) {
           return 0LL;
         }();
         auto stride = differentiate(idx_expr, sym).evaluate() * sym_stride;
-        if (stride > 0){
-          stride_freq_vec.push_back(std::make_pair(stride, freq));
+        
+
+        if (!loop_stride_freq_map.count(parent)) {
+          loop_stride_freq_map[parent] = std::vector<std::pair<int, int>>(ir.nodes().size());
         }
+
+        if (stride > 0 && freq > 0){
+          loop_stride_freq_map[parent][inp_node_ref] = std::make_pair(stride, freq);
+        }
+        // std::cout << node_ref << "_"<< inp_node_ref<< "_" << parent << ": stride = " << stride << ", freq = " << freq << std::endl;
+
         parent = lt.parent(parent);
         freq /= loop.size;
       }
     }
   }
+  return loop_stride_freq_map;
+}
+
+std::vector<std::pair<int, int>> gen_feature(const IR& ir) {
+  std::vector<std::pair<int, int>> stride_freq_vec;
+  auto loop_stride_freq_map = gen_loops_strides_freq(ir);
+  // std::cout << "gen_feature______________________________" <<std::endl;
+
+  for (auto &loop_stride_freq: loop_stride_freq_map){
+    for (auto &stride_freq: loop_stride_freq.second){
+      // std::cout << loop_stride_freq.first << ": stride = " << stride_freq.first << ", freq = " << stride_freq.second << std::endl;
+      if (stride_freq.first > 0){
+        stride_freq_vec.push_back(stride_freq);
+      }
+    }
+  }
+
   return stride_freq_vec;
 }
 
