@@ -22,30 +22,33 @@ namespace loop_tool {
     : lt(lt), lt_start(lt), cursor(cursor), compiler(loop_tool::Compiler(lt)) {}
 
   LoopTreeAgent::LoopTreeAgent(const LoopTreeAgent& agent)
-      :lt(agent.lt), lt_start(agent.lt), cursor(cursor), compiler(loop_tool::Compiler(agent.lt)) {}
+      :lt(agent.lt), lt_start(agent.lt), cursor(agent.cursor), compiler(loop_tool::Compiler(agent.lt)) {}
 
   LoopTreeAgent::~LoopTreeAgent(){}
 
 /**********************************************
    * Public API
    **********************************************/
-  LoopTreeAgent& LoopTreeAgent::apply_action(std::string action) {
+  LoopTreeAgent& LoopTreeAgent::apply_action(std::string action, bool save) {
     ASSERT(actions_fn.count(action) > 0) << help_actions();
     std::invoke(actions_fn.at(action), this);
-    applied_actions.push_back(action);
+    if (save){
+      applied_actions.push_back(action);
+    }
     return *this;
   }
 
   LoopTreeAgent& LoopTreeAgent::undo_action(){
+
     std::vector<std::string> applied_actions_copy(applied_actions);
-    if (applied_actions_copy.size()){
-      applied_actions_copy.pop_back();
+
+    if (applied_actions.size()){
+      applied_actions.pop_back();
       lt = lt_start;
       cursor = 0;
-      applied_actions.clear();
 
-      for (auto &action: applied_actions_copy){
-        apply_action(action);
+      for (auto &action: applied_actions){
+        apply_action(action, false);
       }
     }
       
@@ -58,6 +61,22 @@ namespace loop_tool {
     return std::invoke(metrics_fn.at(metric), this);
   }
 
+  bool check_la_innermost(LoopTree lt){
+    auto loops_ref = lt.collect_loops_ref();
+      int i = 0;
+      for (; i < loops_ref.size(); i++){
+        if (i != loops_ref[i]){
+          i--;
+          break;
+        }
+      }
+
+      if (lt.loop(i).size >= 8){
+        return true;
+      }else{
+        return false;
+      }
+  }
 
   std::vector<std::string> LoopTreeAgent::get_available_actions() {
     LoopTree lt_copy(lt);
@@ -68,11 +87,14 @@ namespace loop_tool {
     for (auto& action : actions_fn) {
       try {
         // std::cout << "Action: "<< action.first << std::endl;
-        apply_action(action.first);
+        apply_action(action.first, false);
         // std::cout << dump();
-        FLOPS();
+        // FLOPS();
         // eval_runtime(lt);
-        available_actions.push_back(action.first);
+
+        if (check_la_innermost(lt)){
+          available_actions.push_back(action.first);
+        }
       } catch (std::exception& e) {
         // std::cout << "Action: "<< action.first << " Error:: " << e.what() << std::endl;
       }

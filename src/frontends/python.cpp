@@ -237,7 +237,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("cursor", [](const LoopTreeAgent &a) { return a.cursor; })
       .def_property_readonly("actions", [](const LoopTreeAgent &a) { return a.applied_actions; })
 
-      .def("apply_action", &loop_tool::LoopTreeAgent::apply_action)
+      .def("apply_action", []( LoopTreeAgent &a, std::string action) { 
+                                    return a.apply_action(action, true); })
       .def("undo_action", &loop_tool::LoopTreeAgent::undo_action)
       .def("eval", &loop_tool::LoopTreeAgent::eval)
       .def("get_available_actions",
@@ -275,16 +276,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
                  ref);
              return leaves;
            })
-      .def_property_readonly("loops",
-                             [](const LoopTree &lt) {
-                               std::vector<LoopTree::TreeRef> loops;
-                               lt.walk([&](LoopTree::TreeRef r, int) {
-                                 if (lt.kind(r) == LoopTree::LOOP) {
-                                   loops.emplace_back(r);
-                                 }
-                               });
-                               return loops;
-                             })
+      .def_property_readonly("loops", &LoopTree::collect_loops_ref)
       .def_property_readonly("ir", [](const LoopTree &lt) { return lt.ir; })
       .def("ir_node",
            [](const LoopTree &lt, LoopTree::TreeRef ref) {

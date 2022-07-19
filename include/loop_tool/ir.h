@@ -400,6 +400,19 @@ struct LoopTree {
     return "";
   }
 
+  std::vector<TreeRef> collect_loops_ref(){
+    std::vector<TreeRef> loops_ref;
+    walk(
+        [&](LoopTree::TreeRef tr, int depth) {
+          if (kind(tr) == LoopTree::LOOP) {
+            loops_ref.emplace_back(tr);
+          }
+        },
+        0);
+
+      return loops_ref;
+  }
+
   std::vector<IR::NodeRef> collect_nodes(LoopTree::TreeRef ref) const {
     // ASSERT(kind(ref) == LoopTree::LOOP)
     //     << "can only collect nodes within loops";

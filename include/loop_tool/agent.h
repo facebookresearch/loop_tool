@@ -62,7 +62,7 @@ public:
   /**********************************************
    * Public API
    **********************************************/
-  LoopTreeAgent& apply_action(std::string action);
+  LoopTreeAgent& apply_action(std::string action, bool save=true);
   LoopTreeAgent& undo_action();
 
   double eval(std::string metric);
