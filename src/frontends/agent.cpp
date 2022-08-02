@@ -61,16 +61,15 @@ namespace loop_tool {
     return std::invoke(metrics_fn.at(metric), this);
   }
 
-  bool check_la_innermost(LoopTree lt){
+  bool check_ln_innermost(LoopTree lt){
     auto loops_ref = lt.collect_loops_ref();
       int i = 0;
       for (; i < loops_ref.size(); i++){
         if (i != loops_ref[i]){
-          i--;
           break;
         }
       }
-
+      i--;
       if (lt.loop(i).size >= 8){
         return true;
       }else{
@@ -91,8 +90,7 @@ namespace loop_tool {
         // std::cout << dump();
         // FLOPS();
         // eval_runtime(lt);
-
-        if (check_la_innermost(lt)){
+        if (check_ln_innermost(lt)){
           available_actions.push_back(action.first);
         }
       } catch (std::exception& e) {
@@ -151,8 +149,8 @@ namespace loop_tool {
   }
 
 
-  std::vector<std::vector<int>> LoopTreeAgent::get_loops_tensor() const {
-    std::vector<std::vector<int>> nodes_feature_vector;
+  std::vector<std::vector<float>> LoopTreeAgent::get_loops_tensor() const {
+    std::vector<std::vector<float>> nodes_feature_vector;
     int loop_id = 0;
     auto short_name = [](std::string name) {
       return name.substr(0, name.find("_"));
@@ -169,9 +167,11 @@ namespace loop_tool {
               return;
             }
             
-            std::vector<int> node_vector;
+            std::vector<float> node_vector;
             node_vector.push_back(tr == cursor);
-            node_vector.push_back(tn.loop.var);
+            for (int i = 0; i < MAX_LOOPS; i++){
+              node_vector.push_back(tn.loop.var == i);
+            }
             node_vector.push_back(tn.loop.size);
             node_vector.push_back(tn.loop.tail);
             node_vector.push_back(operation_loop);
@@ -179,9 +179,10 @@ namespace loop_tool {
             node_vector.push_back(lt.annotation(tr) == "unroll");
   
             auto loop_strides = loop_stride_freq_map.at(tr);
-            auto loop_strides_vector = create_log_histogram(loop_strides);
+            bool normalize = true;
+            auto loop_strides_vector = create_log_histogram(loop_strides, normalize);            
             node_vector.insert(node_vector.end(), loop_strides_vector.begin(), loop_strides_vector.end());
-
+            ASSERT(node_vector.size() == LOOP_FEATURES);
             nodes_feature_vector.push_back(node_vector);
           },
           0);
@@ -566,9 +567,22 @@ namespace loop_tool {
     return *this;
   }
 
-  LoopTreeAgent& LoopTreeAgent::vectorize() { return annotate("vectorize"); }
+  LoopTreeAgent& LoopTreeAgent::unroll() { 
+    std::string annotation = "";
+    auto loops_ref = lt.collect_loops_ref();
 
-  LoopTreeAgent& LoopTreeAgent::unroll() { return annotate("unroll"); }
+    for (int i = 0; i < loops_ref.size(); i++){
+      if (i != loops_ref[i]){ // Current loops is second nest
+        break;
+      }
+
+      if (i == cursor && lt.annotation(cursor) != "unroll"){
+        annotation = "unroll";
+      }
+      lt = loop_tool::annotate(lt, i, annotation);
+    }
+    return *this;
+  }
 
   LoopTreeAgent& LoopTreeAgent::copy_input_0() {
     auto input_id = loop_tool::get_inputs(lt, cursor)[0];

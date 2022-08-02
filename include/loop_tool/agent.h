@@ -11,6 +11,8 @@ LICENSE file in the root directory of this source tree.
 
 #include "loop_tool/compile.h"
 
+#define MAX_LOOPS 20
+#define LOOP_FEATURES 58 // cursor(1), iter(20), size(1), tail(1), kind(1), vectorize(1), unroll(1), loop_strides(32)
 
 namespace loop_tool {
 
@@ -40,7 +42,6 @@ public:
       // {"split_128", &LoopTreeAgent::split_128},
       // {"split_256", &LoopTreeAgent::split_256},
       // {"merge", &LoopTreeAgent::merge},
-      // {"vectorize", &LoopTreeAgent::vectorize},
       // {"unroll", &LoopTreeAgent::unroll},
       // {"copy_input_0", &LoopTreeAgent::copy_input_0},
       // {"copy_input_1", &LoopTreeAgent::copy_input_1},
@@ -72,7 +73,7 @@ public:
   std::string dump();
   std::vector<float> get_stride_frequency();
   std::vector<float> create_log_histogram(std::vector<std::pair<int, int>> val_key_pairs, bool normalize=false)const;
-  std::vector<std::vector<int>> get_loops_tensor() const;
+  std::vector<std::vector<float>> get_loops_tensor() const;
   std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const;
   std::string dump_dot_tree() const;
   std::string create_data_node(LoopTree::TreeRef tr, IR::NodeRef nr)const;
@@ -110,7 +111,6 @@ public:
   LoopTreeAgent& split_128();
   LoopTreeAgent& split_256();
   LoopTreeAgent& merge();
-  LoopTreeAgent& vectorize();
   LoopTreeAgent& unroll();
   LoopTreeAgent& copy_input_0();
   LoopTreeAgent& copy_input_1();
