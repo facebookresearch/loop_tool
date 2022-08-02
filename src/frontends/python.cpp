@@ -107,6 +107,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
         [](std::string backend) { setDefaultBackend(backend); });
   m.def("get_default_backend",
         []() -> std::string { return getDefaultBackend()->name(); });
+  m.def("deserialize", &deserialize);
   py::enum_<Operation>(m, "Operation")
 #define X(op) .value(#op, Operation::op)
       OPS(X)
@@ -136,6 +137,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("disable_reuse", &IR::disable_reuse)
       .def("enable_reuse", &IR::enable_reuse)
       .def("__repr__", &dot)
+      .def("serialize", &serialize)
       .def("dump", &IR::dump)
       .def("dump_var",
            [](const IR &ir, IR::VarRef v) { return ir.var(v).name(); })
