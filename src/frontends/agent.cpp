@@ -70,7 +70,7 @@ namespace loop_tool {
         }
       }
       i--;
-      if (lt.loop(i).size >= 8){
+      if (lt.loop(i).size == 1 || lt.loop(i).size % 8 == 0){
         return true;
       }else{
         return false;
