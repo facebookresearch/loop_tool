@@ -236,6 +236,7 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("lt", [](const LoopTreeAgent &a) { return a.lt; })
       .def_property_readonly("cursor", [](const LoopTreeAgent &a) { return a.cursor; })
       .def_property_readonly("actions", [](const LoopTreeAgent &a) { return a.applied_actions; })
+      .def("copy", &loop_tool::LoopTreeAgent::copy)
       .def("max_loops", []() { return MAX_LOOPS; })
       .def("num_loop_features", []() { return LOOP_FEATURES; })
       .def("apply_action", []( LoopTreeAgent &a, std::string action) { 

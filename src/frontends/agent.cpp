@@ -19,16 +19,21 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
   LoopTreeAgent::LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor)
-    : lt(lt), lt_start(lt), cursor(cursor), compiler(loop_tool::Compiler(lt)) {}
+    : lt(lt), lt_start(lt), cursor(cursor) {}
 
   LoopTreeAgent::LoopTreeAgent(const LoopTreeAgent& agent)
-      :lt(agent.lt), lt_start(agent.lt), cursor(agent.cursor), compiler(loop_tool::Compiler(agent.lt)) {}
+      :lt(agent.lt), lt_start(agent.lt), cursor(agent.cursor) {}
 
   LoopTreeAgent::~LoopTreeAgent(){}
 
 /**********************************************
    * Public API
-   **********************************************/
+**********************************************/
+  LoopTreeAgent LoopTreeAgent::copy() {
+    loop_tool::LoopTreeAgent new_agent(*this);
+    return new_agent;
+  }
+
   LoopTreeAgent& LoopTreeAgent::apply_action(std::string action, bool save) {
     ASSERT(actions_fn.count(action) > 0) << help_actions();
     std::invoke(actions_fn.at(action), this);
@@ -275,21 +280,22 @@ namespace loop_tool {
 
 
     // Connect the node with loop nodes that access it
+    loop_tool::Compiler compiler(lt);
     auto access = compiler.gen_access(nr, tr);
     const auto& idx_expr = compiler.get_scoped_expr(access);
     auto sym_strides = compiler.get_symbol_strides(tr, access.alloc.lca);
-    std::cout << "NODE = " << tr << "\n";
-    std::cout << idx_expr.dump() << '\n';
+    // std::cout << "NODE = " << tr << "\n";
+    // std::cout << idx_expr.dump() << '\n';
 
-    std::cout << "^^^^^^^^^^^^^^^^^^^^^^NodeIR = " << nr << std::endl;
+    // std::cout << "^^^^^^^^^^^^^^^^^^^^^^NodeIR = " << nr << std::endl;
 
     for (auto &sym_stride: sym_strides){
-      std::cout << sym_stride.first.name_ << " === " << sym_stride.first.id() << "\n";
+      // std::cout << sym_stride.first.name_ << " === " << sym_stride.first.id() << "\n";
       auto base_stride = differentiate(idx_expr, sym_stride.first);
       ASSERT(base_stride.can_evaluate());
       for (auto &tr_stride: sym_stride.second){
 
-        std::cout << tr_stride.first << ", " << tr_stride.second << "\n"; 
+        // std::cout << tr_stride.first << ", " << tr_stride.second << "\n"; 
           ss << create_lt_edge(
             "L" + std::to_string(tr_stride.first), 
             "D" + std::to_string(nr),
@@ -300,7 +306,7 @@ namespace loop_tool {
               {"stride", tr_stride.second}
             });
       }
-      std::cout << "+++++++++++++\n";
+      // std::cout << "+++++++++++++\n";
     }
 
 
@@ -359,7 +365,6 @@ namespace loop_tool {
       return name.substr(0, name.find("_"));
     };
 
-    
     int n = 0;
     lt.walk(
       [&](LoopTree::TreeRef tr, int depth) {
@@ -400,7 +405,8 @@ namespace loop_tool {
             if (!std::count(created_data_nodes.begin(), created_data_nodes.end(), tn.node)){
               ss << create_data_node(tr, tn.node);
               created_data_nodes.push_back(tn.node);              
-            }                   
+            }
+            
             // Connect current Node with data_out nodes
             ss << create_lt_edge( 
               "L" + std::to_string(tr), 

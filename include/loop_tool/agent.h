@@ -22,7 +22,6 @@ class LoopTreeAgent {
 public:
   LoopTree lt, lt_start;
   LoopTree::TreeRef cursor;
-  loop_tool::Compiler compiler;
   std::vector<std::string> applied_actions;
 
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
@@ -67,8 +66,7 @@ public:
   LoopTreeAgent& undo_action();
 
   double eval(std::string metric);
-
-
+  LoopTreeAgent copy(); 
   std::vector<std::string> get_available_actions();
   std::string dump();
   std::vector<float> get_stride_frequency();
