@@ -81,6 +81,14 @@ namespace loop_tool {
         return false;
       }
   }
+  
+  std::vector<std::string> LoopTreeAgent::get_all_actions() {
+    std::vector<std::string> all_actions;
+    for(auto& action: actions_fn){
+      all_actions.push_back(action.first);
+    }
+    return all_actions;
+  }
 
   std::vector<std::string> LoopTreeAgent::get_available_actions() {
     LoopTree lt_copy(lt);
@@ -570,6 +578,34 @@ namespace loop_tool {
 
   LoopTreeAgent& LoopTreeAgent::merge() {
     lt = loop_tool::merge(lt, cursor);
+    auto loops_ref = lt.collect_loops_ref();
+  
+    for (int i = loops_ref.size() - 1; 0 <= i  ; i--){
+      if (loops_ref[i] <= cursor){
+        cursor = loops_ref[i];
+        break;
+      }
+    }
+
+    return *this;
+  }
+
+  LoopTreeAgent& LoopTreeAgent::merge_all() {
+    bool done = false;
+    cursor = 0;
+
+    while(!done){
+      auto cursor_before = cursor;
+      merge();
+      if (cursor == cursor_before){
+        try{
+          down();
+        }catch ( std::exception const& ex ){
+          done = true;
+        }
+      }
+    }
+    cursor = 0;
     return *this;
   }
 

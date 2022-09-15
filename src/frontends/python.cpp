@@ -242,7 +242,10 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("apply_action", []( LoopTreeAgent &a, std::string action) { 
                                     return a.apply_action(action, true); })
       .def("undo_action", &loop_tool::LoopTreeAgent::undo_action)
+      .def("merge_all", &loop_tool::LoopTreeAgent::merge_all)      
       .def("eval", &loop_tool::LoopTreeAgent::eval)
+      .def("get_all_actions",
+           &loop_tool::LoopTreeAgent::get_all_actions)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)
       .def("dump", &loop_tool::LoopTreeAgent::dump)     

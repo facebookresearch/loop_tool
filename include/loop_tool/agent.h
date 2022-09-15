@@ -32,15 +32,15 @@ public:
       {"down", &LoopTreeAgent::down},
       {"swap_down", &LoopTreeAgent::swap_down},
       {"swap_up", &LoopTreeAgent::swap_up},
-      // {"split_2", &LoopTreeAgent::split_2},
-      // {"split_4", &LoopTreeAgent::split_4},
-      // {"split_8", &LoopTreeAgent::split_8},
-      // {"split_16", &LoopTreeAgent::split_16},
-      // {"split_32", &LoopTreeAgent::split_32},
-      // {"split_64", &LoopTreeAgent::split_64},
-      // {"split_128", &LoopTreeAgent::split_128},
-      // {"split_256", &LoopTreeAgent::split_256},
-      // {"merge", &LoopTreeAgent::merge},
+      {"split_2", &LoopTreeAgent::split_2},
+      {"split_4", &LoopTreeAgent::split_4},
+      {"split_8", &LoopTreeAgent::split_8},
+      {"split_16", &LoopTreeAgent::split_16},
+      {"split_32", &LoopTreeAgent::split_32},
+      {"split_64", &LoopTreeAgent::split_64},
+      {"split_128", &LoopTreeAgent::split_128},
+      {"split_256", &LoopTreeAgent::split_256},
+      {"merge", &LoopTreeAgent::merge},
       // {"unroll", &LoopTreeAgent::unroll},
       // {"copy_input_0", &LoopTreeAgent::copy_input_0},
       // {"copy_input_1", &LoopTreeAgent::copy_input_1},
@@ -63,10 +63,12 @@ public:
    * Public API
    **********************************************/
   LoopTreeAgent& apply_action(std::string action, bool save=true);
+  LoopTreeAgent& merge_all();
   LoopTreeAgent& undo_action();
 
   double eval(std::string metric);
   LoopTreeAgent copy(); 
+  std::vector<std::string> get_all_actions();
   std::vector<std::string> get_available_actions();
   std::string dump();
   std::vector<float> get_stride_frequency();
