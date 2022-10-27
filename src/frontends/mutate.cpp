@@ -637,9 +637,10 @@ double eval_runtime(const LoopTree& lt) {
   auto cc = getDefaultBackend()->compile(lt);
 
   // TODO: Run 100 times and get mean, std:
-  unsigned iterations = 100;
-  unsigned warmup_iterations = 5;
-  double seconds = 0.1; 
+  unsigned warmup_iterations = 20;
+  unsigned iterations = 1000000;
+  double seconds = 0.01; 
+  
   // return sysml::measure_median_time_limited([&]() { cc->run(memory); }, iterations,
   //                              warmup_iterations, seconds);
   return sysml::measure_fastest_time_limited([&]() { cc->run(memory); }, iterations,

@@ -5,7 +5,7 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree.
 */
 
-
+#include <algorithm>
 #include <bitset>
 #include <cmath>
 #include <map>
@@ -19,10 +19,14 @@ LICENSE file in the root directory of this source tree.
 
 namespace loop_tool {
   LoopTreeAgent::LoopTreeAgent(const LoopTree& lt, LoopTree::TreeRef cursor)
-    : lt(lt), lt_start(lt), cursor(cursor) {}
+    : lt(lt), lt_start(lt), cursor(cursor) {
+      for(auto& action_fn: actions_fn){
+        action_space.push_back(action_fn.first);
+      }
+    }
 
   LoopTreeAgent::LoopTreeAgent(const LoopTreeAgent& agent)
-      :lt(agent.lt), lt_start(agent.lt), cursor(agent.cursor) {}
+      :lt(agent.lt), lt_start(agent.lt), cursor(agent.cursor), applied_actions(agent.applied_actions), action_space(agent.action_space) {}
 
   LoopTreeAgent::~LoopTreeAgent(){}
 
@@ -34,8 +38,16 @@ namespace loop_tool {
     return new_agent;
   }
 
+  LoopTreeAgent& LoopTreeAgent::set_action_space(std::vector<std::string> new_action_space){
+      for(auto& new_action: new_action_space){
+        ASSERT(actions_fn.count(new_action)) << help_actions();
+      }
+      action_space = new_action_space;
+      return *this;
+  }
+
   LoopTreeAgent& LoopTreeAgent::apply_action(std::string action, bool save) {
-    ASSERT(actions_fn.count(action) > 0) << help_actions();
+    ASSERT(std::find(action_space.begin(), action_space.end(), action) != action_space.end()) << "\nError: action = " << action << "\n" << help_actions();
     std::invoke(actions_fn.at(action), this);
     if (save){
       applied_actions.push_back(action);
@@ -60,6 +72,9 @@ namespace loop_tool {
     return *this;
   }
 
+  void LoopTreeAgent::clear_actions(){
+    applied_actions.clear();
+  }
 
   double LoopTreeAgent::eval(std::string metric){
     ASSERT(metrics_fn.count(metric) > 0) << help_metrics();
@@ -82,13 +97,13 @@ namespace loop_tool {
       }
   }
   
-  std::vector<std::string> LoopTreeAgent::get_all_actions() {
-    std::vector<std::string> all_actions;
-    for(auto& action: actions_fn){
-      all_actions.push_back(action.first);
-    }
-    return all_actions;
-  }
+  // std::vector<std::string> LoopTreeAgent::get_all_actions() {
+  //   std::vector<std::string> all_actions;
+  //   for(auto& action: actions_fn){
+  //     all_actions.push_back(action.first);
+  //   }
+  //   return all_actions;
+  // }
 
   std::vector<std::string> LoopTreeAgent::get_available_actions() {
     LoopTree lt_copy(lt);
@@ -96,15 +111,16 @@ namespace loop_tool {
 
     std::vector<std::string> available_actions;
 
-    for (auto& action : actions_fn) {
+    for (auto& action : action_space) {
       try {
         // std::cout << "Action: "<< action.first << std::endl;
-        apply_action(action.first, false);
+        apply_action(action, false);
         // std::cout << dump();
         // FLOPS();
         // eval_runtime(lt);
-        if (check_ln_innermost(lt)){
-          available_actions.push_back(action.first);
+        
+        if (check_ln_innermost(lt) && lt.collect_loops_ref().size() <= MAX_LOOPS){
+          available_actions.push_back(action);
         }
       } catch (std::exception& e) {
         // std::cout << "Action: "<< action.first << " Error:: " << e.what() << std::endl;
@@ -137,7 +153,7 @@ namespace loop_tool {
     bool normalize
   )const{
 
-    std::vector<float> val_key_vector(32);
+    std::vector<float> val_key_vector(16);
     float total_freq = 0;
 
     if (normalize){
@@ -155,12 +171,40 @@ namespace loop_tool {
     for (auto& val_key : val_key_pairs){
       if (val_key.first > 0){
         int bucket_id = ceil(std::log2(val_key.first));
-        val_key_vector[bucket_id] += val_key.second / total_freq;
+        if (bucket_id < val_key_vector.size()){
+          val_key_vector[bucket_id] += val_key.second / total_freq;
+        }
       }
     }
     return val_key_vector;
   }
 
+  std::vector<float> LoopTreeAgent::generate_loop_vector(
+    LoopTree::TreeRef tr,
+    bool operation_loop,
+    std::vector<std::pair<int, int>> loop_strides
+  )const{
+    // Features: cursor(1), iter(20), size(1), tail(1), kind(1), vectorize(1), unroll(1), loop_strides(32)
+    std::vector<float> node_vector;
+
+    auto tn = lt.tree_node(tr);
+    node_vector.push_back(tr == cursor);
+    // for (int i = 0; i < MAX_LOOPS; i++){
+    //   node_vector.push_back(tn.loop.var == i);
+    // }
+    node_vector.push_back(tn.loop.size);
+    node_vector.push_back(tn.loop.tail);
+    node_vector.push_back(operation_loop);
+    // node_vector.push_back(lt.annotation(tr) == "vectorize");
+    // node_vector.push_back(lt.annotation(tr) == "unroll");
+
+    // auto loop_strides = loop_stride_freq_map.at(tr);
+    bool normalize = true;
+    auto loop_strides_vector = create_log_histogram(loop_strides, normalize);     
+    node_vector.insert(node_vector.end(), loop_strides_vector.begin(), loop_strides_vector.end());
+    ASSERT(node_vector.size() == LOOP_FEATURES);
+    return node_vector;
+  }
 
   std::vector<std::vector<float>> LoopTreeAgent::get_loops_tensor() const {
     std::vector<std::vector<float>> nodes_feature_vector;
@@ -180,22 +224,7 @@ namespace loop_tool {
               return;
             }
             
-            std::vector<float> node_vector;
-            node_vector.push_back(tr == cursor);
-            for (int i = 0; i < MAX_LOOPS; i++){
-              node_vector.push_back(tn.loop.var == i);
-            }
-            node_vector.push_back(tn.loop.size);
-            node_vector.push_back(tn.loop.tail);
-            node_vector.push_back(operation_loop);
-            node_vector.push_back(lt.annotation(tr) == "vectorize");
-            node_vector.push_back(lt.annotation(tr) == "unroll");
-  
-            auto loop_strides = loop_stride_freq_map.at(tr);
-            bool normalize = true;
-            auto loop_strides_vector = create_log_histogram(loop_strides, normalize);            
-            node_vector.insert(node_vector.end(), loop_strides_vector.begin(), loop_strides_vector.end());
-            ASSERT(node_vector.size() == LOOP_FEATURES);
+            std::vector<float> node_vector = generate_loop_vector(tr, operation_loop, loop_stride_freq_map.at(tr));
             nodes_feature_vector.push_back(node_vector);
           },
           0);
@@ -564,6 +593,8 @@ namespace loop_tool {
 
   LoopTreeAgent& LoopTreeAgent::split_4() { return split(4); }
 
+  LoopTreeAgent& LoopTreeAgent::split_5() { return split(5); }
+
   LoopTreeAgent& LoopTreeAgent::split_8() { return split(8); }
 
   LoopTreeAgent& LoopTreeAgent::split_16() { return split(16); }
@@ -671,8 +702,8 @@ namespace loop_tool {
     std::stringstream ss_actions;
 
     ss_actions << "Available actions are:" << std::endl;
-    for (auto& action : actions_fn) {
-      ss_actions << action.first << std::endl;
+    for (auto& action : action_space) {
+      ss_actions << action << std::endl;
     }
     return ss_actions.str();
   }

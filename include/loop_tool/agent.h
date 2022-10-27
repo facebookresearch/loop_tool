@@ -11,8 +11,11 @@ LICENSE file in the root directory of this source tree.
 
 #include "loop_tool/compile.h"
 
-#define MAX_LOOPS 20
-#define LOOP_FEATURES 58 // cursor(1), iter(20), size(1), tail(1), kind(1), vectorize(1), unroll(1), loop_strides(32)
+#define MAX_LOOPS 10
+// #define LOOP_FEATURES 58 // cursor(1), iter(20), size(1), tail(1), kind(1), vectorize(1), unroll(1), loop_strides(32)
+// #define LOOP_FEATURES 35 // cursor(1), size(1), tail(1), loop_strides(32)
+#define LOOP_FEATURES 20 // cursor(1), size(1), tail(1), operation_loop(1), loop_strides(16)
+
 
 namespace loop_tool {
 
@@ -23,6 +26,7 @@ public:
   LoopTree lt, lt_start;
   LoopTree::TreeRef cursor;
   std::vector<std::string> applied_actions;
+  std::vector<std::string> action_space;
 
   typedef LoopTreeAgent& (LoopTreeAgent::*ActionFn)(
       void);
@@ -34,6 +38,7 @@ public:
       {"swap_up", &LoopTreeAgent::swap_up},
       {"split_2", &LoopTreeAgent::split_2},
       {"split_4", &LoopTreeAgent::split_4},
+      {"split_5", &LoopTreeAgent::split_5},
       {"split_8", &LoopTreeAgent::split_8},
       {"split_16", &LoopTreeAgent::split_16},
       {"split_32", &LoopTreeAgent::split_32},
@@ -41,7 +46,7 @@ public:
       {"split_128", &LoopTreeAgent::split_128},
       {"split_256", &LoopTreeAgent::split_256},
       {"merge", &LoopTreeAgent::merge},
-      // {"unroll", &LoopTreeAgent::unroll},
+      {"unroll", &LoopTreeAgent::unroll},
       // {"copy_input_0", &LoopTreeAgent::copy_input_0},
       // {"copy_input_1", &LoopTreeAgent::copy_input_1},
       // {"increase_reuse", &LoopTreeAgent::increase_reuse},
@@ -62,18 +67,21 @@ public:
   /**********************************************
    * Public API
    **********************************************/
+  LoopTreeAgent& set_action_space(std::vector<std::string> actions);
   LoopTreeAgent& apply_action(std::string action, bool save=true);
   LoopTreeAgent& merge_all();
   LoopTreeAgent& undo_action();
-
+  void clear_actions();
+  
   double eval(std::string metric);
   LoopTreeAgent copy(); 
-  std::vector<std::string> get_all_actions();
+  // std::vector<std::string> get_all_actions();
   std::vector<std::string> get_available_actions();
   std::string dump();
   std::vector<float> get_stride_frequency();
   std::vector<float> create_log_histogram(std::vector<std::pair<int, int>> val_key_pairs, bool normalize=false)const;
   std::vector<std::vector<float>> get_loops_tensor() const;
+  std::vector<float> generate_loop_vector(LoopTree::TreeRef tr, bool operation_loop, std::vector<std::pair<int, int>> loop_strides)const;
   std::string dump_dot_tree_core(LoopTree::TreeRef root_tr=0) const;
   std::string dump_dot_tree() const;
   std::string create_data_node(LoopTree::TreeRef tr, IR::NodeRef nr)const;
@@ -104,6 +112,7 @@ public:
   LoopTreeAgent& swap_down();
   LoopTreeAgent& split_2();
   LoopTreeAgent& split_4();
+  LoopTreeAgent& split_5();
   LoopTreeAgent& split_8();
   LoopTreeAgent& split_16();
   LoopTreeAgent& split_32();

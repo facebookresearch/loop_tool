@@ -236,6 +236,8 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def_property_readonly("lt", [](const LoopTreeAgent &a) { return a.lt; })
       .def_property_readonly("cursor", [](const LoopTreeAgent &a) { return a.cursor; })
       .def_property_readonly("actions", [](const LoopTreeAgent &a) { return a.applied_actions; })
+      .def_property_readonly("action_space", [](const LoopTreeAgent &a) { return a.action_space; })
+      .def("set_action_space", &loop_tool::LoopTreeAgent::set_action_space)
       .def("copy", &loop_tool::LoopTreeAgent::copy)
       .def("max_loops", []() { return MAX_LOOPS; })
       .def("num_loop_features", []() { return LOOP_FEATURES; })
@@ -244,8 +246,9 @@ PYBIND11_MODULE(loop_tool_py, m) {
       .def("undo_action", &loop_tool::LoopTreeAgent::undo_action)
       .def("merge_all", &loop_tool::LoopTreeAgent::merge_all)      
       .def("eval", &loop_tool::LoopTreeAgent::eval)
-      .def("get_all_actions",
-           &loop_tool::LoopTreeAgent::get_all_actions)
+      // .def("get_all_actions",
+      //      &loop_tool::LoopTreeAgent::get_all_actions)
+      .def("clear_actions", &loop_tool::LoopTreeAgent::clear_actions)
       .def("get_available_actions",
            &loop_tool::LoopTreeAgent::get_available_actions)
       .def("dump", &loop_tool::LoopTreeAgent::dump)     
