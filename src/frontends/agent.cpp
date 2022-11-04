@@ -48,9 +48,7 @@ namespace loop_tool {
 
   LoopTreeAgent& LoopTreeAgent::apply_action(std::string action, bool save) {
     ASSERT(std::find(action_space.begin(), action_space.end(), action) != action_space.end()) << "\nError: action = " << action << "\n" << help_actions();
-    try{
-      std::invoke(actions_fn.at(action), this);
-    }catch( std::exception const& ex ){}
+    std::invoke(actions_fn.at(action), this);
     if (save){
       applied_actions.push_back(action);
     }
