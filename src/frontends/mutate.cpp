@@ -645,6 +645,8 @@ double eval_runtime(const LoopTree& lt) {
   //                              warmup_iterations, seconds);
   return sysml::measure_fastest_time_limited([&]() { cc->run(memory); }, iterations,
                                seconds);
+  // return sysml::measure_mean_time_limited([&]() { cc->run(memory); }, iterations,
+  //                              warmup_iterations, seconds);
 }
 
 int64_t FLOPs(const LoopTree& lt) {
