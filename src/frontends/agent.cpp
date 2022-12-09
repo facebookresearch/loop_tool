@@ -337,7 +337,7 @@ namespace loop_tool {
             "L" + std::to_string(tr_stride.first), 
             "D" + std::to_string(nr),
             "red", 
-            std::to_string(tr_stride.second * base_stride.evaluate()), 
+            std::to_string(int(tr_stride.second * base_stride.evaluate())), 
             { 
               {"type", DATA_EDGE},
               {"stride", tr_stride.second}
