@@ -50,7 +50,7 @@ jobs:
           platforms: all
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.3.1
+        uses: pypa/cibuildwheel@v2.11.4
         env:
           CIBW_BEFORE_BUILD: pip install ninja
           # TODO re-enable when backend is cleaned up
